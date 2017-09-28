@@ -43,6 +43,16 @@ void
 serial_putchar(unsigned port, char c) {
     /* XXX - You'll need to implement this, but it's safe to ignore the
      * port parameter. */
+    // define physical addresses
+    // address to check if we can write
+    volatile char * TX_FIFO_E = (char*)0x48020014;
+    // address to write characters to
+    volatile char * UART_THR = (char*)0x48020000;
+    
+    // check if we can continue and write (at offset 5)
+    while (!((*TX_FIFO_E) & (1 << 5)));
+    // write char
+    *UART_THR = c;
 }
 
 __attribute__((noreturn))
@@ -60,5 +70,20 @@ __attribute__((noreturn))
 void
 blink_leds(void) {
     /* XXX - You'll need to implement this. */
-    while(1);
+    volatile int * GPIO_OE = (int*)0x4a310134;
+    //wk8 has offset of 8
+    int mask = 1<<8;
+    // enable output on led bit by setting the according Output enable to 0
+    *GPIO_OE &= ~mask;
+    volatile int * Dataout = (int*)0x4a31013C;
+    while(1){
+        // pass time
+        int a = 0;
+        // upper limit is found experimentally
+        for (int i = 0; i < 120000000; i++) {
+            a++;
+        }
+        // inverse the value at the mask bit in dataout
+        * Dataout ^= mask;
+    }
 }
