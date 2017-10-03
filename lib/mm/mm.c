@@ -24,8 +24,16 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
                  void *slot_alloc_inst)
 {
     assert(mm != NULL);
-    // TODO: Implement
-    return LIB_ERR_NOT_IMPLEMENTED;
+
+    slab_init(&(mm->slabs), sizeof(struct mmnode), slab_refill_func);
+
+    mm->slot_alloc = slot_alloc_func;
+    mm->slot_refill = slot_refill_func;
+    mm->objtype = objtype;
+
+    mm->head = NULL;
+
+    return SYS_ERR_OK;
 }
 
 /**
@@ -44,8 +52,44 @@ void mm_destroy(struct mm *mm)
  */
 errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 {
-    // TODO: Implement
-    return LIB_ERR_NOT_IMPLEMENTED;
+    struct mmnode *new_memnode;
+
+    new_memnode = (struct mmnode *) slab_alloc(&(mm->slabs));
+    if (!new_memnode) {
+        // error
+        printf("slab refill not implemented yet\n");
+        return LIB_ERR_NOT_IMPLEMENTED;
+    }
+
+    new_memnode->type = NodeType_Free;
+    new_memnode->cap.cap = cap;
+    new_memnode->cap.base = base;
+    new_memnode->cap.size = size;
+    new_memnode->base = base;
+    new_memnode->size = size;
+
+    if (mm->head == NULL) {
+        new_memnode->prev = new_memnode;
+        new_memnode->next = new_memnode;
+    } else {
+        struct mmnode *current = mm->head;
+        while (current->prev->size > new_memnode->size) {
+            current = current -> prev;
+            if (current == mm->head) {
+                if (current->size > new_memnode->size) {
+                    mm->head = new_memnode;
+                }
+                break;
+            }
+        }
+
+        new_memnode->next = current->next;
+        new_memnode->prev = current;
+        current->next->prev = new_memnode;
+        current->next = new_memnode;
+    }
+
+    return SYS_ERR_OK;
 }
 
 /**
