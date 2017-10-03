@@ -56,7 +56,6 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 
     new_memnode = (struct mmnode *) slab_alloc(&(mm->slabs));
     if (!new_memnode) {
-        // error
         printf("slab refill not implemented yet\n");
         return LIB_ERR_NOT_IMPLEMENTED;
     }
@@ -102,8 +101,33 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
  */
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct capref *retcap)
 {
-    // TODO: Implement
-    return LIB_ERR_NOT_IMPLEMENTED;
+    struct mmnode *current = mm->head;
+
+    if (current == NULL) {
+        printf("Cannot allocate memory without caps\n");
+        return MM_ERR_MISSING_CAPS;
+    }
+
+    size_t alignment_offset = 0;
+    while (1) {
+        alignment_offset = (alignment - current->cap.base % alignment) % alignment;
+        if (current->type == NodeType_Free && current->cap.size >= size + alignment_offset) {
+            break;
+        }
+
+        current = current->next;
+        if (current == mm->head) {
+            printf("No more capabilities left to hand out that are large enough\n");
+            return MM_ERR_NEW_NODE;
+        }
+    }
+
+    current->type = NodeType_Allocated;
+    current->cap.size -= alignment_offset;
+    current->cap.base += alignment_offset;
+
+    *retcap = current->cap.cap;
+    return SYS_ERR_OK;
 }
 
 /**
@@ -115,8 +139,8 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
  */
 errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
 {
-    // TODO: Implement
-    return LIB_ERR_NOT_IMPLEMENTED;
+    // TODO: Maybe this needs a separate implementation
+    return mm_alloc_aligned(mm, size, 1, retcap);
 }
 
 /**
@@ -129,6 +153,32 @@ errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
  */
 errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t size)
 {
-    // TODO: Implement
-    return LIB_ERR_NOT_IMPLEMENTED;
+    struct mmnode *current = mm->head;
+
+    if (current == NULL) {
+        printf("No capability slots to free");
+        return MM_ERR_MISSING_CAPS;
+    }
+
+    while (current->cap.cap.cnode.croot != cap.cnode.croot ||
+           current->cap.cap.cnode.cnode != cap.cnode.cnode ||
+           current->cap.cap.cnode.level != cap.cnode.level ||
+           current->cap.cap.slot != cap.slot) {
+        current = current->next;
+        if (current == mm->head) {
+            printf("Trying to free a capability that was not added\n");
+            return MM_ERR_NOT_FOUND;
+        }
+    }
+
+    if (current->type != NodeType_Allocated) {
+        printf("Double free of a capability");
+        return MM_ERR_MM_FREE;
+    }
+
+    current->type = NodeType_Free;
+    current->cap.size = current->size;
+    current->cap.base = current->base;
+
+    return SYS_ERR_OK;
 }
