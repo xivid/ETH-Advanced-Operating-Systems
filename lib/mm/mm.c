@@ -24,7 +24,8 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
                  void *slot_alloc_inst)
 {
     assert(mm != NULL);
-
+    if (slab_refill_func == NULL)
+        slab_refill_func = slab_default_refill;
     slab_init(&(mm->slabs), sizeof(struct mmnode), slab_refill_func);
 
     mm->slot_alloc = slot_alloc_func;
@@ -32,6 +33,7 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
     mm->objtype = objtype;
 
     mm->head = NULL;
+    // do something with slot_alloc_inst maybe?
 
     return SYS_ERR_OK;
 }
