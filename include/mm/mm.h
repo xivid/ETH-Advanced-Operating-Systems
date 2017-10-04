@@ -37,6 +37,9 @@ struct capinfo {
 
 /**
  * \brief Node in Memory manager
+ *
+ * Prev points to a node which is smaller while next points to a node which is
+ * larger than the current node.
  */
 struct mmnode {
     enum nodetype type;    ///< Type of `this` node.
@@ -52,6 +55,9 @@ struct mmnode {
  *
  * This should be opaque from the perspective of the client, but to allow
  * them to allocate its memory, we declare it in the public header.
+ *
+ * The node list is a circular linked list sorted by size. Head points to
+ * the smallest node.
  */
 struct mm {
     struct slab_allocator slabs; ///< Slab allocator used for allocating nodes

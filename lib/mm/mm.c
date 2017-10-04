@@ -208,6 +208,15 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
     return SYS_ERR_OK;
 }
 
+/**
+ * Allocate a new memory node and fill it with the capability
+ *
+ * \param       mm        The memory manager
+ * \param       cap       The capability to allocate the node for
+ * \param       base      The physical base address of the region
+ * \param       size      The size of the region
+ * \param[out]  ret       The newly allocated and initialized memory node
+ */
 errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode **ret) {
     struct mmnode *new_memnode = (struct mmnode *) slab_alloc(&(mm->slabs));
     if (!new_memnode) {
@@ -226,6 +235,16 @@ errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, siz
     return SYS_ERR_OK;
 }
 
+/**
+ * Insert the given node into the node list
+ *
+ * The node will be inserted in sorted order provided the start node is larger
+ * than the given node or start points to the head of the node list.
+ *
+ * \param       mm        The memory manager
+ * \param       new_node  The node to insert
+ * \param       start     The starting point for finding the insertion
+ */
 void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start) {
     struct mmnode *current = start;
     while (current->prev->size > new_node->size) {
