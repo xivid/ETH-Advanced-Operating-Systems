@@ -30,10 +30,9 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
 
     mm->slot_alloc = slot_alloc_func;
     mm->slot_refill = slot_refill_func;
+    mm->slot_alloc_inst = slot_alloc_inst;
     mm->objtype = objtype;
-
     mm->head = NULL;
-    // do something with slot_alloc_inst maybe?
 
     return SYS_ERR_OK;
 }
@@ -72,6 +71,7 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
     if (mm->head == NULL) {
         new_memnode->prev = new_memnode;
         new_memnode->next = new_memnode;
+        mm->head = new_memnode;
     } else {
         struct mmnode *current = mm->head;
         while (current->prev->size > new_memnode->size) {
