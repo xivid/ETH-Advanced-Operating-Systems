@@ -142,6 +142,23 @@ arch_init(struct arm_core_data *boot_core_data,
 
     MSG("Welcome to AOS.\n");
     serial_putchar(0, '*');
-
-    blink_leds();
+    printf("Input something like:\n");
+    printf(" b - to start blinking the lights\n");
+    printf(" g - to let the Panda greet you\n");
+    printf(" q - to quit this loop\n");
+    printf("any other input is ignored.\n");
+    char cur = 0;
+    while (1) {
+        if (cur == 'b') {
+            printf("Enjoy the show!\n");
+            blink_leds();
+        } else if (cur == 'g') {
+            printf("Panda greets you, master!\n");
+        } else if (cur == 'q') {
+            printf("Bye-bye!\n");
+            return;
+        }
+        cur = serial_getchar(0);
+        printf("%c\n", cur);
+    }
 }

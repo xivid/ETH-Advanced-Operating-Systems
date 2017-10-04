@@ -25,7 +25,11 @@
 void blink_leds(void);
 
 static volatile char     *UART_THR_ADDRESS = (char*)     0x48020000;
+static volatile char     *UART_RHR_ADDRESS = (char*)     0x48020000;
 static volatile uint32_t *UART_LSR_ADDRESS = (uint32_t*) 0x48020014;
+
+static volatile uint32_t *UART_SYSC_ADDRESS = (uint32_t*) 0x48020054;
+static volatile uint32_t *UART_SYSS_ADDRESS = (uint32_t*) 0x48020058;
 
 /* Led D2 */
 static volatile uint32_t *GPIO1_OE         = (uint32_t*) 0x4a310134;
@@ -36,8 +40,10 @@ static volatile uint32_t *GPIO4_OE         = (uint32_t*) 0x48059134;
 static volatile uint32_t *GPIO4_DATA_OUT   = (uint32_t*) 0x4805913C;
 static int LED1_INDEX = 14;
 
-bool buffer_is_empty(void);
+bool can_write(void);
+bool can_read(void);
 void write_one_char(char c);
+char read_one_char(void);
 
 /* RAM starts at 2G (2 ** 31) on the Pandaboard */
 lpaddr_t phys_memory_start= GEN_ADDR(31);
@@ -47,8 +53,13 @@ lpaddr_t phys_memory_start= GEN_ADDR(31);
 unsigned serial_console_port= 2;
 
 bool
-buffer_is_empty(void) {
+can_write(void) {
     return (bool) ((1<<5) & (*UART_LSR_ADDRESS));
+};
+
+bool
+can_read(void) {
+    return (bool) (1 & (*UART_LSR_ADDRESS));
 };
 
 void
@@ -56,27 +67,28 @@ write_one_char(char c) {
     *UART_THR_ADDRESS = c;
 };
 
+char
+read_one_char(void) {
+    return *UART_RHR_ADDRESS;
+}
+
 errval_t
 serial_init(unsigned port, bool initialize_hw) {
-    /* XXX - You'll need to implement this, but it's safe to ignore the
-     * parameters. */
-
+    *UART_SYSC_ADDRESS |= 1;
+    while (!(*UART_SYSS_ADDRESS & 1)) {}
     return SYS_ERR_OK;
 };
 
 void
 serial_putchar(unsigned port, char c) {
-    while (!buffer_is_empty()) {}; /* Wait until the buffer is empty.*/
+    while (!can_write()) {};
     write_one_char(c);
 }
 
-__attribute__((noreturn))
 char
 serial_getchar(unsigned port) {
-    /* XXX - You only need to implement this if you're going for the extension
-     * component. */
-
-    panic("Unimplemented.\n");
+    while (!can_read()) {};
+    return read_one_char();
 }
 
 /*** LED flashing ***/
