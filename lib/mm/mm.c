@@ -101,6 +101,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 
         current = current->next;
         if (current == mm->head) {
+            // TODO: Try to defragment capabilities and start over.
             printf("No more capabilities left to hand out that are large enough\n");
             return MM_ERR_NEW_NODE;
         }
@@ -109,6 +110,9 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     // split capability until it has the right size
     while (current->cap.size > 2*(size + alignment_offset) &&
            current->cap.size >= 2* BASE_PAGE_SIZE) {
+
+        // TODO: allocate new level 2 cnodes if needed
+
         struct capref new_cap_slot;
         slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
         cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, current->cap.size / 2, 2);
@@ -129,8 +133,14 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         // remove current node from node-list and free slab
         current->next->prev = current->prev;
         current->prev->next = current->next;
-        slab_free(&(mm->slabs), current);
-        current = current->prev;
+        struct mmnode *to_remove = current;
+        if (current == mm->head) {
+            mm->head = current->next;
+            current = current->next;
+        } else {
+            current = current->prev;
+        }
+        slab_free(&(mm->slabs), to_remove);
 
         mm_insert_node(mm, node_split1, current);
         current = node_split1;
