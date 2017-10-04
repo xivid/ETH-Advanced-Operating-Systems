@@ -144,6 +144,4 @@ arch_init(struct arm_core_data *boot_core_data,
     serial_putchar(0, '*');
 
     blink_leds();
-
-    while(1);
 }
