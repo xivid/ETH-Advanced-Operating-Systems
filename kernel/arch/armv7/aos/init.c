@@ -141,6 +141,7 @@ arch_init(struct arm_core_data *boot_core_data,
     parse_commandline((const char *)core_data->cmdline, cmdargs);
 
     MSG("Welcome to AOS.\n");
+    serial_putchar(0, '*');
 
     blink_leds();
 

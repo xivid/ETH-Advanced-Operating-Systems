@@ -24,12 +24,29 @@
 
 void blink_leds(void);
 
+static volatile char     *UART_THR_ADDRESS = (char*)     0x48020000;
+static volatile uint32_t *UART_LSR_ADDRESS = (uint32_t*) 0x48020014;
+
+bool buffer_is_empty(void);
+void write_one_char(char c);
+
+
 /* RAM starts at 2G (2 ** 31) on the Pandaboard */
 lpaddr_t phys_memory_start= GEN_ADDR(31);
 
 /*** Serial port ***/
 
 unsigned serial_console_port= 2;
+
+bool
+buffer_is_empty(void) {
+    return (bool) ((1<<5) & (*UART_LSR_ADDRESS));
+};
+
+void
+write_one_char(char c) {
+    *UART_THR_ADDRESS = c;
+};
 
 errval_t
 serial_init(unsigned port, bool initialize_hw) {
@@ -41,8 +58,8 @@ serial_init(unsigned port, bool initialize_hw) {
 
 void
 serial_putchar(unsigned port, char c) {
-    /* XXX - You'll need to implement this, but it's safe to ignore the
-     * port parameter. */
+    while (!buffer_is_empty()) {}; /* Wait until the buffer is empty.*/
+    write_one_char(c);
 }
 
 __attribute__((noreturn))
