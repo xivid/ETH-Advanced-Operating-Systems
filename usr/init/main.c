@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
     printf("Running tests:\n");
     // Begin Tests
 
-    const int allocations = 100;
+    const int allocations = 40;
     struct capref capabilities[allocations];
 
     for (int i = 0; i < allocations; i++) {

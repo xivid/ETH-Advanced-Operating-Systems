@@ -25,7 +25,7 @@ void mm_traverse_list(struct mmnode *head) {
     printf("Node sizes: ");
     struct mmnode *cur = head;
     while (true) {
-        printf("%llu, ", cur->size);
+        printf("%llu (%i), ", cur->size, cur->type == NodeType_Free);
         if (cur->next == head) {
             break;
         }
@@ -257,6 +257,8 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
     current->type = NodeType_Free;
     current->cap.size = current->size;
     current->cap.base = current->base;
+    printf("Free returned:\n");
+    mm_traverse_list(mm->head);
 
     return SYS_ERR_OK;
 }
