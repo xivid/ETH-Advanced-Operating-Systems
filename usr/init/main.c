@@ -61,6 +61,7 @@ int main(int argc, char *argv[])
     struct capref capabilities[allocations];
 
     for (int i = 0; i < allocations; i++) {
+        printf("allocating ram %i:\n", i);
         err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
         if (err_is_fail(err)) {
             printf("Failed allocating capability %i\n", i);

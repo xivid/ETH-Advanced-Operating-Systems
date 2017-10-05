@@ -151,6 +151,8 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         current = node_split2;
     }
 
+    printf("End call alloc_aligned with %i and %i \n", size, alignment);
+
     current->type = NodeType_Allocated;
     current->cap.size -= alignment_offset;
     current->cap.base += alignment_offset;
