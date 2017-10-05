@@ -9,6 +9,31 @@
 errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode **ret);
 void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start);
 
+static void mm_print_node(struct mmnode *node);
+static void mm_traverse_list(struct mmnode *head);
+
+void mm_print_node(struct mmnode *node) {
+    printf("-- Printing node --\n");
+    printf("node size: %llu\n", node->size);
+    printf("node base: %llu\n", node->base);
+    printf("node type is free: %i\n", node->type == NodeType_Free);
+    printf("\n");
+}
+
+void mm_traverse_list(struct mmnode *head) {
+    printf("Head=%p. ", head);
+    printf("Node sizes: ");
+    struct mmnode *cur = head;
+    while (true) {
+        printf("%llu, ", cur->size);
+        if (cur->next == head) {
+            break;
+        }
+        cur = cur->next;
+    }
+    printf("\n");
+}
+
 /**
  * Initialize the memory manager.
  *
@@ -59,6 +84,7 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
     struct mmnode *new_memnode;
 
     errval_t err = mm_create_mmnode(mm, cap, base, size, &new_memnode);
+    mm_print_node(new_memnode);
     if (err_is_fail(err)) {
         return err;
     }
@@ -97,6 +123,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 
     size_t alignment_offset = 0;
     while (1) {
+        /* printf("Looking at node with size %i\n", current->cap.size); */
         alignment_offset = ROUND_UP(current->cap.base, alignment) - current->cap.base;
         if (current->type == NodeType_Free && current->cap.size >= size + alignment_offset) {
             break;
@@ -116,12 +143,19 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 
         // TODO: allocate new level 2 cnodes if needed
 
+        /* printf("current_size=%llu\n", current->cap.size); */
+        /* printf("1_required_size=%d\n", size); */
+
         struct capref new_cap_slot;
-        slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
+        errval_t err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
+        if (err_is_fail(err)) {
+            printf("failed here\n");
+            return err;
+        }
         cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, current->cap.size / 2, 2);
 
         struct mmnode *node_split1;
-        errval_t err = mm_create_mmnode(mm, new_cap_slot, current->cap.base, current->cap.size / 2, &node_split1);
+        err = mm_create_mmnode(mm, new_cap_slot, current->cap.base, current->cap.size / 2, &node_split1);
         if (err_is_fail(err)) {
             return err;
         }
@@ -132,26 +166,40 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         if (err_is_fail(err)) {
             return err;
         }
+        /* printf("Second node:\n"); */
+        /* mm_print_node(node_split2); */
 
         // remove current node from node-list and free slab
-        current->next->prev = current->prev;
-        current->prev->next = current->next;
         struct mmnode *to_remove = current;
-        if (current == mm->head) {
-            mm->head = current->next;
-            current = current->next;
-        } else {
-            current = current->prev;
-        }
-        slab_free(&(mm->slabs), to_remove);
+        /* if (current == mm->head) { */
+        /*     mm->head = current->next; */
+        /*     current = current->next; */
+        /* } else { */
+        /*     current = current->prev; */
+        /* } */
+
+        printf("Initially\n");
+        mm_traverse_list(mm->head);
 
         mm_insert_node(mm, node_split1, current);
-        current = node_split1;
-        mm_insert_node(mm, node_split2, current);
-        current = node_split2;
-    }
+        printf("After inserting first\n");
+        mm_traverse_list(mm->head);
 
-    printf("End call alloc_aligned with %i and %i \n", size, alignment);
+        mm_insert_node(mm, node_split2, current);
+        printf("After inserting second\n");
+        mm_traverse_list(mm->head);
+
+        
+        to_remove->next->prev = to_remove->prev; 
+        to_remove->prev->next = to_remove->next;
+        slab_free(&(mm->slabs), to_remove);
+        printf("After deleting\n");
+        mm_traverse_list(mm->head);
+        printf("---------------------------------\n");
+
+        current = node_split1;
+    }
+    printf("End call alloc_aligned with %d and %d \n", size, alignment);
 
     current->type = NodeType_Allocated;
     current->cap.size -= alignment_offset;
@@ -251,14 +299,13 @@ errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, siz
  * \param       start     The starting point for finding the insertion
  */
 void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start) {
-    struct mmnode *current = start;
-    while (current->prev->size > new_node->size) {
-        current = current -> prev;
-        if (current == mm->head) {
-            if (current->size > new_node->size)
-                mm->head = new_node;
-            break;
-        }
+    struct mmnode *current = mm->head;
+    while (current->next->size < new_node->size) {
+        current = current -> next;
+    }
+    if (current == mm->head) {
+        if (current->size > new_node->size)
+            mm->head = new_node;
     }
 
     new_node->next = current->next;
