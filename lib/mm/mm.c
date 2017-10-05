@@ -85,6 +85,9 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct capref *retcap)
 {
     printf("Call alloc_aligned with %i and %i \n", size, alignment);
+    size_t freecount = slab_freecount(&(mm->slabs));
+    printf("Free slabs: %i\n", freecount);
+
     struct mmnode *current = mm->head;
 
     if (current == NULL) {
