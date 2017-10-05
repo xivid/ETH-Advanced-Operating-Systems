@@ -31,6 +31,10 @@ __attribute__((unused))
 static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
 {
     errval_t err;
+    if (!st->slot_alloc) {
+        debug_printf("st->slot_alloc is null!\n");
+        return SYS_ERR
+    }
     err = st->slot_alloc->alloc(st->slot_alloc, ret);
     if (err_is_fail(err)) {
         debug_printf("slot_alloc failed: %s\n", err_getstring(err));
@@ -205,7 +209,6 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
             printf ("arml2_alloc failed");
             return err;
         }
-        
         struct capref mapping;
         st->slot_alloc->alloc(st->slot_alloc, &mapping);
         err = vnode_map(l1_cap_dest, l2_cap, index_l1, VREGION_FLAGS_READ_WRITE, 0, 1, mapping);

@@ -113,7 +113,15 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     printf("Call alloc_aligned with %i and %i \n", size, alignment);
     size_t freecount = slab_freecount(&(mm->slabs));
     printf("Free slabs: %i\n", freecount);
-
+    bool do_split = true;
+    if (!freecount) { 
+        /* We just return the smallest cap that is big enough to fit
+         * the slab refill request. We do not split anything to avoid
+         * infinite recursion.
+         */
+        do_split = false;
+    }
+    printf("do_split is = %i\n", do_split);
     struct mmnode *current = mm->head;
 
     if (current == NULL) {
@@ -138,7 +146,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     }
 
     // split capability until it has the right size
-    while (current->cap.size > 2*(size + alignment_offset) &&
+    while (do_split && current->cap.size > 2*(size + alignment_offset) &&
            current->cap.size >= 2* BASE_PAGE_SIZE) {
 
         // TODO: allocate new level 2 cnodes if needed
@@ -157,6 +165,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         struct mmnode *node_split1;
         err = mm_create_mmnode(mm, new_cap_slot, current->cap.base, current->cap.size / 2, &node_split1);
         if (err_is_fail(err)) {
+            printf("first split creation failed\n");
             return err;
         }
 
@@ -164,10 +173,9 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         new_cap_slot.slot++;
         err = mm_create_mmnode(mm, new_cap_slot, current->cap.base + current->cap.size / 2, current->cap.size / 2, &node_split2);
         if (err_is_fail(err)) {
+            printf("second split creation failed\n");
             return err;
         }
-        /* printf("Second node:\n"); */
-        /* mm_print_node(node_split2); */
 
         // remove current node from node-list and free slab
         struct mmnode *to_remove = current;
@@ -178,28 +186,29 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         /*     current = current->prev; */
         /* } */
 
-        printf("Initially\n");
-        mm_traverse_list(mm->head);
+        /* printf("Initially\n"); */
+        /* mm_traverse_list(mm->head); */
 
         mm_insert_node(mm, node_split1, current);
-        printf("After inserting first\n");
-        mm_traverse_list(mm->head);
+        /* printf("After inserting first\n"); */
+        /* mm_traverse_list(mm->head); */
 
         mm_insert_node(mm, node_split2, current);
-        printf("After inserting second\n");
-        mm_traverse_list(mm->head);
+        /* printf("After inserting second\n"); */
+        /* mm_traverse_list(mm->head); */
 
         
         to_remove->next->prev = to_remove->prev; 
         to_remove->prev->next = to_remove->next;
         slab_free(&(mm->slabs), to_remove);
-        printf("After deleting\n");
-        mm_traverse_list(mm->head);
-        printf("---------------------------------\n");
+        /* printf("After deleting\n"); */
+        /* mm_traverse_list(mm->head); */
 
         current = node_split1;
     }
     printf("End call alloc_aligned with %d and %d \n", size, alignment);
+    printf("Returning cap with size: %llu\n", current->size);
+    printf("---------------------------------\n");
 
     current->type = NodeType_Allocated;
     current->cap.size -= alignment_offset;
