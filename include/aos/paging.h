@@ -44,9 +44,16 @@ typedef int paging_flags_t;
 #define VREGION_FLAGS_READ_WRITE_MPB \
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
+    
+struct l2_pagetab {
+    bool initialized;
+    struct capref cap;
+};
 // struct to store the paging status of a process
 struct paging_state {
     struct slot_allocator* slot_alloc;
+    lvaddr_t next_free_addr;
+    struct l2_pagetab l2_pagetabs[1 << 12];
     // TODO: add struct members to keep track of the page tables etc
 };
 
@@ -65,7 +72,7 @@ struct paging_region {
     lvaddr_t current_addr;
     size_t region_size;
 };
-
+void *alloc_page(struct capref frame);
 errval_t paging_region_init(struct paging_state *st,
                             struct paging_region *pr, size_t size);
 

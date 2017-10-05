@@ -174,6 +174,16 @@ slab_refill_no_pagefault(struct slab_allocator *slabs, struct capref frame, size
     return SYS_ERR_OK;
 }
 
+void *alloc_page(struct capref frame) {
+    errval_t err = paging_map_fixed_attr(&current, current.next_free_addr, frame, BASE_PAGE_SIZE, VREGION_FLAGS_READ_WRITE);
+    if (err_is_fail(err)) {
+        printf("paging.c alloc_page failed");
+        return NULL;
+    }
+    current.next_free_addr += BASE_PAGE_SIZE;
+    return (void*) current.next_free_addr;
+}
+
 /**
  * \brief map a user provided frame at user provided VA.
  * TODO(M1): Map a frame assuming all mappings will fit into one L2 pt
@@ -182,7 +192,37 @@ slab_refill_no_pagefault(struct slab_allocator *slabs, struct capref frame, size
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
-    return SYS_ERR_OK;
+    struct capref l1_cap_dest = {
+        .cnode = cnode_page,
+        .slot = 0,
+    };
+    errval_t err;
+    struct capref l2_cap;
+    lvaddr_t index_l1 = ARM_L1_OFFSET(vaddr);
+    if (!st->l2_pagetabs[index_l1].initialized) {
+        err = arml2_alloc(st, &l2_cap);
+        if (err_is_fail(err)) {
+            printf ("arml2_alloc failed");
+            return err;
+        }
+        
+        struct capref mapping;
+        st->slot_alloc->alloc(st->slot_alloc, &mapping);
+        err = vnode_map(l1_cap_dest, l2_cap, index_l1, VREGION_FLAGS_READ_WRITE, 0, 1, mapping);
+        if (err_is_fail(err)) {
+            printf ("vnode_map failed");
+            return err;
+        }
+        
+        st->l2_pagetabs[index_l1].initialized = true;
+        st->l2_pagetabs[index_l1].cap = l2_cap;
+    }
+    else
+        l2_cap = st->l2_pagetabs[index_l1].cap;
+    struct capref frame_cap;
+    st->slot_alloc->alloc(st->slot_alloc, &frame_cap);
+    err = vnode_map(l2_cap, frame, ARM_L2_OFFSET(vaddr), flags, 0, 1, frame_cap);
+    return err;
 }
 
 /**
