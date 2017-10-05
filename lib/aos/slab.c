@@ -178,6 +178,7 @@ size_t slab_freecount(struct slab_allocator *slabs)
  */
 static errval_t slab_refill_pages(struct slab_allocator *slabs, size_t bytes)
 {
+    // TODO: refill slabs
     USER_PANIC("TODO: Not yet implemented.")
     return LIB_ERR_NOT_IMPLEMENTED;
 }

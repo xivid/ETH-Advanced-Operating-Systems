@@ -53,6 +53,29 @@ int main(int argc, char *argv[])
     }
 
     debug_printf("Message handler loop\n");
+
+    printf("Running tests:\n");
+    // Begin Tests
+
+    const int allocations = 100;
+    struct capref capabilities[allocations];
+
+    for (int i = 0; i < allocations; i++) {
+        err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
+        if (err_is_fail(err)) {
+            printf("Failed allocating capability %i\n", i);
+            break;
+        }
+    }
+    for (int i = 0; i < allocations; i++) {
+        err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
+        if (err_is_fail(err)) {
+            printf("Failed freeing capability %i\n", i);
+            break;
+        }
+    }
+
+    // End Tests
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
