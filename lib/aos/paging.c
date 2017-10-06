@@ -214,6 +214,7 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         err = arml2_alloc(st, &l2_cap);
         if (err_is_fail(err)) {
             printf ("arml2_alloc failed");
+            DEBUG_ERR(err, "arml2_alloc failed\n");
             return err;
         }
         struct capref mapping;
