@@ -120,7 +120,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
          * the slab refill request. We do not split anything to avoid
          * infinite recursion.
          */
-        do_split = false;
+        //do_split = false;
     }
     printf("do_split is = %i\n", do_split);
     struct mmnode *current = mm->head;
@@ -147,8 +147,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     }
 
     // split capability until it has the right size
-    while (do_split && current->cap.size > 2*(size + alignment_offset) &&
-           current->cap.size >= 2* BASE_PAGE_SIZE) {
+    if (do_split && current->cap.size > size + alignment_offset +BASE_PAGE_SIZE) {
 
         // TODO: allocate new level 2 cnodes if needed
 
@@ -161,10 +160,10 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
             printf("failed here\n");
             return err;
         }
-        cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, current->cap.size / 2, 2);
+        cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, size+alignment_offset, 2);
 
         struct mmnode *node_split1;
-        err = mm_create_mmnode(mm, new_cap_slot, current->cap.base, current->cap.size / 2, &node_split1);
+        err = mm_create_mmnode(mm, new_cap_slot, current->cap.base, size+alignment_offset, &node_split1);
         if (err_is_fail(err)) {
             printf("first split creation failed\n");
             return err;
@@ -172,7 +171,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 
         struct mmnode *node_split2;
         new_cap_slot.slot++;
-        err = mm_create_mmnode(mm, new_cap_slot, current->cap.base + current->cap.size / 2, current->cap.size / 2, &node_split2);
+        err = mm_create_mmnode(mm, new_cap_slot, current->cap.base + size + alignment_offset, current->cap.size-(size + alignment_offset), &node_split2);
         if (err_is_fail(err)) {
             printf("second split creation failed\n");
             return err;
@@ -180,24 +179,16 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 
         // remove current node from node-list and free slab
         struct mmnode *to_remove = current;
-        /* if (current == mm->head) { */
-        /*     mm->head = current->next; */
-        /*     current = current->next; */
-        /* } else { */
-        /*     current = current->prev; */
-        /* } */
-
-        /* printf("Initially\n"); */
-        /* mm_traverse_list(mm->head); */
-
-        mm_insert_node(mm, node_split1, current);
-        /* printf("After inserting first\n"); */
-        /* mm_traverse_list(mm->head); */
-
-        mm_insert_node(mm, node_split2, current);
-        /* printf("After inserting second\n"); */
-        /* mm_traverse_list(mm->head); */
-
+        
+        // insert the larger node first
+        if (node_split2->cap.size >= node_split1->cap.size) {
+            mm_insert_node(mm, node_split2, current);
+            mm_insert_node(mm, node_split1, current);
+        }
+        else {
+            mm_insert_node(mm, node_split1, current);
+            mm_insert_node(mm, node_split2, current);
+        }
         
         to_remove->next->prev = to_remove->prev; 
         to_remove->prev->next = to_remove->next;
@@ -283,7 +274,7 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
  * \param[out]  ret       The newly allocated and initialized memory node
  */
 errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode **ret) {
-    if (slab_freecount(&(mm->slabs))<2 && !(mm->slab_refill_active)) {
+    if (slab_freecount(&(mm->slabs))<5 && !(mm->slab_refill_active)) {
         mm->slab_refill_active = true;
         errval_t err = mm->slabs.refill_func(&mm->slabs);
         if (err_is_fail(err)) {
