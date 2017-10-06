@@ -57,7 +57,14 @@ int main(int argc, char *argv[])
     printf("Running tests:\n");
     // Begin Tests
 
-    const int allocations = 300;
+    size_t retsize;
+    struct capref frame;
+    frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
+    int *buf = (int *) alloc_page(frame);
+    debug_printf("buf is %p\n", buf);
+    buf[0] = 42;
+
+    const int allocations = 50;
     struct capref capabilities[allocations];
 
     for (int i = 0; i < allocations; i++) {
@@ -86,6 +93,6 @@ int main(int argc, char *argv[])
             abort();
         }
     }
-
+    
     return EXIT_SUCCESS;
 }

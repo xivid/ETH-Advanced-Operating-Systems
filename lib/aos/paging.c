@@ -191,8 +191,9 @@ void *alloc_page(struct capref frame) {
         printf("paging.c alloc_page failed");
         return NULL;
     }
+    void *ret = (void *) current.next_free_addr;
     current.next_free_addr += BASE_PAGE_SIZE;
-    return (void*) current.next_free_addr;
+    return ret;
 }
 
 /**
