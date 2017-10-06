@@ -74,7 +74,7 @@ errval_t paging_init(void)
     // avoid code duplication.
     set_current_paging_state(&current);
     current.slot_alloc = get_default_slot_allocator();
-    current.next_free_addr = 0x00001000;
+    current.next_free_addr = 1 << 29;
     size_t i;
     for (i = 0; i < (1 << 12); ++i) {
         current.l2_pagetabs[i].initialized = false;
