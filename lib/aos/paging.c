@@ -33,7 +33,7 @@ static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
     errval_t err;
     if (!st->slot_alloc) {
         debug_printf("st->slot_alloc is null!\n");
-        return SYS_ERR
+        return MM_ERR_SLOT_ALLOC_INIT;
     }
     err = st->slot_alloc->alloc(st->slot_alloc, ret);
     if (err_is_fail(err)) {
@@ -73,6 +73,12 @@ errval_t paging_init(void)
     // TIP: it might be a good idea to call paging_init_state() from here to
     // avoid code duplication.
     set_current_paging_state(&current);
+    current.slot_alloc = get_default_slot_allocator();
+    current.next_free_addr = 0x00001000;
+    size_t i;
+    for (i = 0; i < (1 << 12); ++i) {
+        current.l2_pagetabs[i].initialized = false;
+    }
     return SYS_ERR_OK;
 }
 
@@ -179,7 +185,8 @@ slab_refill_no_pagefault(struct slab_allocator *slabs, struct capref frame, size
 }
 
 void *alloc_page(struct capref frame) {
-    errval_t err = paging_map_fixed_attr(&current, current.next_free_addr, frame, BASE_PAGE_SIZE, VREGION_FLAGS_READ_WRITE);
+    errval_t err = paging_map_fixed_attr(&current, current.next_free_addr, frame, BASE_PAGE_SIZE,
+ VREGION_FLAGS_READ_WRITE);
     if (err_is_fail(err)) {
         printf("paging.c alloc_page failed");
         return NULL;

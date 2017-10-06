@@ -57,6 +57,7 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
 
     mm->slot_alloc = slot_alloc_func;
     mm->slot_refill = slot_refill_func;
+    mm->slab_refill_active = false;
     mm->slot_alloc_inst = slot_alloc_inst;
     mm->objtype = objtype;
     mm->head = NULL;
@@ -114,7 +115,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     size_t freecount = slab_freecount(&(mm->slabs));
     printf("Free slabs: %i\n", freecount);
     bool do_split = true;
-    if (!freecount) { 
+    if (freecount<3) { 
         /* We just return the smallest cap that is big enough to fit
          * the slab refill request. We do not split anything to avoid
          * infinite recursion.
@@ -282,6 +283,15 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
  * \param[out]  ret       The newly allocated and initialized memory node
  */
 errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode **ret) {
+    if (slab_freecount(&(mm->slabs))<2 && !(mm->slab_refill_active)) {
+        mm->slab_refill_active = true;
+        errval_t err = mm->slabs.refill_func(&mm->slabs);
+        if (err_is_fail(err)) {
+            printf("slab refill function failed at mm_create_mmnode");
+            return err;
+        }
+        mm->slab_refill_active = false;  
+    }
     struct mmnode *new_memnode = (struct mmnode *) slab_alloc(&(mm->slabs));
     if (!new_memnode) {
         printf("slab refill not implemented yet\n");
