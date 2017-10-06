@@ -6,7 +6,7 @@
 #include <mm/mm.h>
 #include <aos/debug.h>
 
-errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode **ret);
+void mm_fill_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode *ret);
 void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start);
 
 static void mm_print_node(struct mmnode *node);
@@ -57,7 +57,6 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
 
     mm->slot_alloc = slot_alloc_func;
     mm->slot_refill = slot_refill_func;
-    mm->slab_refill_active = false;
     mm->slot_alloc_inst = slot_alloc_inst;
     mm->objtype = objtype;
     mm->head = NULL;
@@ -82,13 +81,14 @@ void mm_destroy(struct mm *mm)
 errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 {
     printf("Add capability with size %i\n", size);
-    struct mmnode *new_memnode;
 
-    errval_t err = mm_create_mmnode(mm, cap, base, size, &new_memnode);
-    mm_print_node(new_memnode);
-    if (err_is_fail(err)) {
-        return err;
+    struct mmnode *new_memnode = (struct mmnode *) slab_alloc(&(mm->slabs));
+    if (!new_memnode) {
+        printf("slab refill not implemented yet\n");
+        return LIB_ERR_NOT_IMPLEMENTED;
     }
+    mm_fill_node(mm, cap, base, size, new_memnode);
+    mm_print_node(new_memnode);
 
     if (mm->head == NULL) {
         new_memnode->prev = new_memnode;
@@ -114,15 +114,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     printf("Call alloc_aligned with %i and %i \n", size, alignment);
     size_t freecount = slab_freecount(&(mm->slabs));
     printf("Free slabs: %i\n", freecount);
-    bool do_split = true;
-    if (freecount<3) { 
-        /* We just return the smallest cap that is big enough to fit
-         * the slab refill request. We do not split anything to avoid
-         * infinite recursion.
-         */
-        //do_split = false;
-    }
-    printf("do_split is = %i\n", do_split);
+
     struct mmnode *current = mm->head;
 
     if (current == NULL) {
@@ -147,54 +139,44 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     }
 
     // split capability until it has the right size
-    if (do_split && current->cap.size > size + alignment_offset +BASE_PAGE_SIZE) {
-
-        // TODO: allocate new level 2 cnodes if needed
-
-        /* printf("current_size=%llu\n", current->cap.size); */
-        /* printf("1_required_size=%d\n", size); */
-
+    while (freecount > 1 && current->cap.size > 2*(size + alignment_offset)) {
         struct capref new_cap_slot;
         errval_t err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
         if (err_is_fail(err)) {
             printf("failed here\n");
             return err;
         }
-        cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, size+alignment_offset, 2);
+        cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, current->size/2, 2);
 
-        struct mmnode *node_split1;
-        err = mm_create_mmnode(mm, new_cap_slot, current->cap.base, size+alignment_offset, &node_split1);
-        if (err_is_fail(err)) {
-            printf("first split creation failed\n");
-            return err;
+        printf("before:\n");
+        mm_traverse_list(mm->head);
+
+        /* if (slab_freecount(&(mm->slabs)) < 3) { */
+        /*     err = mm->slabs.refill_func(&mm->slabs); */
+        /*     if (err_is_fail(err)) { */
+        /*         printf("slab refill function failed at mm_create_mmnode"); */
+        /*         return err; */
+        /*     } */
+        /* } */
+        struct mmnode *node_split1 = (struct mmnode *) slab_alloc(&(mm->slabs));
+        if (!node_split1) {
+            printf("Failed to allocate a new slab\n");
+            return LIB_ERR_NOT_IMPLEMENTED;
+        }
+        mm_fill_node(mm, new_cap_slot, current->cap.base, current->cap.size/2, node_split1);
+
+        mm_insert_node(mm, node_split1, current);
+
+        current->next->prev = current->prev;
+        current->prev->next = current->next;
+        if (mm->head == current) {
+            mm->head = current->next;
         }
 
-        struct mmnode *node_split2;
+        struct mmnode *node_split2 = current;
         new_cap_slot.slot++;
-        err = mm_create_mmnode(mm, new_cap_slot, current->cap.base + size + alignment_offset, current->cap.size-(size + alignment_offset), &node_split2);
-        if (err_is_fail(err)) {
-            printf("second split creation failed\n");
-            return err;
-        }
-
-        // remove current node from node-list and free slab
-        struct mmnode *to_remove = current;
-        
-        // insert the larger node first
-        if (node_split2->cap.size >= node_split1->cap.size) {
-            mm_insert_node(mm, node_split2, current);
-            mm_insert_node(mm, node_split1, current);
-        }
-        else {
-            mm_insert_node(mm, node_split1, current);
-            mm_insert_node(mm, node_split2, current);
-        }
-        
-        to_remove->next->prev = to_remove->prev; 
-        to_remove->prev->next = to_remove->next;
-        slab_free(&(mm->slabs), to_remove);
-        /* printf("After deleting\n"); */
-        /* mm_traverse_list(mm->head); */
+        mm_fill_node(mm, new_cap_slot, current->cap.base + current->cap.size/2, current->cap.size/2, node_split2);
+        mm_insert_node(mm, node_split2, current);
 
         current = node_split1;
     }
@@ -219,7 +201,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
  */
 errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
 {
-    return mm_alloc_aligned(mm, size, 1, retcap);
+    return mm_alloc_aligned(mm, size, BASE_PAGE_SIZE, retcap);
 }
 
 /**
@@ -265,39 +247,22 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
 }
 
 /**
- * Allocate a new memory node and fill it with the capability
+ * Fill a memory node it with the capability
  *
  * \param       mm        The memory manager
  * \param       cap       The capability to allocate the node for
  * \param       base      The physical base address of the region
  * \param       size      The size of the region
- * \param[out]  ret       The newly allocated and initialized memory node
+ * \param[out]  ret       The newly initialized memory node
  */
-errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode **ret) {
-    if (slab_freecount(&(mm->slabs))<5 && !(mm->slab_refill_active)) {
-        mm->slab_refill_active = true;
-        errval_t err = mm->slabs.refill_func(&mm->slabs);
-        if (err_is_fail(err)) {
-            printf("slab refill function failed at mm_create_mmnode");
-            return err;
-        }
-        mm->slab_refill_active = false;  
-    }
-    struct mmnode *new_memnode = (struct mmnode *) slab_alloc(&(mm->slabs));
-    if (!new_memnode) {
-        printf("slab refill not implemented yet\n");
-        return LIB_ERR_NOT_IMPLEMENTED;
-    }
+void mm_fill_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode *ret) {
 
-    new_memnode->type = NodeType_Free;
-    new_memnode->cap.cap = cap;
-    new_memnode->cap.base = base;
-    new_memnode->cap.size = size;
-    new_memnode->base = base;
-    new_memnode->size = size;
-
-    *ret = new_memnode;
-    return SYS_ERR_OK;
+    ret->type = NodeType_Free;
+    ret->cap.cap = cap;
+    ret->cap.base = base;
+    ret->cap.size = size;
+    ret->base = base;
+    ret->size = size;
 }
 
 /**
@@ -312,16 +277,22 @@ errval_t mm_create_mmnode(struct mm *mm, struct capref cap, genpaddr_t base, siz
  */
 void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start) {
     struct mmnode *current = mm->head;
-    while (current->next->size < new_node->size) {
+    while (current->next->size < new_node->size && current->next != mm->head) {
         current = current -> next;
     }
-    if (current == mm->head) {
-        if (current->size > new_node->size)
-            mm->head = new_node;
-    }
 
-    new_node->next = current->next;
-    new_node->prev = current;
-    current->next->prev = new_node;
-    current->next = new_node;
+    if (current == mm->head && current->size > new_node->size) {
+        new_node->next = current;
+        new_node->prev = current->prev;
+
+        current->prev->next = new_node;
+        current->prev = new_node;
+
+        mm->head = new_node;
+    } else {
+        new_node->next = current->next;
+        new_node->prev = current;
+        current->next->prev = new_node;
+        current->next = new_node;
+    }
 }
