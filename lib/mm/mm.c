@@ -315,13 +315,17 @@ void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start
     while (current->next->size < new_node->size) {
         current = current -> next;
     }
-    if (current == mm->head) {
-        if (current->size > new_node->size)
-            mm->head = new_node;
+    if (current == mm->head && current->size > new_node->size) {
+        new_node->next = current;
+        new_node->prev = current->prev;
+        current->prev->next = new_node;
+        current->prev = new_node;
+        
+	mm->head = new_node;
+    } else {
+        new_node->next = current->next;
+        new_node->prev = current;
+        current->next->prev = new_node;
+        current->next = new_node;
     }
-
-    new_node->next = current->next;
-    new_node->prev = current;
-    current->next->prev = new_node;
-    current->next = new_node;
 }
