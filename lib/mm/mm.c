@@ -112,11 +112,9 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct capref *retcap)
 {
     printf("Call alloc_aligned with %i and %i \n", size, alignment);
-    size_t freecount = slab_freecount(&(mm->slabs));
-    printf("Free slabs: %i\n", freecount);
+    printf("Free slabs: %i\n", slab_freecount(&(mm->slabs)));
 
     struct mmnode *current = mm->head;
-
     if (current == NULL) {
         printf("Cannot allocate memory without caps\n");
         return MM_ERR_MISSING_CAPS;
@@ -124,7 +122,6 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 
     size_t alignment_offset = 0;
     while (1) {
-        /* printf("Looking at node with size %i\n", current->cap.size); */
         alignment_offset = ROUND_UP(current->cap.base, alignment) - current->cap.base;
         if (current->type == NodeType_Free && current->cap.size >= size + alignment_offset) {
             break;
@@ -139,7 +136,20 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     }
 
     // split capability until it has the right size
-    while (freecount > 1 && current->cap.size > 2*(size + alignment_offset)) {
+    while (current->cap.size > 2*(size + alignment_offset)) {
+        struct mmnode *node_split1;
+        if (slab_freecount(&(mm->slabs)) == 0) {
+            // Refill slabs and make sure it calls mm_alloc
+            // traverse the list again to find the currently smallest that fits
+            continue;
+        } else {
+            node_split1 = (struct mmnode *) slab_alloc(&(mm->slabs));
+            if (!node_split1) {
+                printf("Failed to allocate a new slab\n");
+                return LIB_ERR_NOT_IMPLEMENTED;
+            }
+        }
+
         struct capref new_cap_slot;
         errval_t err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
         if (err_is_fail(err)) {
@@ -151,18 +161,6 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         printf("before:\n");
         mm_traverse_list(mm->head);
 
-        /* if (slab_freecount(&(mm->slabs)) < 3) { */
-        /*     err = mm->slabs.refill_func(&mm->slabs); */
-        /*     if (err_is_fail(err)) { */
-        /*         printf("slab refill function failed at mm_create_mmnode"); */
-        /*         return err; */
-        /*     } */
-        /* } */
-        struct mmnode *node_split1 = (struct mmnode *) slab_alloc(&(mm->slabs));
-        if (!node_split1) {
-            printf("Failed to allocate a new slab\n");
-            return LIB_ERR_NOT_IMPLEMENTED;
-        }
         mm_fill_node(mm, new_cap_slot, current->cap.base, current->cap.size/2, node_split1);
 
         mm_insert_node(mm, node_split1, current);
@@ -195,12 +193,16 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 /**
  * Allocate physical memory.
  *
+ * Note that this implementation does not split memory but instead returns the
+ * smallest existing slot that fits.
+ *
  * \param       mm        The memory manager.
  * \param       size      How much memory to allocate.
  * \param[out]  retcap    Capability for the allocated region.
  */
 errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
 {
+    printf("Called mm_alloc!!");
     return mm_alloc_aligned(mm, size, BASE_PAGE_SIZE, retcap);
 }
 
