@@ -105,7 +105,7 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
         new_memnode->next = new_memnode;
         mm->head = new_memnode;
     } else {
-        mm_insert_node(mm, new_memnode, mm->head);
+        mm_insert_node(mm, new_memnode, mm->head->prev);
     }
 
     return SYS_ERR_OK;
@@ -327,9 +327,9 @@ void mm_fill_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size
  * \param       start     The starting point for finding the insertion
  */
 void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start) {
-    struct mmnode *current = mm->head;
-    while (current->next->size < new_node->size && current->next != mm->head) {
-        current = current -> next;
+    struct mmnode *current = start;
+    while (current->size > new_node->size && current != mm->head) {
+        current = current -> prev;
     }
 
     if (current == mm->head && current->size > new_node->size) {
