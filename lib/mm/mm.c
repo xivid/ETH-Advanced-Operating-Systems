@@ -6,8 +6,10 @@
 #include <mm/mm.h>
 #include <aos/debug.h>
 
+errval_t mm_find_smallest_node(struct mm *mm, size_t size, struct mmnode **current);
 void mm_fill_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode *ret);
 void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start);
+static size_t largest_contained_power_of_2(size_t size);
 
 static void mm_print_node(struct mmnode *node);
 static void mm_traverse_list(struct mmnode *head);
@@ -58,6 +60,7 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
     mm->slot_alloc = slot_alloc_func;
     mm->slot_refill = slot_refill_func;
     mm->slot_alloc_inst = slot_alloc_inst;
+    mm->allocating_ram = 0;
     mm->objtype = objtype;
     mm->head = NULL;
 
@@ -120,71 +123,70 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         return MM_ERR_MISSING_CAPS;
     }
 
-    size_t alignment_offset = 0;
-    while (1) {
-        alignment_offset = ROUND_UP(current->cap.base, alignment) - current->cap.base;
-        if (current->type == NodeType_Free && current->cap.size >= size + alignment_offset) {
-            break;
-        }
-
-        current = current->next;
-        if (current == mm->head) {
-            // TODO: Try to defragment capabilities and start over.
-            printf("No more capabilities left to hand out that are large enough\n");
-            return MM_ERR_NEW_NODE;
-        }
+    errval_t err = mm_find_smallest_node(mm, size, &current);
+    if (err_is_fail(err)) {
+        printf("Error finding smallest node\n");
+        return err;
     }
 
-    // split capability until it has the right size
-    while (current->cap.size > 2*(size + alignment_offset)) {
-        struct mmnode *node_split1;
-        if (slab_freecount(&(mm->slabs)) == 0) {
-            // Refill slabs and make sure it calls mm_alloc
-            // traverse the list again to find the currently smallest that fits
-            continue;
-        } else {
-            node_split1 = (struct mmnode *) slab_alloc(&(mm->slabs));
+    if (!mm->allocating_ram) {
+        mm->allocating_ram = true;
+
+        // split capability until it has the right size
+        while (current->size >= 2*size) {
+
+            struct mmnode *node_split1 = (struct mmnode *) slab_alloc(&(mm->slabs));
             if (!node_split1) {
                 printf("Failed to allocate a new slab\n");
                 return LIB_ERR_NOT_IMPLEMENTED;
+            } else if (current->type == NodeType_Allocated) {
+                current = mm->head;
+                err = mm_find_smallest_node(mm, size, &current);
+                if (err_is_fail(err)) {
+                    printf("Error finding smallest node after refill\n");
+                    return err;
+                }
             }
+
+            struct capref new_cap_slot;
+            err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
+            if (err_is_fail(err)) {
+                printf("failed here\n");
+                return err;
+            }
+
+            size_t left_split_size = largest_contained_power_of_2(current->size);
+            cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, left_split_size, 2);
+
+            printf("before:\n");
+            mm_traverse_list(mm->head);
+
+            mm_fill_node(mm, new_cap_slot, current->cap.base, left_split_size, node_split1);
+
+            mm_insert_node(mm, node_split1, current);
+
+            current->next->prev = current->prev;
+            current->prev->next = current->next;
+            if (mm->head == current) {
+                mm->head = current->next;
+            }
+
+            struct mmnode *node_split2 = current;
+            new_cap_slot.slot++;
+            mm_fill_node(mm, new_cap_slot, current->cap.base + left_split_size, current->cap.size - left_split_size, node_split2);
+            mm_insert_node(mm, node_split2, current);
+
+            current = node_split1;
         }
-
-        struct capref new_cap_slot;
-        errval_t err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
-        if (err_is_fail(err)) {
-            printf("failed here\n");
-            return err;
-        }
-        cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, current->size/2, 2);
-
-        printf("before:\n");
-        mm_traverse_list(mm->head);
-
-        mm_fill_node(mm, new_cap_slot, current->cap.base, current->cap.size/2, node_split1);
-
-        mm_insert_node(mm, node_split1, current);
-
-        current->next->prev = current->prev;
-        current->prev->next = current->next;
-        if (mm->head == current) {
-            mm->head = current->next;
-        }
-
-        struct mmnode *node_split2 = current;
-        new_cap_slot.slot++;
-        mm_fill_node(mm, new_cap_slot, current->cap.base + current->cap.size/2, current->cap.size/2, node_split2);
-        mm_insert_node(mm, node_split2, current);
-
-        current = node_split1;
+        mm->allocating_ram = false;
     }
-    printf("End call alloc_aligned with %d and %d \n", size, alignment);
-    printf("Returning cap with size: %llu\n", current->size);
-    printf("---------------------------------\n");
 
     current->type = NodeType_Allocated;
-    current->cap.size -= alignment_offset;
-    current->cap.base += alignment_offset;
+
+    printf("End call alloc_aligned with %d and %d \n", size, alignment);
+    printf("Returning cap with size: %llu\n", current->size);
+    printf("Cap: size: %llu, base: %llu\n", current->cap.size, current->cap.base);
+    printf("---------------------------------\n");
 
     *retcap = current->cap.cap;
     return SYS_ERR_OK;
@@ -244,6 +246,44 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
     current->cap.base = current->base;
     printf("Free returned:\n");
     mm_traverse_list(mm->head);
+
+    return SYS_ERR_OK;
+}
+
+/**
+ * Find the largest power of two which is contained in size
+ *
+ * \return The largest power of two which fits into size with some extra space
+ */
+static size_t largest_contained_power_of_2(size_t size) {
+    size_t power = 1;
+    while (power < size) {
+         power = power << 1;
+    }
+    return power >> 1;
+}
+
+/**
+ * Find the smallest free node that is large enough starting at current.
+ *
+ * \param       mm        The memory manager
+ * \param       size      How much memory to allocate.
+ * \param[out]  current   The smallest free node
+ */
+errval_t mm_find_smallest_node(struct mm *mm, size_t size, struct mmnode **current) {
+
+    while (1) {
+        if ((*current)->type == NodeType_Free && (*current)->cap.size >= size) {
+            break;
+        }
+
+        *current = (*current)->next;
+        if (*current == mm->head) {
+            // TODO: Try to defragment capabilities and start over.
+            printf("No more capabilities left to hand out that are large enough\n");
+            return MM_ERR_NEW_NODE;
+        }
+    }
 
     return SYS_ERR_OK;
 }
