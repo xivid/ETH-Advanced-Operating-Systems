@@ -198,7 +198,7 @@ void *alloc_page(struct capref frame) {
 /**
  * \brief map a user provided frame at user provided VA.
  * TODO(M1): Map a frame assuming all mappings will fit into one L2 pt
- * TODO(M2): General case 
+ * TODO(M2): General case
  */
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
@@ -224,12 +224,12 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
             printf ("vnode_map failed");
             return err;
         }
-        
+
         st->l2_pagetabs[index_l1].initialized = true;
         st->l2_pagetabs[index_l1].cap = l2_cap;
-    }
-    else
+    } else {
         l2_cap = st->l2_pagetabs[index_l1].cap;
+    }
     struct capref frame_cap;
     st->slot_alloc->alloc(st->slot_alloc, &frame_cap);
     err = vnode_map(l2_cap, frame, ARM_L2_OFFSET(vaddr), flags, 0, 1, frame_cap);

@@ -60,7 +60,7 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
     mm->slot_alloc = slot_alloc_func;
     mm->slot_refill = slot_refill_func;
     mm->slot_alloc_inst = slot_alloc_inst;
-    mm->allocating_ram = 0;
+    mm->allocating_ram = false;
     mm->objtype = objtype;
     mm->head = NULL;
 
