@@ -57,23 +57,33 @@ int main(int argc, char *argv[])
     printf("Running tests:\n");
     // Begin Tests
 
-    const int allocations = 300;
-    struct capref capabilities[allocations];
 
-    for (int i = 0; i < allocations; i++) {
-        printf("allocating ram %i:\n", i);
-        err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
-        if (err_is_fail(err)) {
-            printf("Failed allocating capability %i\n", i);
-            break;
-        }
-    }
-    for (int i = 0; i < allocations; i++) {
-        err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
-        if (err_is_fail(err)) {
-            printf("Failed freeing capability %i\n", i);
-            break;
-        }
+    /* const int allocations = 100; */
+    /* struct capref capabilities[allocations]; */
+
+    /* for (int i = 0; i < allocations; i++) { */
+    /*     printf("allocating ram %i:\n", i); */
+    /*     err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE); */
+    /*     if (err_is_fail(err)) { */
+    /*         printf("Failed allocating capability %i\n", i); */
+    /*         break; */
+    /*     } */
+    /* } */
+    /* for (int i = 0; i < allocations; i++) { */
+    /*     err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE); */
+    /*     if (err_is_fail(err)) { */
+    /*         printf("Failed freeing capability %i\n", i); */
+    /*         break; */
+    /*     } */
+    /* } */
+
+    for (int i = 0 ; i < 200 ; ++i) { // TODO: fix me, i fail with a *NULL
+        size_t retsize;
+        struct capref frame;
+        frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
+        int *buf = (int *) alloc_page(frame);
+        debug_printf("buf is %p\n", buf);
+        buf[0] = 42;
     }
 
     // End Tests
@@ -86,6 +96,6 @@ int main(int argc, char *argv[])
             abort();
         }
     }
-
+    
     return EXIT_SUCCESS;
 }
