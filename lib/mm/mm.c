@@ -142,6 +142,8 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         // split capability until it has the right size, don't split below 1k.
         while (current->size >= 2*size && size > MIN_SPLIT_SIZE) {
 
+            // TODO: Refill slabs if slab count below a certain threshold
+
             struct mmnode *left_split = (struct mmnode *) slab_alloc(&(mm->slabs));
             if (!left_split) {
                 printf("Failed to allocate a new slab\n");
@@ -162,6 +164,8 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
                 return err;
             }
 
+            printf("Old capability slot: %lu croot %llu cnode %llu\n", current->cap.cap.slot, current->cap.cap.cnode.croot, current->cap.cap.cnode.cnode);
+            printf("New capability slot: %lu croot %llu cnode %llu\n", new_cap_slot.slot, new_cap_slot.cnode.croot, new_cap_slot.cnode.cnode);
             size_t left_split_size = largest_contained_power_of_2(current->size);
             cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, left_split_size, 2);
 
@@ -250,10 +254,10 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
     }
 
     current->type = NodeType_Free;
-    current->cap.size = current->size;
-    current->cap.base = current->base;
     printf("Free returned:\n");
     mm_traverse_list(mm->head);
+
+    // TODO: merge with neighboring capability if it is free
 
     return SYS_ERR_OK;
 }
@@ -288,7 +292,6 @@ errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, str
 
         *current = (*current)->next;
         if (*current == mm->head) {
-            // TODO: Try to defragment capabilities and start over.
             printf("No more capabilities left to hand out that are large enough\n");
             return MM_ERR_NEW_NODE;
         }
@@ -307,7 +310,9 @@ errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, str
  * \param[out]  ret       The newly initialized memory node
  */
 void mm_fill_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode *ret) {
-
+    printf("Fill node with: size %lu base: %llu\n", size, base);
+    printf("Capability slot %lu croot %llu cnode %llu\n", cap.slot, cap.cnode.croot, cap.cnode.cnode);
+    printf("=================================================\n");
     ret->type = NodeType_Free;
     ret->cap.cap = cap;
     ret->cap.base = base;

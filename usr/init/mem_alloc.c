@@ -95,34 +95,6 @@ errval_t initialize_ram_alloc(void)
         return err_push(err, LIB_ERR_RAM_ALLOC_SET);
     }
 
-    // Test:
-    /* printf("Start test 1:\n"); */
-    /* for (int i =  0; i < 1000; i++) { */
-    /*     printf("Running iteration %i\n", i); */
-    /*     struct capref frame; */
-    /*     err = mm_alloc(&aos_mm, BASE_PAGE_SIZE, &frame); */
-    /*     if (err_is_fail(err)) { */
-    /*         DEBUG_ERR(err, "abort mem alloc at frame %i, size %u\n", (i+1), BASE_PAGE_SIZE); */
-    /*         abort(); */
-    /*     } */
-    /*     if (i+1 % 100 == 0) { */
-    /*         printf("Allocated %i frames, size %u\n", (i+1), BASE_PAGE_SIZE); */
-    /*     } */
-    /* } */
-    /* for (int i = 0; i < 200; i++) { */
-    /*     struct capref frame; */
-    /*     err = mm_alloc(&aos_mm, BASE_PAGE_SIZE*4, &frame); */
-    /*     if (err_is_fail(err)) { */
-    /*         DEBUG_ERR(err, "Test2: abort mem alloc at frame %i, size %u\n", (i+1), BASE_PAGE_SIZE); */
-    /*         abort(); */
-    /*     } */
-    /*     if (i+1 % 20 == 0) { */
-    /*         printf("Allocated %i frames, size %u\n", i+1, BASE_PAGE_SIZE*4); */
-    /*     } */
-    /* } */
-    // End Test:
-
-
     mm_destroy(&aos_mm);
     return SYS_ERR_OK;
 }
