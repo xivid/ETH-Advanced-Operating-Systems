@@ -6,7 +6,7 @@
 #include <mm/mm.h>
 #include <aos/debug.h>
 
-#define MIN_SPLIT_SIZE 1024
+#define MIN_SPLIT_SIZE BASE_PAGE_SIZE
 #define aligned(address, alignment) (address & (alignment -1)) == 0
 
 errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, struct mmnode **current);
@@ -140,11 +140,13 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         mm->allocating_ram = true;
 
         // split capability until it has the right size, don't split below 1k.
-        while (current->size >= 2*size && size > MIN_SPLIT_SIZE) {
+        while (current->size >= 2*size && current->size > MIN_SPLIT_SIZE) {
 
             // TODO: Refill slabs if slab count below a certain threshold
-
+            //int before = slab_freecount(&(mm->slabs));
             struct mmnode *left_split = (struct mmnode *) slab_alloc(&(mm->slabs));
+            //printf("Free slabs after slab alloc: %i\n", slab_freecount(&(mm->slabs)));
+            //assert(slab_freecount(&(mm->slabs)) < before);
             if (!left_split) {
                 printf("Failed to allocate a new slab\n");
                 return LIB_ERR_NOT_IMPLEMENTED;
@@ -163,33 +165,58 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
                 printf("failed here\n");
                 return err;
             }
-
+            struct frame_identity old;
+            struct frame_identity new1;
+            struct frame_identity new2;
             printf("Old capability slot: %lu croot %llu cnode %llu\n", current->cap.cap.slot, current->cap.cap.cnode.croot, current->cap.cap.cnode.cnode);
             printf("New capability slot: %lu croot %llu cnode %llu\n", new_cap_slot.slot, new_cap_slot.cnode.croot, new_cap_slot.cnode.cnode);
             size_t left_split_size = largest_contained_power_of_2(current->size);
-            cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, left_split_size, 2);
-
+            err = cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, left_split_size, 1);
+            if (err_is_fail(err)) {
+                debug_printf("cap retype error: %s\n", err_getstring(err));
+                return err;
+            }
+            new_cap_slot.slot++;
+            err = cap_retype(new_cap_slot, current->cap.cap, left_split_size, mm->objtype, current->cap.size - left_split_size, 1);
+            if (err_is_fail(err)) {
+                debug_printf("cap retype resize error: %s\n", err_getstring(err));
+                return err;
+            }
+            new_cap_slot.slot--;
+            
             mm_fill_node(mm, new_cap_slot, current->cap.base, left_split_size, left_split);
             mm_insert_node(mm, left_split, current);
-
+            
             current->next->prev = current->prev;
             current->prev->next = current->next;
             if (mm->head == current) {
                 mm->head = current->next;
             }
-
+            printf("------\n");
+            frame_identify(current->cap.cap, &old);
+            printf("Frame old base: %llu, bytes: %llu\n", old.base, old.bytes);
+            
+            frame_identify(new_cap_slot, &new1);
+            printf("Frame new1 base: %llu, bytes: %llu\n", new1.base, new1.bytes);
+            
             struct mmnode *right_split = current;
             new_cap_slot.slot++;
             mm_fill_node(mm, new_cap_slot, current->cap.base + left_split_size, current->cap.size - left_split_size, right_split);
             mm_insert_node(mm, right_split, left_split);
-
-            current = left_split;
+            
+            frame_identify(right_split->cap.cap, &new2);
+            printf("Frame new2 base: %llu, bytes: %llu\n", new2.base, new2.bytes);
+            printf("--------\n");
+            current = right_split;
+            
 
             printf("List after split:\n");
             mm_traverse_list(mm->head);
         }
         mm->allocating_ram = false;
     }
+    
+    printf("Free slabs: %i\n", slab_freecount(&(mm->slabs)));
 
     current->type = NodeType_Allocated;
 

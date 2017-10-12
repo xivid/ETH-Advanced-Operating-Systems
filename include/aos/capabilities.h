@@ -166,7 +166,7 @@ __END_DECLS
  * \brief Identify a frame. This wraps the invocation so we can handle the
  *        case where the Frame cap is not invokable.
  * \param cap the capability to identify
- * \param ret A pointer to a `struct frame_identify` to fill in
+ * \param ret A pointer to a `struct frame_identity` to fill in
  */
 static inline errval_t frame_identify(struct capref frame, struct frame_identity *ret)
 {
