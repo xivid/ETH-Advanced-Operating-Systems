@@ -25,6 +25,7 @@ void mm_print_node(struct mmnode *node) {
     printf("\n");
 }
 
+ __attribute__ ((unused))
 void mm_traverse_list(struct mmnode *head) {
     printf("Head=%p. ", head);
     printf("Node sizes: ");
@@ -121,18 +122,18 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
  */
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct capref *retcap)
 {
-    printf("Call alloc_aligned with %i and %i \n", size, alignment);
-    printf("Free slabs: %i\n", slab_freecount(&(mm->slabs)));
+    debug_printf("Call alloc_aligned with %i and %i \n", size, alignment);
+    debug_printf("Free slabs: %i\n", slab_freecount(&(mm->slabs)));
 
     struct mmnode *current = mm->head;
     if (current == NULL) {
-        printf("Cannot allocate memory without caps\n");
+        DEBUG_ERR(MM_ERR_MISSING_CAPS, "Cannot allocate memory without caps\n");
         return MM_ERR_MISSING_CAPS;
     }
 
     errval_t err = mm_find_smallest_node(mm, size, alignment, &current);
     if (err_is_fail(err)) {
-        printf("Error finding smallest node\n");
+        DEBUG_ERR(err, "Error finding smallest node\n");
         return err;
     }
 
@@ -141,20 +142,17 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
 
         // split capability until it has the right size, don't split below 1k.
         while (current->size >= 2*size && current->size > MIN_SPLIT_SIZE) {
-
-            // TODO: Refill slabs if slab count below a certain threshold
-            //int before = slab_freecount(&(mm->slabs));
             struct mmnode *left_split = (struct mmnode *) slab_alloc(&(mm->slabs));
-            //printf("Free slabs after slab alloc: %i\n", slab_freecount(&(mm->slabs)));
-            //assert(slab_freecount(&(mm->slabs)) < before);
             if (!left_split) {
-                printf("Failed to allocate a new slab\n");
+                DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED,
+                        "Failed to allocate a new slab\n");
                 return LIB_ERR_NOT_IMPLEMENTED;
             } else if (current->type == NodeType_Allocated) {
                 current = mm->head;
                 err = mm_find_smallest_node(mm, size, alignment, &current);
                 if (err_is_fail(err)) {
-                    printf("Error finding smallest node after refill\n");
+                    DEBUG_ERR(err,
+                            "Error finding smallest node after refill\n");
                     return err;
                 }
             }
@@ -162,24 +160,20 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
             struct capref new_cap_slot;
             err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
             if (err_is_fail(err)) {
-                printf("failed here\n");
+                DEBUG_ERR(err, "failed allocating two slots");
                 return err;
             }
-            struct frame_identity old;
-            struct frame_identity new1;
-            struct frame_identity new2;
-            printf("Old capability slot: %lu croot %llu cnode %llu\n", current->cap.cap.slot, current->cap.cap.cnode.croot, current->cap.cap.cnode.cnode);
-            printf("New capability slot: %lu croot %llu cnode %llu\n", new_cap_slot.slot, new_cap_slot.cnode.croot, new_cap_slot.cnode.cnode);
             size_t left_split_size = largest_contained_power_of_2(current->size);
             err = cap_retype(new_cap_slot, current->cap.cap, 0, mm->objtype, left_split_size, 1);
             if (err_is_fail(err)) {
-                debug_printf("cap retype error: %s\n", err_getstring(err));
+                DEBUG_ERR(err, "cap retype error: %s\n", err_getstring(err));
                 return err;
             }
             new_cap_slot.slot++;
             err = cap_retype(new_cap_slot, current->cap.cap, left_split_size, mm->objtype, current->cap.size - left_split_size, 1);
             if (err_is_fail(err)) {
-                debug_printf("cap retype resize error: %s\n", err_getstring(err));
+                DEBUG_ERR(err,
+                        "cap retype resize error: %s\n", err_getstring(err));
                 return err;
             }
             new_cap_slot.slot--;
@@ -192,38 +186,20 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
             if (mm->head == current) {
                 mm->head = current->next;
             }
-            printf("------\n");
-            frame_identify(current->cap.cap, &old);
-            printf("Frame old base: %llu, bytes: %llu\n", old.base, old.bytes);
-            
-            frame_identify(new_cap_slot, &new1);
-            printf("Frame new1 base: %llu, bytes: %llu\n", new1.base, new1.bytes);
-            
+
             struct mmnode *right_split = current;
             new_cap_slot.slot++;
             mm_fill_node(mm, new_cap_slot, current->cap.base + left_split_size, current->cap.size - left_split_size, right_split);
             mm_insert_node(mm, right_split, left_split);
             
-            frame_identify(right_split->cap.cap, &new2);
-            printf("Frame new2 base: %llu, bytes: %llu\n", new2.base, new2.bytes);
-            printf("--------\n");
             current = right_split;
-            
-
-            printf("List after split:\n");
-            mm_traverse_list(mm->head);
         }
         mm->allocating_ram = false;
     }
-    
-    printf("Free slabs: %i\n", slab_freecount(&(mm->slabs)));
-
     current->type = NodeType_Allocated;
 
-    printf("End call alloc_aligned with %d and %d \n", size, alignment);
-    printf("Returning cap with size: %llu\n", current->size);
-    printf("Cap: size: %llu, base: %llu\n", current->cap.size, current->cap.base);
-    printf("Alignment mask (%x) base address (%x)\n", alignment-1, current->cap.base);
+    debug_printf("End call alloc_aligned with %d and %d, return size %llu \n",
+            size, alignment, current->size);
     assert(aligned(current->cap.base, alignment));
     printf("---------------------------------\n");
 
@@ -281,9 +257,6 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
     }
 
     current->type = NodeType_Free;
-    printf("Free returned:\n");
-    mm_traverse_list(mm->head);
-
     // TODO: merge with neighboring capability if it is free
 
     return SYS_ERR_OK;
@@ -337,9 +310,6 @@ errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, str
  * \param[out]  ret       The newly initialized memory node
  */
 void mm_fill_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size, struct mmnode *ret) {
-    printf("Fill node with: size %lu base: %llu\n", size, base);
-    printf("Capability slot %lu croot %llu cnode %llu\n", cap.slot, cap.cnode.croot, cap.cnode.cnode);
-    printf("=================================================\n");
     ret->type = NodeType_Free;
     ret->cap.cap = cap;
     ret->cap.base = base;
