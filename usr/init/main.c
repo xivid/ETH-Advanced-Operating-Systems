@@ -58,26 +58,30 @@ int main(int argc, char *argv[])
     // Begin Tests
 
 
-     const int allocations = 500;
+    const int allocations = 1000;
     struct capref capabilities[allocations];
+    bool allocs_failed = false;
 
     for (int i = 0; i < allocations; i++) {
         printf("allocating ram %i:\n", i);
         err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
         if (err_is_fail(err)) {
             printf("Failed allocating capability %i\n", i);
+            allocs_failed = true;
             break;
         }
     }
-    for (int i = 0; i < allocations; i++) {
-        err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
-        if (err_is_fail(err)) {
-            printf("Failed freeing capability %i\n", i);
-            break;
+    if (!allocs_failed) {
+        for (int i = 0; i < allocations; i++) {
+            err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
+            if (err_is_fail(err)) {
+                printf("Failed freeing capability %i\n", i);
+                break;
+            }
+            printf("Successfully freed cap %i\n", i);
+            printf("-------------------------------------\n");
         }
-        printf("Successfully freed cap %i\n", i);
-        printf("-------------------------------------\n");
-    } 
+    }
 
     /* for (int i = 0 ; i < 200 ; ++i) { // TODO: fix me, i fail with a *NULL */
     /*     size_t retsize; */

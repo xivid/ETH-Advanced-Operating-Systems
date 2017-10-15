@@ -122,8 +122,8 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
  */
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct capref *retcap)
 {
-    debug_printf("Call alloc_aligned with %i and %i \n", size, alignment);
-    debug_printf("Free slabs: %i\n", slab_freecount(&(mm->slabs)));
+    /* debug_printf("Call alloc_aligned with %i and %i \n", size, alignment); */
+    /* debug_printf("Free slabs: %i\n", slab_freecount(&(mm->slabs))); */
 
     struct mmnode *current = mm->head;
     if (current == NULL) {
@@ -147,25 +147,34 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
                 DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED,
                         "Failed to allocate a new slab\n");
                 return LIB_ERR_NOT_IMPLEMENTED;
-            } else if (current->type == NodeType_Allocated) {
-                current = mm->head;
-                err = mm_find_smallest_node(mm, size, alignment, &current);
-                if (err_is_fail(err)) {
-                    DEBUG_ERR(err,
-                            "Error finding smallest node after refill\n");
-                    return err;
-                }
             }
 
             if (!slot_alloc_enough_slots(mm->slot_alloc_inst, 2)) {
-                debug_printf("Ran out of free slots. Refilling...\n");
                 err = slot_prealloc_refill(mm->slot_alloc_inst);
                 if (err_is_fail(err)) {
                     DEBUG_ERR(err, "slot refill failed");
                     return err;
                 }
             }
-
+            // After slab or slot refill the current node may be already taken.
+            if (current->type == NodeType_Allocated) {
+                current = mm->head;
+                err = mm_find_smallest_node(mm, size, alignment, &current);
+                if (err_is_fail(err)) {
+                    DEBUG_ERR(err,
+                            "Error finding smallest node after slot refill\n");
+                    return err;
+                }
+                // After slab/slot refill it may happen that a bigger chunk
+                // was split into smaller chunks and one of them fits current
+                // memory request. In this case we don't have to reiterate
+                // again.
+                // We also free left_split to avoid memory leaks.
+                if (current->size < 2*size) {
+                    slab_free(&(mm->slabs), left_split);
+                    break;
+                }
+            }
             struct capref new_cap_slot;
             err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
             if (err_is_fail(err)) {
@@ -207,8 +216,8 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     }
     current->type = NodeType_Allocated;
 
-    debug_printf("End call alloc_aligned with %d and %d, return size %llu \n",
-            size, alignment, current->size);
+    /* debug_printf("End call alloc_aligned with %d and %d, return size %llu \n", */
+            /* size, alignment, current->size); */
     assert(aligned(current->cap.base, alignment));
     printf("---------------------------------\n");
 
@@ -228,7 +237,6 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
  */
 errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
 {
-    printf("Called mm_alloc!!");
     return mm_alloc_aligned(mm, size, BASE_PAGE_SIZE, retcap);
 }
 
