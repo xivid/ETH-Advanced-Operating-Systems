@@ -29,6 +29,7 @@ struct slot_allocator {
     struct thread_mutex mutex;     ///< Mutex for thread safety
     cslot_t nslots;                ///< Slots to grow allocator by
     cslot_t space;                 ///< Space left in the allocator
+    bool growing_in_progress;      ///< Slot/slab allocation in progress
 };
 
 /// Meta data for single_slot_allocator

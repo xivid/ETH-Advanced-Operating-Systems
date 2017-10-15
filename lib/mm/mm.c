@@ -219,7 +219,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
     /* debug_printf("End call alloc_aligned with %d and %d, return size %llu \n", */
             /* size, alignment, current->size); */
     assert(aligned(current->cap.base, alignment));
-    printf("---------------------------------\n");
+    /* debug_printf("---------------------------------\n"); */
 
     *retcap = current->cap.cap;
     return SYS_ERR_OK;

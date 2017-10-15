@@ -44,7 +44,7 @@ typedef int paging_flags_t;
 #define VREGION_FLAGS_READ_WRITE_MPB \
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
-    
+
 struct l2_pagetab {
     bool initialized;
     struct capref cap;
@@ -53,7 +53,7 @@ struct l2_pagetab {
 struct paging_state {
     struct slot_allocator* slot_alloc;
     lvaddr_t next_free_addr;
-    struct l2_pagetab l2_pagetabs[1 << 12];
+    struct l2_pagetab l2_pagetabs[ARM_L1_MAX_ENTRIES];
     // TODO: add struct members to keep track of the page tables etc
 };
 

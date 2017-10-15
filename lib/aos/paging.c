@@ -23,6 +23,9 @@
 
 static struct paging_state current;
 
+static void exception_handler(enum exception_type type, int subtype,
+                                     void *addr, arch_registers_state_t *regs,
+                                     arch_registers_fpu_state_t *fpuregs);
 /**
  * \brief Helper function that allocates a slot and
  *        creates a ARM l2 page table capability
@@ -31,11 +34,7 @@ __attribute__((unused))
 static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
 {
     errval_t err;
-    if (!st->slot_alloc) {
-        debug_printf("st->slot_alloc is null!\n");
-        return MM_ERR_SLOT_ALLOC_INIT;
-    }
-    err = st->slot_alloc->alloc(st->slot_alloc, ret);
+    err = slot_alloc(ret);
     if (err_is_fail(err)) {
         debug_printf("slot_alloc failed: %s\n", err_getstring(err));
         return err;
@@ -51,13 +50,24 @@ static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir, struct slot_allocator * ca)
 {
-    debug_printf("paging_init_state\n");
     // TODO (M2): implement state struct initialization
     // TODO (M4): Implement page fault handler that installs frames when a page fault
     // occurs and keeps track of the virtual address space.
     return SYS_ERR_OK;
 }
 
+/**
+ * \brief Handles exceptions.
+ */
+
+__attribute__((noreturn))
+void exception_handler(enum exception_type type, int subtype,
+                                     void *addr, arch_registers_state_t *regs,
+                                     arch_registers_fpu_state_t *fpuregs) {
+    debug_printf("an exception occured\n");
+    while (true) {
+    }
+}
 /**
  * \brief This function initializes the paging for this domain
  * It is called once before main.
@@ -74,9 +84,11 @@ errval_t paging_init(void)
     // avoid code duplication.
     set_current_paging_state(&current);
     current.slot_alloc = get_default_slot_allocator();
-    current.next_free_addr = 1 << 29;
+    thread_set_exception_handler(exception_handler, NULL, NULL, NULL, NULL,
+           NULL); 
+    current.next_free_addr = 1 << 30;
     size_t i;
-    for (i = 0; i < (1 << 12); ++i) {
+    for (i = 0; i < ARM_L1_MAX_ENTRIES; ++i) {
         current.l2_pagetabs[i].initialized = false;
     }
     return SYS_ERR_OK;
@@ -187,7 +199,7 @@ void *alloc_page(struct capref frame) {
     errval_t err = paging_map_fixed_attr(&current, current.next_free_addr, frame, BASE_PAGE_SIZE,
  VREGION_FLAGS_READ_WRITE);
     if (err_is_fail(err)) {
-        printf("paging.c alloc_page failed");
+        DEBUG_ERR(err, "paging.c alloc_page failed");
         return NULL;
     }
     void *ret = (void *) current.next_free_addr;
@@ -213,15 +225,18 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
     if (!st->l2_pagetabs[index_l1].initialized) {
         err = arml2_alloc(st, &l2_cap);
         if (err_is_fail(err)) {
-            printf ("arml2_alloc failed");
             DEBUG_ERR(err, "arml2_alloc failed\n");
             return err;
         }
         struct capref mapping;
-        st->slot_alloc->alloc(st->slot_alloc, &mapping);
+        slot_alloc(&mapping);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "slot allocation failed");
+            return err;
+        }
         err = vnode_map(l1_cap_dest, l2_cap, index_l1, VREGION_FLAGS_READ_WRITE, 0, 1, mapping);
         if (err_is_fail(err)) {
-            printf ("vnode_map failed");
+            DEBUG_ERR(err, "vnode_map failed");
             return err;
         }
 
@@ -231,7 +246,11 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         l2_cap = st->l2_pagetabs[index_l1].cap;
     }
     struct capref frame_cap;
-    st->slot_alloc->alloc(st->slot_alloc, &frame_cap);
+    err = slot_alloc(&frame_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "slot allocation failed");
+        return err;
+    }
     err = vnode_map(l2_cap, frame, ARM_L2_OFFSET(vaddr), flags, 0, 1, frame_cap);
     return err;
 }

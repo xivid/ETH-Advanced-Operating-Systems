@@ -52,8 +52,16 @@ errval_t two_level_alloc(struct slot_allocator *ca, struct capref *ret)
     }
 
     /* If no more slots left, grow */
-    if (ca->space == 0) {
-        ca->space = ca->nslots;
+    /* It works the following way:
+     * For new slots we need some slab memory. If we ran out of slab memory,
+     * we need to grow the slab. To grow the slab we need at least one slot.
+     * Thus we get an infinite recursion. To avoid it the flag 
+     * "growing_in_progress" and a non-zero limit for minimal number of slots
+     * were added.
+     */
+    if (!ca->growing_in_progress && ca->space < 10) {
+        ca->growing_in_progress = true;
+        ca->space += ca->nslots;
         /* Pull in the reserve */
         mca->reserve->next = mca->head;
         mca->head = mca->reserve;
@@ -99,7 +107,8 @@ errval_t two_level_alloc(struct slot_allocator *ca, struct capref *ret)
                 return err_push(err, LIB_ERR_SLOT_ALLOC);
             }
             // use slab refill function that never causes a pagefault
-            err = slab_refill_no_pagefault(&mca->slab, frame, mca->slab.blocksize);
+            /* err = slab_refill_no_pagefault(&mca->slab, frame, mca->slab.blocksize); */
+            err = slab_default_refill(&mca->slab);
             if (err_is_fail(err)) {
                 return err_push(err, LIB_ERR_SLAB_REFILL);
             }
@@ -111,6 +120,7 @@ errval_t two_level_alloc(struct slot_allocator *ca, struct capref *ret)
                 thread_mutex_unlock(&ca->mutex);
                 return err_push(err, LIB_ERR_SLAB_ALLOC_FAIL);
             }
+            ca->growing_in_progress = true;
         }
 
         mca->reserve = buf;
@@ -185,6 +195,7 @@ errval_t two_level_slot_alloc_init_raw(struct multi_slot_allocator *ret,
     ret->a.free  = two_level_free;
     ret->a.space = L2_CNODE_SLOTS;
     ret->a.nslots = L2_CNODE_SLOTS;
+    ret->a.growing_in_progress = false;
     thread_mutex_init(&ret->a.mutex);
 
     // Top unused in two-level allocator

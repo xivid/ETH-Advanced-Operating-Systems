@@ -63,34 +63,33 @@ int main(int argc, char *argv[])
     bool allocs_failed = false;
 
     for (int i = 0; i < allocations; i++) {
-        printf("allocating ram %i:\n", i);
         err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
         if (err_is_fail(err)) {
-            printf("Failed allocating capability %i\n", i);
+            debug_printf("Failed allocating capability %i\n", i);
             allocs_failed = true;
             break;
         }
+        printf("Allocating cap %i: success\n", i);
     }
     if (!allocs_failed) {
         for (int i = 0; i < allocations; i++) {
             err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
             if (err_is_fail(err)) {
-                printf("Failed freeing capability %i\n", i);
+                debug_printf("Failed freeing capability %i\n", i);
                 break;
             }
-            printf("Successfully freed cap %i\n", i);
-            printf("-------------------------------------\n");
+            printf("Freeing cap %i: success\n", i);
         }
     }
 
-    /* for (int i = 0 ; i < 200 ; ++i) { // TODO: fix me, i fail with a *NULL */
-    /*     size_t retsize; */
-    /*     struct capref frame; */
-    /*     frame_alloc(&frame, BASE_PAGE_SIZE, &retsize); */
-    /*     int *buf = (int *) alloc_page(frame); */
-    /*     debug_printf("buf %i, buf is %p\n", i, buf); */
-    /*     buf[0] = 42; */
-    /* } */
+    for (int i = 0 ; i < 200 ; ++i) {
+        size_t retsize;
+        struct capref frame;
+        frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
+        int *buf = (int *) alloc_page(frame);
+        buf[0] = 42;
+        printf("Mapping address %i: success\n", i, buf);
+    }
 
     // End Tests
     // Hang around
