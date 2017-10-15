@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
     // Begin Tests
 
 
-     const int allocations = 250;
+     const int allocations = 500;
     struct capref capabilities[allocations];
 
     for (int i = 0; i < allocations; i++) {
@@ -75,16 +75,18 @@ int main(int argc, char *argv[])
             printf("Failed freeing capability %i\n", i);
             break;
         }
+        printf("Successfully freed cap %i\n", i);
+        printf("-------------------------------------\n");
     } 
 
-    for (int i = 0 ; i < 200 ; ++i) { // TODO: fix me, i fail with a *NULL
-        size_t retsize;
-        struct capref frame;
-        frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
-        int *buf = (int *) alloc_page(frame);
-        debug_printf("buf %i, buf is %p\n", i, buf);
-        buf[0] = 42;
-    }
+    /* for (int i = 0 ; i < 200 ; ++i) { // TODO: fix me, i fail with a *NULL */
+    /*     size_t retsize; */
+    /*     struct capref frame; */
+    /*     frame_alloc(&frame, BASE_PAGE_SIZE, &retsize); */
+    /*     int *buf = (int *) alloc_page(frame); */
+    /*     debug_printf("buf %i, buf is %p\n", i, buf); */
+    /*     buf[0] = 42; */
+    /* } */
 
     // End Tests
     // Hang around

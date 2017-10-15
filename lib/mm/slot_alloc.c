@@ -83,6 +83,12 @@ out:
     return SYS_ERR_OK;
 }
 
+bool slot_alloc_enough_slots(void *inst, uint64_t nslots) {
+    struct slot_prealloc *this = inst;
+    assert(nslots < L2_CNODE_SLOTS);
+    return (this->meta[0].free >= nslots || this->meta[1].free >= nslots);
+}
+
 errval_t slot_alloc_prealloc(void *inst, uint64_t nslots, struct capref *ret)
 {
     struct slot_prealloc *this = inst;

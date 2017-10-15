@@ -21,6 +21,7 @@
 
 __BEGIN_DECLS
 
+
 /// Generic interface to slot allocator function
 typedef errval_t (*slot_alloc_t)(void *inst, uint64_t nslots, struct capref *ret);
 typedef errval_t (*slot_refill_t)(void *inst);
@@ -55,6 +56,9 @@ errval_t slot_prealloc_init(struct slot_prealloc *slot_alloc,
 
 /// Refill function for the pre-allocating implementation
 errval_t slot_prealloc_refill(void *inst);
+
+/// Checks that there's enough free slots to allocate nslots.
+bool slot_alloc_enough_slots(void *inst, uint64_t nslots);
 
 /// Instance data for simple base-cnode allocator
 struct slot_alloc_basecn {

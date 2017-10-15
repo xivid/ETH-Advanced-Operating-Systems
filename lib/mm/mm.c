@@ -157,6 +157,15 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
                 }
             }
 
+            if (!slot_alloc_enough_slots(mm->slot_alloc_inst, 2)) {
+                debug_printf("Ran out of free slots. Refilling...\n");
+                err = slot_prealloc_refill(mm->slot_alloc_inst);
+                if (err_is_fail(err)) {
+                    DEBUG_ERR(err, "slot refill failed");
+                    return err;
+                }
+            }
+
             struct capref new_cap_slot;
             err = slot_alloc_prealloc(mm->slot_alloc_inst, 2, &new_cap_slot);
             if (err_is_fail(err)) {
