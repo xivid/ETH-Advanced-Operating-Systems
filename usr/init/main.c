@@ -23,6 +23,9 @@
 #include <mm/mm.h>
 #include "mem_alloc.h"
 
+bool test_alloc_free(int count);
+bool test_virtual_memory(int count);
+
 coreid_t my_core_id;
 struct bootinfo *bi;
 
@@ -53,45 +56,6 @@ int main(int argc, char *argv[])
     }
 
     debug_printf("Message handler loop\n");
-
-    printf("Running tests:\n");
-    // Begin Tests
-
-
-    const int allocations = 1000;
-    struct capref capabilities[allocations];
-    bool allocs_failed = false;
-
-    for (int i = 0; i < allocations; i++) {
-        err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
-        if (err_is_fail(err)) {
-            debug_printf("Failed allocating capability %i\n", i);
-            allocs_failed = true;
-            break;
-        }
-        printf("Allocating cap %i: success\n", i);
-    }
-    if (!allocs_failed) {
-        for (int i = 0; i < allocations; i++) {
-            err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
-            if (err_is_fail(err)) {
-                debug_printf("Failed freeing capability %i\n", i);
-                break;
-            }
-            printf("Freeing cap %i: success\n", i);
-        }
-    }
-
-    for (int i = 0 ; i < 200 ; ++i) {
-        size_t retsize;
-        struct capref frame;
-        frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
-        int *buf = (int *) alloc_page(frame);
-        buf[0] = 42;
-        printf("Mapping address %i: success\n", i, buf);
-    }
-
-    // End Tests
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
@@ -103,4 +67,49 @@ int main(int argc, char *argv[])
     }
     
     return EXIT_SUCCESS;
+}
+
+__attribute__((unused))
+bool test_alloc_free(int allocations) {
+    struct capref capabilities[allocations];
+    errval_t err;
+
+    for (int i = 0; i < allocations; i++) {
+        err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
+        if (err_is_fail(err)) {
+            debug_printf("Failed allocating capability %i\n", i);
+            return false;
+        }
+    }
+    debug_printf("allocations test succeeded\n");
+    for (int i = 0; i < allocations; i++) {
+        err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
+        if (err_is_fail(err)) {
+            debug_printf("Failed freeing capability %i\n", i);
+            return false;
+        }
+    }
+    debug_printf("frees test succeeded\n");
+    return true;
+}
+
+__attribute__((unused))
+bool test_virtual_memory(int count) {
+    for (int i = 0 ; i < count ; ++i) {
+        size_t retsize;
+        struct capref frame;
+        frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
+        int *buf = (int *) alloc_page(frame);
+        if (!buf) {
+            debug_printf("Failed mapping %i\n", i);
+            return false;
+        } else {
+            debug_printf("Succeeded mapping %i\n", i);
+            debug_printf("-----------------------------\n");
+        }
+
+        buf[0] = 42;
+    }
+    debug_printf("virtual memory test succeeded\n");
+    return true;
 }
