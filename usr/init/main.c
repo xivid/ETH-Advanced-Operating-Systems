@@ -56,6 +56,7 @@ int main(int argc, char *argv[])
     }
 
     debug_printf("Message handler loop\n");
+    test_virtual_memory(400);
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
@@ -95,20 +96,21 @@ bool test_alloc_free(int allocations) {
 
 __attribute__((unused))
 bool test_virtual_memory(int count) {
+    errval_t err;
     for (int i = 0 ; i < count ; ++i) {
         size_t retsize;
         struct capref frame;
+        void *buf;
         frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
-        int *buf = (int *) alloc_page(frame);
-        if (!buf) {
-            debug_printf("Failed mapping %i\n", i);
+        err = paging_map_frame_wrapper(&buf, BASE_PAGE_SIZE, frame);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "Failed mapping %i\n", i);
             return false;
         } else {
             debug_printf("Succeeded mapping %i\n", i);
             debug_printf("-----------------------------\n");
         }
-
-        buf[0] = 42;
+        ((int *)buf)[0] = 42;
     }
     debug_printf("virtual memory test succeeded\n");
     return true;

@@ -26,6 +26,9 @@ static struct paging_state current;
 static void exception_handler(enum exception_type type, int subtype,
                                      void *addr, arch_registers_state_t *regs,
                                      arch_registers_fpu_state_t *fpuregs);
+static errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
+        struct capref l1_cap, lvaddr_t index_l1);
+
 /**
  * \brief Helper function that allocates a slot and
  *        creates a ARM l2 page table capability
@@ -50,9 +53,14 @@ static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir, struct slot_allocator * ca)
 {
-    // TODO (M2): implement state struct initialization
     // TODO (M4): Implement page fault handler that installs frames when a page fault
     // occurs and keeps track of the virtual address space.
+    set_current_paging_state(st);
+    st->slot_alloc = ca;
+    st->next_free_addr = start_vaddr;
+    for (int i = 0; i < ARM_L1_MAX_ENTRIES; ++i) {
+        st->l2_pagetabs[i].initialized = false;
+    }
     return SYS_ERR_OK;
 }
 
@@ -75,22 +83,17 @@ void exception_handler(enum exception_type type, int subtype,
 errval_t paging_init(void)
 {
     debug_printf("paging_init\n");
-    // TODO (M2): Call paging_init_state for &current
     // TODO (M4): initialize self-paging handler
     // TIP: use thread_set_exception_handler() to setup a page fault handler
     // TIP: Think about the fact that later on, you'll have to make sure that
     // you can handle page faults in any thread of a domain.
     // TIP: it might be a good idea to call paging_init_state() from here to
     // avoid code duplication.
-    set_current_paging_state(&current);
-    current.slot_alloc = get_default_slot_allocator();
-    thread_set_exception_handler(exception_handler, NULL, NULL, NULL, NULL,
-           NULL); 
-    current.next_free_addr = 1 << 30;
-    size_t i;
-    for (i = 0; i < ARM_L1_MAX_ENTRIES; ++i) {
-        current.l2_pagetabs[i].initialized = false;
-    }
+    struct slot_allocator *default_sa = get_default_slot_allocator();
+    lvaddr_t initial_offset = VADDR_OFFSET; // 1 GB
+    // not clear to me right now what pdir is used for in paging_init_state
+    struct capref pdir; 
+    paging_init_state(&current, initial_offset, pdir, default_sa);
     return SYS_ERR_OK;
 }
 
@@ -168,9 +171,21 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
-    // TODO: M2 Implement this function
-    *buf = NULL;
+    size_t round_size = ROUND_UP(bytes, BASE_PAGE_SIZE);
+    *buf = (void *) st->next_free_addr;
+    st->next_free_addr += round_size;
+    // TODO: detect integer overflows
+    // TODO: think about a smarter strategy, we'll need it for freeing memory
+    // and defragmentation issues
     return SYS_ERR_OK;
+}
+
+/**
+ * \brief A wrapper around paging_map_frame_attr
+ */
+errval_t paging_map_frame_wrapper(void **buf, size_t bytes, struct capref frame) {
+    return paging_map_frame_attr(&current, buf, bytes, frame, 
+            VREGION_FLAGS_READ_WRITE, NULL, NULL);
 }
 
 /**
@@ -195,22 +210,30 @@ slab_refill_no_pagefault(struct slab_allocator *slabs, struct capref frame, size
     return SYS_ERR_OK;
 }
 
-void *alloc_page(struct capref frame) {
-    errval_t err = paging_map_fixed_attr(&current, current.next_free_addr, frame, BASE_PAGE_SIZE,
- VREGION_FLAGS_READ_WRITE);
+errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
+        struct capref l1_cap, lvaddr_t index_l1) {
+    errval_t err = arml2_alloc(st, ret);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "paging.c alloc_page failed");
-        return NULL;
+        DEBUG_ERR(err, "arml2_alloc failed\n");
+        return err;
     }
-    void *ret = (void *) current.next_free_addr;
-    current.next_free_addr += BASE_PAGE_SIZE;
-    return ret;
+    struct capref mapping;
+    slot_alloc(&mapping);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "slot allocation failed");
+        return err;
+    }
+    err = vnode_map(l1_cap, *ret, index_l1, VREGION_FLAGS_READ_WRITE, 0, 1, mapping);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "vnode_map failed");
+        return err;
+    }
+    st->l2_pagetabs[index_l1].initialized = true;
+    st->l2_pagetabs[index_l1].cap = *ret;
+    return SYS_ERR_OK;
 }
-
 /**
  * \brief map a user provided frame at user provided VA.
- * TODO(M1): Map a frame assuming all mappings will fit into one L2 pt
- * TODO(M2): General case
  */
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
@@ -220,39 +243,44 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         .slot = 0,
     };
     errval_t err;
-    struct capref l2_cap;
-    lvaddr_t index_l1 = ARM_L1_OFFSET(vaddr);
-    if (!st->l2_pagetabs[index_l1].initialized) {
-        err = arml2_alloc(st, &l2_cap);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "arml2_alloc failed\n");
-            return err;
+    lvaddr_t cur_vaddr = vaddr;
+    size_t bytes_left = ROUND_UP(bytes, BASE_PAGE_SIZE);
+    /* debug_printf("entered paging_map_fixed_att: vaddr=0x%x bytes=%d round=%d\n", vaddr, bytes, bytes_left); */
+    while (bytes_left > 0) {
+        struct capref l2_cap;
+        lvaddr_t index_l1 = ARM_L1_OFFSET(vaddr);
+        if (!st->l2_pagetabs[index_l1].initialized) {
+            err = init_l2_pagetab(st, &l2_cap, l1_cap_dest, index_l1);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "l2 pagetab initialisation failed");
+                return err;
+            }
+        } else {
+            l2_cap = st->l2_pagetabs[index_l1].cap;
         }
+
         struct capref mapping;
-        slot_alloc(&mapping);
+        err = slot_alloc(&mapping);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "slot allocation failed");
             return err;
         }
-        err = vnode_map(l1_cap_dest, l2_cap, index_l1, VREGION_FLAGS_READ_WRITE, 0, 1, mapping);
+
+        lvaddr_t l2_offset = ARM_L2_OFFSET(vaddr);
+        uint64_t source_offset = (uint64_t) (cur_vaddr - vaddr);
+        uint64_t pte_count = MIN(bytes_left / BASE_PAGE_SIZE, 
+                ARM_L2_MAX_ENTRIES - l2_offset);
+        /* debug_printf("writing: vaddr=0x%x bytes_left=%d pte_count=%llu l2_offset=%d source_offset=%llu\n", cur_vaddr, bytes_left, pte_count, l2_offset, source_offset); */
+        err = vnode_map(l2_cap, frame, l2_offset, flags, 
+                source_offset, pte_count, mapping);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "vnode_map failed");
             return err;
         }
-
-        st->l2_pagetabs[index_l1].initialized = true;
-        st->l2_pagetabs[index_l1].cap = l2_cap;
-    } else {
-        l2_cap = st->l2_pagetabs[index_l1].cap;
+        bytes_left -= pte_count * BASE_PAGE_SIZE;
+        cur_vaddr += pte_count * BASE_PAGE_SIZE;
     }
-    struct capref frame_cap;
-    err = slot_alloc(&frame_cap);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "slot allocation failed");
-        return err;
-    }
-    err = vnode_map(l2_cap, frame, ARM_L2_OFFSET(vaddr), flags, 0, 1, frame_cap);
-    return err;
+    return SYS_ERR_OK;
 }
 
 /**

@@ -57,6 +57,8 @@ struct paging_state {
     // TODO: add struct members to keep track of the page tables etc
 };
 
+/// A wrapper around paging_map_frame_attr
+errval_t paging_map_frame_wrapper(void **buf, size_t bytes, struct capref frame);
 
 struct thread;
 /// Initialize paging_state struct
@@ -73,7 +75,6 @@ struct paging_region {
     size_t region_size;
     // TODO: if needed add struct members for tracking state
 };
-void *alloc_page(struct capref frame);
 errval_t paging_region_init(struct paging_state *st,
                             struct paging_region *pr, size_t size);
 
