@@ -24,7 +24,7 @@
 #include "mem_alloc.h"
 
 bool test_alloc_free(int count);
-bool test_virtual_memory(int count);
+bool test_virtual_memory(int count, int size);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
     }
 
     debug_printf("Message handler loop\n");
-    test_virtual_memory(400);
+    test_virtual_memory(10, 1 << 24);
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
@@ -95,14 +95,14 @@ bool test_alloc_free(int allocations) {
 }
 
 __attribute__((unused))
-bool test_virtual_memory(int count) {
+bool test_virtual_memory(int count, int size) {
     errval_t err;
     for (int i = 0 ; i < count ; ++i) {
         size_t retsize;
         struct capref frame;
         void *buf;
-        frame_alloc(&frame, BASE_PAGE_SIZE, &retsize);
-        err = paging_map_frame_wrapper(&buf, BASE_PAGE_SIZE, frame);
+        frame_alloc(&frame, size, &retsize);
+        err = paging_map_frame_wrapper(&buf, size, frame);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "Failed mapping %i\n", i);
             return false;

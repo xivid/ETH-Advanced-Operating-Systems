@@ -248,7 +248,7 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
     /* debug_printf("entered paging_map_fixed_att: vaddr=0x%x bytes=%d round=%d\n", vaddr, bytes, bytes_left); */
     while (bytes_left > 0) {
         struct capref l2_cap;
-        lvaddr_t index_l1 = ARM_L1_OFFSET(vaddr);
+        lvaddr_t index_l1 = ARM_L1_OFFSET(cur_vaddr);
         if (!st->l2_pagetabs[index_l1].initialized) {
             err = init_l2_pagetab(st, &l2_cap, l1_cap_dest, index_l1);
             if (err_is_fail(err)) {
@@ -266,11 +266,11 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
             return err;
         }
 
-        lvaddr_t l2_offset = ARM_L2_OFFSET(vaddr);
+        lvaddr_t l2_offset = ARM_L2_OFFSET(cur_vaddr);
         uint64_t source_offset = (uint64_t) (cur_vaddr - vaddr);
         uint64_t pte_count = MIN(bytes_left / BASE_PAGE_SIZE, 
                 ARM_L2_MAX_ENTRIES - l2_offset);
-        /* debug_printf("writing: vaddr=0x%x bytes_left=%d pte_count=%llu l2_offset=%d source_offset=%llu\n", cur_vaddr, bytes_left, pte_count, l2_offset, source_offset); */
+        /* debug_printf("writing: vaddr=0x%x bytes_left=0x%x pte_count=%llu l2_offset=%d source_offset=0x%llx\n", cur_vaddr, bytes_left, pte_count, l2_offset, source_offset); */
         err = vnode_map(l2_cap, frame, l2_offset, flags, 
                 source_offset, pte_count, mapping);
         if (err_is_fail(err)) {
