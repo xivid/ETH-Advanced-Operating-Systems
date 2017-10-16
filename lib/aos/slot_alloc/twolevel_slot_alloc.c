@@ -120,7 +120,6 @@ errval_t two_level_alloc(struct slot_allocator *ca, struct capref *ret)
                 thread_mutex_unlock(&ca->mutex);
                 return err_push(err, LIB_ERR_SLAB_ALLOC_FAIL);
             }
-            ca->growing_in_progress = true;
         }
 
         mca->reserve = buf;
@@ -134,6 +133,7 @@ errval_t two_level_alloc(struct slot_allocator *ca, struct capref *ret)
             thread_mutex_unlock(&ca->mutex);
             return err_push(err, LIB_ERR_SINGLE_SLOT_ALLOC_INIT_RAW);
         }
+        ca->growing_in_progress = false;
     }
 
     thread_mutex_unlock(&ca->mutex);
