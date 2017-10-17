@@ -25,7 +25,7 @@
 #include <spawn/spawn.h>
 
 bool test_alloc_free(int count);
-bool test_virtual_memory(int count);
+bool test_virtual_memory(int count, int size);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
@@ -55,10 +55,10 @@ int main(int argc, char *argv[])
     if(err_is_fail(err)){
         DEBUG_ERR(err, "initialize_ram_alloc");
     }
-    
+
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
     spawn_load_by_name("/armv7/sbin/hello", si);
-    
+
     debug_printf("Message handler loop\n");
     test_virtual_memory(10, 1 << 24);
     // Hang around
@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
             abort();
         }
     }
-    
+
     return EXIT_SUCCESS;
 }
 
@@ -99,7 +99,9 @@ bool test_alloc_free(int allocations) {
 }
 
 __attribute__((unused))
-bool test_virtual_memory(int count) {
+bool test_virtual_memory(int count, int size) {
+    errval_t err;
+
     for (int i = 0 ; i < count ; ++i) {
         size_t retsize;
         struct capref frame;
