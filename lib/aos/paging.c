@@ -92,7 +92,7 @@ errval_t paging_init(void)
     struct slot_allocator *default_sa = get_default_slot_allocator();
     lvaddr_t initial_offset = VADDR_OFFSET; // 1 GB
     // not clear to me right now what pdir is used for in paging_init_state
-    struct capref pdir; 
+    struct capref pdir;
     paging_init_state(&current, initial_offset, pdir, default_sa);
     return SYS_ERR_OK;
 }
@@ -184,7 +184,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
  * \brief A wrapper around paging_map_frame_attr
  */
 errval_t paging_map_frame_wrapper(void **buf, size_t bytes, struct capref frame) {
-    return paging_map_frame_attr(&current, buf, bytes, frame, 
+    return paging_map_frame_attr(&current, buf, bytes, frame,
             VREGION_FLAGS_READ_WRITE, NULL, NULL);
 }
 
@@ -232,6 +232,7 @@ errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
     st->l2_pagetabs[index_l1].cap = *ret;
     return SYS_ERR_OK;
 }
+
 /**
  * \brief map a user provided frame at user provided VA.
  */
@@ -268,10 +269,10 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
 
         lvaddr_t l2_offset = ARM_L2_OFFSET(cur_vaddr);
         uint64_t source_offset = (uint64_t) (cur_vaddr - vaddr);
-        uint64_t pte_count = MIN(bytes_left / BASE_PAGE_SIZE, 
+        uint64_t pte_count = MIN(bytes_left / BASE_PAGE_SIZE,
                 ARM_L2_MAX_ENTRIES - l2_offset);
         /* debug_printf("writing: vaddr=0x%x bytes_left=0x%x pte_count=%llu l2_offset=%d source_offset=0x%llx\n", cur_vaddr, bytes_left, pte_count, l2_offset, source_offset); */
-        err = vnode_map(l2_cap, frame, l2_offset, flags, 
+        err = vnode_map(l2_cap, frame, l2_offset, flags,
                 source_offset, pte_count, mapping);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "vnode_map failed");

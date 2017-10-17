@@ -9,6 +9,9 @@
 
 extern struct bootinfo *bi;
 
+errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret);
+errval_t init_child_vspace(struct spawninfo* si);
+
 errval_t init_child_cspace(struct spawninfo* si) {
 
     // create l1Cnode
@@ -60,6 +63,29 @@ errval_t init_child_cspace(struct spawninfo* si) {
     return SYS_ERR_OK;
 }
 
+errval_t init_child_vspace(struct spawninfo* si) {
+    errval_t err;
+
+    struct capref l1pagetable = {
+        .cnode = si->l2_cnodes[ROOTCN_SLOT_PAGECN],
+        .slot = 0
+    };
+    err = vnode_create(l1pagetable, ObjType_VNode_ARM_l1);
+    if (err_is_fail(err)) {
+        debug_printf("Error creating vnode\n");
+        return err;
+    }
+
+    struct slot_allocator *default_sa = get_default_slot_allocator();
+    err = paging_init_state(&si->process_paging_state, VADDR_OFFSET, l1pagetable, default_sa);
+    if (err_is_fail(err)) {
+        debug_printf("Error initing the paging state\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
 // TODO(M2): Implement this function such that it starts a new process
 // TODO(M4): Build and pass a messaging channel to your child process
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
@@ -107,11 +133,21 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error during init_child_cspace: %s \n", err_getstring(err));
         return err;
     }
+
+    err = init_child_vspace(si);
+    if (err_is_fail(err)) {
+        debug_printf("Error during init_child_vspace: %s \n", err_getstring(err));
+        return err;
+    }
+
+    genvaddr_t child_entry;
+    err = elf_load(EM_ARM, elf_allocate, &si->process_paging_state, map_elf, id_child_frame.bytes, &child_entry);
+    if (err_is_fail(err)) {
+        debug_printf("Error: unable to load elf\n");
+        return err;
+    }
+
     printf("reached end of stuff which is implemented so far\n");
-
-    // TODO: create vspace
-
-    /* err = elf_load(EM_ARM, , get_current_paging_state(), , , ); */
 
     // TODO: Implement me
     // - Setup childs cspace
@@ -120,6 +156,36 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     // - Setup dispatcher
     // - Setup environment
     // - Make dispatcher runnable
+
+    return SYS_ERR_OK;
+}
+
+errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret) {
+    printf("Call elf allocate with state:%p, base:%llu, size:%lu, flags:%lu \n", state, base, size, flags);
+
+    struct capref region_cap;
+    size_t actual_bytes;
+    errval_t err = frame_alloc(&region_cap, size, &actual_bytes);
+    if (err_is_fail(err)) {
+        debug_printf("Error failed to allocate the needed ram\n");
+        return err;
+    }
+
+    // map frame into our vtable with write permissions
+    err = paging_map_frame_attr(get_current_paging_state(), ret, actual_bytes,
+                                region_cap, VREGION_FLAGS_WRITE, NULL, NULL);
+
+    // map frame into the processes vtable with the requested permissions
+    uint32_t permission = 0;
+    if (flags & PF_X) {
+        permission |= VREGION_FLAGS_EXECUTE;
+    } else if (flags & PF_W) {
+        permission |= VREGION_FLAGS_WRITE;
+    } else if (flags & PF_R) {
+        permission |= VREGION_FLAGS_READ;
+    }
+    err = paging_map_frame_attr(state, ret, actual_bytes, region_cap,
+                                permission, NULL, NULL);
 
     return SYS_ERR_OK;
 }
