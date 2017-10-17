@@ -180,10 +180,12 @@ static errval_t slab_refill_pages(struct slab_allocator *slabs, size_t bytes)
 {
     size_t retsize;
     struct capref frame;
+    void *buf;
     frame_alloc(&frame, bytes, &retsize);
-    void *buf = alloc_page(frame);
-    if (buf == NULL) {
-        return LIB_ERR_SLAB_REFILL;
+    errval_t err = paging_map_frame_wrapper(&buf, BASE_PAGE_SIZE, frame);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "error at mapping in slab_refill_pages");
+        return err;
     }
     slab_grow(slabs, buf, bytes);
     return SYS_ERR_OK;

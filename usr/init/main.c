@@ -60,6 +60,7 @@ int main(int argc, char *argv[])
     spawn_load_by_name("/armv7/sbin/hello", si);
     
     debug_printf("Message handler loop\n");
+    test_virtual_memory(10, 1 << 24);
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
@@ -102,17 +103,17 @@ bool test_virtual_memory(int count) {
     for (int i = 0 ; i < count ; ++i) {
         size_t retsize;
         struct capref frame;
-        frame_alloc(&frame, 64*1024*1024u, &retsize);
-        int *buf = (int *) alloc_page(frame);
-        if (!buf) {
-            debug_printf("Failed mapping %i\n", i);
+        void *buf;
+        frame_alloc(&frame, size, &retsize);
+        err = paging_map_frame_wrapper(&buf, size, frame);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "Failed mapping %i\n", i);
             return false;
         } else {
             debug_printf("Succeeded mapping %i\n", i);
             debug_printf("-----------------------------\n");
         }
-
-        buf[0] = 42;
+        ((int *)buf)[0] = 42;
     }
     debug_printf("virtual memory test succeeded\n");
     return true;
