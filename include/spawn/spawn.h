@@ -28,6 +28,9 @@ struct spawninfo {
     struct cnoderef l2_cnodes[ROOTCN_SLOTS_USER];
 
     struct paging_state process_paging_state;
+
+    dispatcher_handle_t handle;
+
     // TODO: Use this structure to keep track
     // of information you need for building/starting
     // your new process!
