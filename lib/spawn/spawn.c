@@ -158,29 +158,29 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
 }
 
 errval_t add_args(struct spawninfo* si, struct mem_region* module) {
-    
+
     // get args as char
     const char* args = multiboot_module_opts(module);
     size_t args_length = strlen(args);
     size_t frame_size = ROUND_UP(sizeof(struct spawn_domain_params) + args_length + 1, BASE_PAGE_SIZE);
-    
+
     // allocate frame for args
     struct capref parent_frame;
     void* args_vaddr;
     size_t resultSize;
-    err = frame_alloc(&parent_frame, frame_size, &resultSize);
+    errval_t err = frame_alloc(&parent_frame, frame_size, &resultSize);
     if (err_is_fail(err)) {
         debug_printf("Error during parent frame alloc in add_args: %s\n", err_getstring(err));
         return err;
     }
-    
+
     // map args to parent vspace
     err = paging_map_frame(get_current_paging_state(), &args_vaddr, resultSize, parent_frame, NULL, NULL);
     if (err_is_fail(err)) {
         debug_printf("Error during args mapping to parent vspace in add_args: %s\n", err_getstring(err));
         return err;
     }
-    
+
     // copy args to child cspace
     struct capref child_frame = {
         .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
@@ -191,7 +191,7 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
         debug_printf("Error during capref copy from parent to child in add_args: %s\n", err_getstring(err));
         return err;
     }
-    
+
     // map args to child vspace
     void* child_args_vaddr;
     err = paging_map_frame(&si->process_paging_state, &child_args_vaddr, resultSize, parent_frame, NULL, NULL);
@@ -199,19 +199,20 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
         debug_printf("Error during mapping of args to chlid vspace in add_args: %s\n", err_getstring(err));
         return err;
     }
-    
+
     // add args into spawn_domain_params
     struct spawn_domain_params* spawn_params = (struct spawn_domain_params*) args_vaddr;
     memset(&spawn_params->argv[0], 0, sizeof(spawn_params->argv));
     memset(&spawn_params->envp[0], 0, sizeof(spawn_params->envp));
-    
+
     // add argv to child vspace
-    char* base = (char*) spawn_params + sizeof(struct spawn_params);
+    char* base = (char*) spawn_params + sizeof(struct spawn_domain_params);
     char* end = base;
-    lvaddr_t child_base_addr = sizeof(struct spawn_params) + (lvaddr_t) child_args_vaddr;
+    lvaddr_t child_base_addr = sizeof(struct spawn_domain_params) + (lvaddr_t) child_args_vaddr;
     strcpy(base, args);
     size_t argc = 0;
-    for (char*it = base; *it; ++it) {
+    char *last = base;
+    for (char *it = base; *it; ++it) {
         if (*it== ' ') {
             *it = 0;
             spawn_params->argv[argc++] = (void*) child_base_addr + (end-base);
@@ -219,10 +220,10 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
             last = it;
         }
     }
-    
+
     spawn_params->argc = argc;
     spawn_params->argv[argc++] = (void*) (last-base) + child_base_addr;
-    
+
     // zero the rest
     spawn_params->vspace_buf = NULL;
     spawn_params->vspace_buf_len = 0;
@@ -230,7 +231,7 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
     spawn_params->tls_init_len = 0;
     spawn_params->tls_total_len = 0;
     spawn_params->pagesize = 0;
-    
+
     si->enabled_area->named.r0 = (uint32_t) child_args_vaddr;
     return SYS_ERR_OK;
 }
@@ -301,16 +302,16 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error during dispatcher creation\n");
         return err;
     }
-    
+
     err = add_args(si, module);
     if (err_is_fail(err)) {
         debug_printf("Error on setting up arguments\n");
         return err;
     }
-    
+
     // from invocations.h:
     //     static inline errval_t invoke_dispatcher(struct capref dispatcher, struct capref domdispatcher, struct capref cspace, struct capref vspace, struct capref dispframe, bool run)
-    
+
     // TODO: one of the cap_dispatcher is incorrect... i can't find which one should be filled in
     err = invoke_dispatcher(cap_dispatcher, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, si->dispatcher_cap, true);
     if (err_is_fail(err)) {
@@ -335,9 +336,17 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
         return err;
     }
 
+    printf("after frame_alloc\n");
+
     // map frame into our vtable with write permissions
     err = paging_map_frame_attr(get_current_paging_state(), ret, actual_bytes,
                                 region_cap, VREGION_FLAGS_WRITE, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to map binary region into parent vtable\n");
+        return err;
+    }
+
+    printf("After parent map\n");
 
     // map frame into the processes vtable with the requested permissions
     uint32_t permission = 0;
@@ -348,9 +357,13 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     } else if (flags & PF_R) {
         permission |= VREGION_FLAGS_READ;
     }
-    void *child_addr;
-    err = paging_map_frame_attr(state, &child_addr, actual_bytes, region_cap,
-                                permission, NULL, NULL);
+    err = paging_map_fixed_attr(state, base, region_cap, actual_bytes, permission);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to map binary region into child vtable\n");
+        return err;
+    }
+
+    printf("Got to end of elf_allocate\n");
 
     return SYS_ERR_OK;
 }

@@ -111,7 +111,7 @@ bool test_virtual_memory(int count, int size) {
         struct capref frame;
         void *buf;
         frame_alloc(&frame, size, &retsize);
-        err = paging_map_frame_wrapper(&buf, size, frame);
+        err = paging_map_frame_readwrite(&buf, size, frame);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "Failed mapping %i\n", i);
             return false;

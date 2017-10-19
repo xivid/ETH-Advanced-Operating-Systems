@@ -58,7 +58,7 @@ struct paging_state {
 };
 
 /// A wrapper around paging_map_frame_attr
-errval_t paging_map_frame_wrapper(void **buf, size_t bytes, struct capref frame);
+errval_t paging_map_frame_readwrite(void **buf, size_t bytes, struct capref frame);
 
 struct thread;
 /// Initialize paging_state struct

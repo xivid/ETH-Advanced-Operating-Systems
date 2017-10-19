@@ -182,7 +182,7 @@ static errval_t slab_refill_pages(struct slab_allocator *slabs, size_t bytes)
     struct capref frame;
     void *buf;
     frame_alloc(&frame, bytes, &retsize);
-    errval_t err = paging_map_frame_wrapper(&buf, BASE_PAGE_SIZE, frame);
+    errval_t err = paging_map_frame_readwrite(&buf, BASE_PAGE_SIZE, frame);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "error at mapping in slab_refill_pages");
         return err;
