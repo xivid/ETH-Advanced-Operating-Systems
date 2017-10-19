@@ -12,6 +12,7 @@ extern struct bootinfo *bi;
 errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret);
 errval_t init_child_vspace(struct spawninfo* si);
 errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes);
+errval_t add_args(struct spawninfo* si, struct mem_region* module);
 
 errval_t init_child_cspace(struct spawninfo* si) {
 
@@ -83,6 +84,7 @@ errval_t init_child_vspace(struct spawninfo* si) {
         debug_printf("Error initing the paging state\n");
         return err;
     }
+    si->l1pagetable = l1pagetable;
 
     return SYS_ERR_OK;
 }
@@ -148,8 +150,88 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
     disp_gen->eh_frame_hdr = 0;
     disp_gen->eh_frame_hdr_size = 0;
 
+    si->enabled_area = enabled_area;
     si->handle = handle;
+    si->dispatcher_cap = dispatcher_cap;
 
+    return SYS_ERR_OK;
+}
+
+errval_t add_args(struct spawninfo* si, struct mem_region* module) {
+    
+    // get args as char
+    const char* args = multiboot_module_opts(module);
+    size_t args_length = strlen(args);
+    size_t frame_size = ROUND_UP(sizeof(struct spawn_domain_params) + args_length + 1, BASE_PAGE_SIZE);
+    
+    // allocate frame for args
+    struct capref parent_frame;
+    void* args_vaddr;
+    size_t resultSize;
+    err = frame_alloc(&parent_frame, frame_size, &resultSize);
+    if (err_is_fail(err)) {
+        debug_printf("Error during parent frame alloc in add_args: %s\n", err_getstring(err));
+        return err;
+    }
+    
+    // map args to parent vspace
+    err = paging_map_frame(get_current_paging_state(), &args_vaddr, resultSize, parent_frame, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("Error during args mapping to parent vspace in add_args: %s\n", err_getstring(err));
+        return err;
+    }
+    
+    // copy args to child cspace
+    struct capref child_frame = {
+        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+        .slot = TASKCN_SLOT_ARGSPAGE
+    };
+    err = cap_copy(child_frame, parent_frame);
+    if (err_is_fail(err)) {
+        debug_printf("Error during capref copy from parent to child in add_args: %s\n", err_getstring(err));
+        return err;
+    }
+    
+    // map args to child vspace
+    void* child_args_vaddr;
+    err = paging_map_frame(&si->process_paging_state, &child_args_vaddr, resultSize, parent_frame, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("Error during mapping of args to chlid vspace in add_args: %s\n", err_getstring(err));
+        return err;
+    }
+    
+    // add args into spawn_domain_params
+    struct spawn_domain_params* spawn_params = (struct spawn_domain_params*) args_vaddr;
+    memset(&spawn_params->argv[0], 0, sizeof(spawn_params->argv));
+    memset(&spawn_params->envp[0], 0, sizeof(spawn_params->envp));
+    
+    // add argv to child vspace
+    char* base = (char*) spawn_params + sizeof(struct spawn_params);
+    char* end = base;
+    lvaddr_t child_base_addr = sizeof(struct spawn_params) + (lvaddr_t) child_args_vaddr;
+    strcpy(base, args);
+    size_t argc = 0;
+    for (char*it = base; *it; ++it) {
+        if (*it== ' ') {
+            *it = 0;
+            spawn_params->argv[argc++] = (void*) child_base_addr + (end-base);
+            ++it;
+            last = it;
+        }
+    }
+    
+    spawn_params->argc = argc;
+    spawn_params->argv[argc++] = (void*) (last-base) + child_base_addr;
+    
+    // zero the rest
+    spawn_params->vspace_buf = NULL;
+    spawn_params->vspace_buf_len = 0;
+    spawn_params->tls_init_base = NULL;
+    spawn_params->tls_init_len = 0;
+    spawn_params->tls_total_len = 0;
+    spawn_params->pagesize = 0;
+    
+    si->enabled_area->named.r0 = (uint32_t) child_args_vaddr;
     return SYS_ERR_OK;
 }
 
@@ -219,16 +301,25 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error during dispatcher creation\n");
         return err;
     }
+    
+    err = add_args(si, module);
+    if (err_is_fail(err)) {
+        debug_printf("Error on setting up arguments\n");
+        return err;
+    }
+    
+    // from invocations.h:
+    //     static inline errval_t invoke_dispatcher(struct capref dispatcher, struct capref domdispatcher, struct capref cspace, struct capref vspace, struct capref dispframe, bool run)
+    
+    // TODO: one of the cap_dispatcher is incorrect... i can't find which one should be filled in
+    err = invoke_dispatcher(cap_dispatcher, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, si->dispatcher_cap, true);
+    if (err_is_fail(err)) {
+        debug_printf("Error on invoking dispatcher\n");
+        return err;
+    }
 
     printf("reached end of stuff which is implemented so far\n");
 
-    // TODO: Implement me
-    // - Setup childs cspace
-    // - Setup childs vspace
-    // - Load the ELF binary
-    // - Setup dispatcher
-    // - Setup environment
-    // - Make dispatcher runnable
 
     return SYS_ERR_OK;
 }

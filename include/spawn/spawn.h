@@ -30,7 +30,11 @@ struct spawninfo {
     struct paging_state process_paging_state;
 
     dispatcher_handle_t handle;
-
+    struct capref dispatcher_cap;
+    
+    struct capref l1pagetable;
+    
+    arch_registers_state_t *enabled_area;
     // TODO: Use this structure to keep track
     // of information you need for building/starting
     // your new process!
@@ -38,7 +42,10 @@ struct spawninfo {
 
 errval_t init_child_cspace(struct spawninfo* si);
 
+errval_t add_args(struct spawninfo* si, struct mem_region* module);
+
 // Start a child process by binary name. Fills in si
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si);
+
 
 #endif /* _INIT_SPAWN_H_ */
