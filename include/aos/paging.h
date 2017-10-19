@@ -54,6 +54,8 @@ struct paging_state {
     struct slot_allocator* slot_alloc;
     lvaddr_t next_free_addr;
     struct l2_pagetab l2_pagetabs[ARM_L1_MAX_ENTRIES];
+    struct capref l1_capref;
+
     // TODO: add struct members to keep track of the page tables etc
 };
 
