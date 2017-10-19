@@ -223,7 +223,12 @@ errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
         return err;
     }
 
-    err = vnode_map(l1_cap, *ret, index_l1, flags, 0, 1, mapping);
+    struct capref page_table = {
+        .cnode = cnode_page,
+        .slot = 0,
+    };
+    printf("l1 index %llu\n", index_l1);
+    err = vnode_map(page_table, *ret, index_l1, flags, 0, 1, mapping);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "vnode_map failed");
         return err;

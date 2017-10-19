@@ -104,7 +104,7 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
     }
 
     dispatcher_handle_t dispatcher_in_child;
-    err = paging_map_frame_attr(get_current_paging_state(), (void **)&dispatcher_in_child,
+    err = paging_map_frame_attr(&si->process_paging_state, (void **)&dispatcher_in_child,
                                 1 << DISPATCHER_FRAME_BITS, dispatcher_cap,
                                 VREGION_FLAGS_READ, NULL, NULL);
     if (err_is_fail(err)) {
