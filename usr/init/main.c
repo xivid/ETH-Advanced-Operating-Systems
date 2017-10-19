@@ -60,7 +60,6 @@ int main(int argc, char *argv[])
     spawn_load_by_name("/armv7/sbin/hello", si);
 
     debug_printf("Message handler loop\n");
-    /* test_alloc_free(1000); */
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
