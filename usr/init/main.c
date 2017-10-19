@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
     spawn_load_by_name("/armv7/sbin/hello", si);
 
     debug_printf("Message handler loop\n");
-    test_virtual_memory(10, 1 << 24);
+    /* test_alloc_free(1000); */
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
@@ -78,9 +78,11 @@ __attribute__((unused))
 bool test_alloc_free(int allocations) {
     struct capref capabilities[allocations];
     errval_t err;
+    size_t size;
 
     for (int i = 0; i < allocations; i++) {
-        err = ram_alloc_aligned(capabilities + i, BASE_PAGE_SIZE, BASE_PAGE_SIZE);
+        size = BASE_PAGE_SIZE << (i % 9);
+        err = ram_alloc_aligned(capabilities + i, size, size);
         if (err_is_fail(err)) {
             debug_printf("Failed allocating capability %i\n", i);
             return false;
@@ -88,7 +90,9 @@ bool test_alloc_free(int allocations) {
     }
     debug_printf("allocations test succeeded\n");
     for (int i = 0; i < allocations; i++) {
-        err = aos_ram_free(capabilities[i], BASE_PAGE_SIZE);
+        size = BASE_PAGE_SIZE << (i % 9);
+
+        err = aos_ram_free(capabilities[i], size);
         if (err_is_fail(err)) {
             debug_printf("Failed freeing capability %i\n", i);
             return false;

@@ -75,6 +75,7 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
                      slot_refill_t slot_refill_func,
                      void *slot_alloc_inst);
 errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size);
+errval_t mm_do_initial_split(struct mm *mm);
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
                               struct capref *retcap);
 errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap);
