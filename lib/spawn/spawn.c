@@ -309,11 +309,15 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         return err;
     }
 
+     struct capref dispatcher_frame_child = {
+        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+        .slot = TASKCN_SLOT_DISPFRAME
+    };
     // from invocations.h:
     //     static inline errval_t invoke_dispatcher(struct capref dispatcher, struct capref domdispatcher, struct capref cspace, struct capref vspace, struct capref dispframe, bool run)
 
     // TODO: one of the cap_dispatcher is incorrect... i can't find which one should be filled in
-    err = invoke_dispatcher(cap_dispatcher, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, si->dispatcher_cap, true);
+    err = invoke_dispatcher(si->dispatcher_cap, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, dispatcher_frame_child, true);
     if (err_is_fail(err)) {
         debug_printf("Error on invoking dispatcher\n");
         return err;
