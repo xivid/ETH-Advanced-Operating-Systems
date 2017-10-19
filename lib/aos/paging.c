@@ -56,6 +56,7 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     // TODO (M4): Implement page fault handler that installs frames when a page fault
     // occurs and keeps track of the virtual address space.
     set_current_paging_state(st);
+    st->l1_capref = pdir;
     st->slot_alloc = ca;
     st->next_free_addr = start_vaddr;
     for (int i = 0; i < ARM_L1_MAX_ENTRIES; ++i) {
@@ -91,9 +92,11 @@ errval_t paging_init(void)
     // avoid code duplication.
     struct slot_allocator *default_sa = get_default_slot_allocator();
     lvaddr_t initial_offset = VADDR_OFFSET; // 1 GB
-    // not clear to me right now what pdir is used for in paging_init_state
-    struct capref pdir;
-    paging_init_state(&current, initial_offset, pdir, default_sa);
+    struct capref l1_cap_dest = {
+        .cnode = cnode_page,
+        .slot = 0,
+    };
+    paging_init_state(&current, initial_offset, l1_cap_dest, default_sa);
     return SYS_ERR_OK;
 }
 
@@ -222,13 +225,7 @@ errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
         DEBUG_ERR(err, "slot allocation failed");
         return err;
     }
-
-    struct capref page_table = {
-        .cnode = cnode_page,
-        .slot = 0,
-    };
-    printf("l1 index %llu\n", index_l1);
-    err = vnode_map(page_table, *ret, index_l1, flags, 0, 1, mapping);
+    err = vnode_map(l1_cap, *ret, index_l1, flags, 0, 1, mapping);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "vnode_map failed");
         return err;
@@ -244,18 +241,16 @@ errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
-    struct capref l1_cap_dest = {
-        .cnode = cnode_page,
-        .slot = 0,
-    };
+    struct capref l1_cap_dest = st->l1_capref;
     errval_t err;
     lvaddr_t cur_vaddr = vaddr;
     size_t bytes_left = ROUND_UP(bytes, BASE_PAGE_SIZE);
-
+    debug_printf("entered paging_map_fixed_attr: vaddr=0x%x bytes=%d round=%d\n", vaddr, bytes, bytes_left);
     while (bytes_left > 0) {
         struct capref l2_cap;
         lvaddr_t index_l1 = ARM_L1_OFFSET(cur_vaddr);
         if (!st->l2_pagetabs[index_l1].initialized) {
+            printf("Got to beginning of if index_l1=%d\n", index_l1);
             err = init_l2_pagetab(st, &l2_cap, l1_cap_dest, index_l1, flags);
             if (err_is_fail(err)) {
                 DEBUG_ERR(err, "l2 pagetab initialisation failed");
