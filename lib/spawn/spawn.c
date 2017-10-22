@@ -348,6 +348,8 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
 errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret) {
     struct capref region_cap;
     size_t actual_bytes;
+    genvaddr_t rounded_down_base = ROUND_DOWN(base, BASE_PAGE_SIZE);
+
     errval_t err = frame_alloc(&region_cap, size, &actual_bytes);
     if (err_is_fail(err)) {
         debug_printf("Error failed to allocate the needed ram\n");
@@ -371,7 +373,8 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     } else if (flags & PF_R) {
         permission |= VREGION_FLAGS_READ;
     }
-    err = paging_map_fixed_attr(state, base, region_cap, actual_bytes, permission);
+    err = paging_map_fixed_attr(state, rounded_down_base, region_cap, 
+            actual_bytes, permission);
     if (err_is_fail(err)) {
         debug_printf("Failed to map binary region into child vtable\n");
         return err;
