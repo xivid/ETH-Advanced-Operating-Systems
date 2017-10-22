@@ -245,12 +245,10 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
     errval_t err;
     lvaddr_t cur_vaddr = vaddr;
     size_t bytes_left = ROUND_UP(bytes, BASE_PAGE_SIZE);
-    debug_printf("entered paging_map_fixed_attr: vaddr=0x%x bytes=%d round=%d\n", vaddr, bytes, bytes_left);
     while (bytes_left > 0) {
         struct capref l2_cap;
         lvaddr_t index_l1 = ARM_L1_OFFSET(cur_vaddr);
         if (!st->l2_pagetabs[index_l1].initialized) {
-            printf("Got to beginning of if index_l1=%d\n", index_l1);
             err = init_l2_pagetab(st, &l2_cap, l1_cap_dest, index_l1, flags);
             if (err_is_fail(err)) {
                 DEBUG_ERR(err, "l2 pagetab initialisation failed");

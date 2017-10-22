@@ -67,25 +67,35 @@ errval_t init_child_cspace(struct spawninfo* si) {
 
 errval_t init_child_vspace(struct spawninfo* si) {
     errval_t err;
+    struct capref l1_pt_in_parent_space;
+    struct slot_allocator *default_sa = get_default_slot_allocator();
 
-    struct capref l1pagetable = {
-        .cnode = si->l2_cnodes[ROOTCN_SLOT_PAGECN],
-        .slot = 0
-    };
-    err = vnode_create(l1pagetable, ObjType_VNode_ARM_l1);
+    err = default_sa->alloc(default_sa, &l1_pt_in_parent_space);
     if (err_is_fail(err)) {
-        debug_printf("Error creating vnode\n");
+        debug_printf("Error allocating slot for l1 vnode\n");
         return err;
     }
 
-    struct slot_allocator *default_sa = get_default_slot_allocator();
-    err = paging_init_state(&si->process_paging_state, VADDR_OFFSET, l1pagetable, default_sa);
+    err = vnode_create(l1_pt_in_parent_space, ObjType_VNode_ARM_l1);
+    if (err_is_fail(err)) {
+        debug_printf("Error creating l1 vnode\n");
+        return err;
+    }
+
+    err = paging_init_state(&si->process_paging_state, VADDR_OFFSET,
+            l1_pt_in_parent_space, default_sa);
     if (err_is_fail(err)) {
         debug_printf("Error initing the paging state\n");
         return err;
     }
-    si->l1pagetable = l1pagetable;
+    si->l1pagetable = l1_pt_in_parent_space;
 
+    // Copy the L1 page table cap from parent's CSpace to child's
+    struct capref l1_pt_in_child_space = {
+        .cnode = si->l2_cnodes[ROOTCN_SLOT_PAGECN],
+        .slot = 0
+    };
+    cap_copy(l1_pt_in_child_space, l1_pt_in_parent_space);
     return SYS_ERR_OK;
 }
 
@@ -296,6 +306,7 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error: unable to load elf\n");
         return err;
     }
+    debug_printf("Done loading elf\n");
 
     err = create_dispatcher(si, map_elf, id_child_frame.bytes);
     if (err_is_fail(err)) {
@@ -330,8 +341,6 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
 }
 
 errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret) {
-    printf("Call elf allocate with state:%p, base:%llu, size:%lu, flags:%lu \n", state, base, size, flags);
-
     struct capref region_cap;
     size_t actual_bytes;
     errval_t err = frame_alloc(&region_cap, size, &actual_bytes);
@@ -340,8 +349,6 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
         return err;
     }
 
-    printf("after frame_alloc\n");
-
     // map frame into our vtable with write permissions
     err = paging_map_frame_attr(get_current_paging_state(), ret, actual_bytes,
                                 region_cap, VREGION_FLAGS_WRITE, NULL, NULL);
@@ -349,8 +356,6 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
         debug_printf("Failed to map binary region into parent vtable\n");
         return err;
     }
-
-    printf("After parent map\n");
 
     // map frame into the processes vtable with the requested permissions
     uint32_t permission = 0;
@@ -366,8 +371,6 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
         debug_printf("Failed to map binary region into child vtable\n");
         return err;
     }
-
-    printf("Got to end of elf_allocate\n");
 
     return SYS_ERR_OK;
 }
