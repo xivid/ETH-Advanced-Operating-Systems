@@ -88,7 +88,6 @@ errval_t init_child_vspace(struct spawninfo* si) {
         debug_printf("Error initing the paging state\n");
         return err;
     }
-    si->l1pagetable = l1_pt_in_parent_space;
 
     // Copy the L1 page table cap from parent's CSpace to child's
     struct capref l1_pt_in_child_space = {
@@ -96,6 +95,7 @@ errval_t init_child_vspace(struct spawninfo* si) {
         .slot = 0
     };
     cap_copy(l1_pt_in_child_space, l1_pt_in_parent_space);
+    si->l1pagetable = l1_pt_in_child_space;
     return SYS_ERR_OK;
 }
 
@@ -238,8 +238,8 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
         }
     }
 
-    spawn_params->argc = argc;
     spawn_params->argv[argc++] = (void*) (last-base) + child_base_addr;
+    spawn_params->argc = argc;
 
     // zero the rest
     spawn_params->vspace_buf = NULL;
@@ -327,15 +327,13 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error on setting up arguments\n");
         return err;
     }
+    debug_printf("Done adding args\n");
 
-     struct capref dispatcher_frame_child = {
+    struct capref dispatcher_frame_child = {
         .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
         .slot = TASKCN_SLOT_DISPFRAME
     };
-    // from invocations.h:
-    //     static inline errval_t invoke_dispatcher(struct capref dispatcher, struct capref domdispatcher, struct capref cspace, struct capref vspace, struct capref dispframe, bool run)
 
-    // TODO: one of the cap_dispatcher is incorrect... i can't find which one should be filled in
     err = invoke_dispatcher(si->dispatcher_cap, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, dispatcher_frame_child, true);
     if (err_is_fail(err)) {
         debug_printf("Error on invoking dispatcher\n");
@@ -343,7 +341,6 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     }
 
     printf("reached end of stuff which is implemented so far\n");
-
 
     return SYS_ERR_OK;
 }
