@@ -55,7 +55,6 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
 {
     // TODO (M4): Implement page fault handler that installs frames when a page fault
     // occurs and keeps track of the virtual address space.
-    set_current_paging_state(st);
     st->l1_capref = pdir;
     st->slot_alloc = ca;
     st->next_free_addr = start_vaddr;
@@ -97,6 +96,7 @@ errval_t paging_init(void)
         .slot = 0,
     };
     paging_init_state(&current, initial_offset, l1_cap_dest, default_sa);
+    set_current_paging_state(&current);
     return SYS_ERR_OK;
 }
 
