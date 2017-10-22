@@ -30,7 +30,6 @@ struct spawninfo {
     struct paging_state process_paging_state;
 
     dispatcher_handle_t handle;
-    struct capref dispatcher_cap;
 
     struct capref l1pagetable;
 

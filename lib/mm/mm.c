@@ -113,14 +113,12 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
     } else {
         mm_insert_node(mm, new_memnode, mm->head->prev);
     }
-    mm_traverse_list(mm->head);
+
     errval_t err = mm_do_initial_split(mm);
     if (err_is_fail(err)) {
         debug_printf("failed to do the initial split\n");
         return err;
     }
-    mm_traverse_list(mm->head);
-    debug_printf("------------------------------------\n");
 
     return SYS_ERR_OK;
 }
@@ -128,7 +126,7 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 /**
  * Does the splitting on the initial big chunk into two parts:
  * the left part is unaligned and used for requests with small alignments
- * the right part is aligned and usef for requests with big alignments
+ * the right part is aligned and used for requests with big alignments
  */
 errval_t mm_do_initial_split(struct mm *mm) {
     struct mmnode *head = mm->head;
@@ -181,6 +179,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
                     return err;
                 }
             }
+
             // After slab or slot refill the current node may be already taken.
             if (current->type == NodeType_Allocated) {
                 current = mm->head;
@@ -198,6 +197,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
                     break;
                 }
             }
+
             left_size = largest_contained_power_of_2(current->size);
             right_size = current->cap.size - left_size;
             err = split_mmnode(mm, current, &left_node, &right_node,
@@ -293,12 +293,10 @@ size_t largest_contained_power_of_2(size_t size) {
  */
 errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, struct mmnode **current) {
 
-    while (1) {
-        if ((*current)->type == NodeType_Free && (*current)->cap.size >= size && aligned((*current)->cap.base, alignment)) {
-            break;
-        }
-
+    assert(current != NULL && *current != NULL);
+    while (!((*current)->type == NodeType_Free && (*current)->cap.size >= size && aligned((*current)->cap.base, alignment))) {
         *current = (*current)->next;
+        assert(*current != NULL);
         if (*current == mm->head) {
             printf("No more capabilities left to hand out that are large enough\n");
             return MM_ERR_NEW_NODE;
@@ -371,6 +369,7 @@ void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start
  * \param       node      The node to delete
  */
 void mm_delete_node(struct mm *mm, struct mmnode *node) {
+    assert(node != mm->head || node->prev != mm->head);
     // TODO: what if delete the only element from the list?
     node->next->prev = node->prev;
     node->prev->next = node->next;

@@ -103,17 +103,28 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
 
     errval_t err;
 
+    printf("create dispatcher 1\n");
+
     size_t actual_bytes;
     struct capref dispatcher_cap;
     // Init dispatcher_cap as a frame cap, otherwise paging_map fails.
-    frame_alloc(&dispatcher_cap, 1 << DISPATCHER_FRAME_BITS, &actual_bytes);
+    err = frame_alloc(&dispatcher_cap, 1 << DISPATCHER_FRAME_BITS, &actual_bytes);
+    if (err_is_fail(err)) {
+        debug_printf("Frame alloc failed in create_dispatcher\n");
+        return err;
+    }
+    printf("create dispatcher 1.5\n");
 
     // Copy the dispatcher cap from parent's CSpace to child's.
     struct capref dispatcher_cap_in_child = {
         .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
-        .slot = TASKCN_SLOT_DISPATCHER
+        .slot = TASKCN_SLOT_DISPFRAME
     };
-    cap_copy(dispatcher_cap_in_child, dispatcher_cap);
+    err = cap_copy(dispatcher_cap_in_child, dispatcher_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to copy the capability\n");
+        return err;
+    }
 
     // Map dispatcer's frame into child space.
     dispatcher_handle_t dispatcher_in_child;
@@ -169,7 +180,6 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
 
     si->enabled_area = enabled_area;
     si->handle = handle;
-    si->dispatcher_cap = dispatcher_cap;
 
     return SYS_ERR_OK;
 }
@@ -329,12 +339,27 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     }
     debug_printf("Done adding args\n");
 
-    struct capref dispatcher_frame_child = {
+    struct capref dispatcher_cap;
+    err = slot_alloc(&dispatcher_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Error allocating slot for dispatcher capability\n");
+        return err;
+    }
+
+    err = dispatcher_create(dispatcher_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Error creating the actual dispatcher capability %s\n", err_getstring(err));
+        return err;
+    }
+
+    // TODO: copy dispatcher_cap to TASKCN_SLOT_DISPATCHER
+
+    struct capref dispatcher_frame = {
         .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
         .slot = TASKCN_SLOT_DISPFRAME
     };
 
-    err = invoke_dispatcher(si->dispatcher_cap, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, dispatcher_frame_child, true);
+    err = invoke_dispatcher(dispatcher_cap, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, dispatcher_frame, true);
     if (err_is_fail(err)) {
         debug_printf("Error on invoking dispatcher\n");
         return err;
@@ -349,8 +374,9 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     struct capref region_cap;
     size_t actual_bytes;
     genvaddr_t rounded_down_base = ROUND_DOWN(base, BASE_PAGE_SIZE);
+    size_t offset = rounded_down_base - base;
 
-    errval_t err = frame_alloc(&region_cap, size, &actual_bytes);
+    errval_t err = frame_alloc(&region_cap, size + offset, &actual_bytes);
     if (err_is_fail(err)) {
         debug_printf("Error failed to allocate the needed ram\n");
         return err;
@@ -364,6 +390,9 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
         return err;
     }
 
+    // move base by offset to make sure the lower part of the virtual address is correct
+    ret += offset;
+
     // map frame into the processes vtable with the requested permissions
     uint32_t permission = 0;
     if (flags & PF_X) {
@@ -373,8 +402,8 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     } else if (flags & PF_R) {
         permission |= VREGION_FLAGS_READ;
     }
-    err = paging_map_fixed_attr(state, rounded_down_base, region_cap, 
-            actual_bytes, permission);
+    err = paging_map_fixed_attr(state, rounded_down_base, region_cap,
+                                actual_bytes, permission);
     if (err_is_fail(err)) {
         debug_printf("Failed to map binary region into child vtable\n");
         return err;
