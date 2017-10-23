@@ -391,7 +391,7 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     }
 
     // move base by offset to make sure the lower part of the virtual address is correct
-    ret += offset;
+    *ret += offset;
 
     // map frame into the processes vtable with the requested permissions
     uint32_t permission = 0;
