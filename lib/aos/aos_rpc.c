@@ -14,10 +14,93 @@
 
 #include <aos/aos_rpc.h>
 
+
+errval_t aos_rpc_send_handler_for_num (void* v_args) {
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    uintptr_t* num = (uintptr_t*) args[1];
+    
+    int count = 0;
+    errval_t err;
+    while (count < AOS_RPC_ATTEMPTS) {
+        err = lmp_chan_send2(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_NUM, *num);
+        if (!err_is_fail(err))
+            return SYS_ERR_OK;
+        count++;
+    }
+    debug_printf("aos_rpc_send_handler_for_num: too many failed attempts\n");
+    return err;
+    
+}
+
+errval_t aos_rpc_rcv_handler_for_num (void* v_args) {
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    struct capref cap;
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    errval_t err = lmp_chan_recv(rpc->lmp, &lmp_msg, &cap);
+    
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
+        err = lmp_chan_recv(rpc->lmp, &lmp_msg, &cap);
+        count++;
+    }
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_rcv_handler_for_num: too many failed attempts or non transient error\n");
+        return err;
+    }
+    if (lmp_msg.buf.msglen != 1) {
+        debug_printf("aos_rpc_rcv_handler_for_num: received message not es expected");
+        return FLOUNDER_ERR_RPC_MISMATCH;
+    }
+    return SYS_ERR_OK;
+    
+}
+    
+
+errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintptr_t* args) {
+    
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    
+    // set handlers
+    errval_t err = lmp_chan_register_send(rpc->lmp, rpc->ws, MKCLOSURE(send_handler, args));
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_and_receive: lmp_chan_register_send failed\n");
+        return err;
+    }
+    err = lmp_chan_register_recv(rpc->lmp, rpc->ws, MKCLOSURE(rcv_handler, args));
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_and_receive: lmp_chan_register_rcv failed\n");
+        return err;
+    }
+    
+    // wait for send and receive ready:
+    err = event_dispatch(rpc->ws);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_and_receive: first event_dispatch failed\n");
+        return err;
+    }
+    err = event_dispatch(rpc->ws);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_and_receive: second event_dispatch failed\n");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
 errval_t aos_rpc_send_number(struct aos_rpc *chan, uintptr_t val)
 {
     // TODO: implement functionality to send a number ofer the channel
     // given channel and wait until the ack gets returned.
+    uintptr_t args[2];
+    args[0] = (uintptr_t) chan;
+    args[1] = (uintptr_t) &val;
+    
+    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_num, aos_rpc_rcv_handler_for_num, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_number failed\n");
+        return err;
+    }
     return SYS_ERR_OK;
 }
 

@@ -17,10 +17,24 @@
 
 #include <aos/aos.h>
 
+#define AOS_RPC_ATTEMPTS            4 // how many attempts do we want for sending/receiving before throwing an error
+
+// IDs for different transmission types
+#define AOS_RPC_ID_NUM              1 << 4
+
+
 struct aos_rpc {
+    struct lmp_chan* lmp;
+    struct waitset* ws;
+    char* buffer;
+    
     // TODO: add state for your implementation
 };
+errval_t aos_rpc_send_handler_for_num (void* v_args);
+errval_t aos_rpc_rcv_handler_for_num (void* v_args);
 
+
+errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintptr_t* args);
 /**
  * \brief send a number over the given channel
  */
