@@ -16,6 +16,7 @@
 #include <stdlib.h>
 
 #include <aos/aos.h>
+#include <aos/aos_rpc.h>
 #include <aos/waitset.h>
 #include <aos/morecore.h>
 #include <aos/paging.h>
@@ -24,16 +25,161 @@
 #include "mem_alloc.h"
 #include <spawn/spawn.h>
 
+struct client {
+    struct EndPoint end;
+    struct client* prev;
+    struct client* next;
+    
+    struct lmp_chan lmp;
+} *client_list = NULL;
+errval_t recv_handler(void* arg);
+errval_t whois(struct capref cap, struct client* he_is);
+void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
+void* answer_init(struct capref* cap);
+errval_t send_received(void* arg);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
 
+
+// see also book page 98
+errval_t recv_handler(void* arg)
+{
+    struct lmp_chan* lmp = (struct lmp_chan*) arg;
+    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    struct capref cap;
+    errval_t err = lmp_chan_recv(lmp, &msg, &cap);
+    if (err_is_fail(err)) {
+        if (lmp_err_is_transient(err)) {
+            err = lmp_chan_recv(lmp, &msg, &cap);
+        }
+        else {
+            DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan recv, non transient error");
+            return err;
+        }
+    }
+    
+    // register again for receiving
+    err = lmp_chan_alloc_recv_slot(lmp);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan alloc recv slot failed");
+        return err;
+    }
+    err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, arg));
+    if (err_is_fail(err)) {
+            DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan register recv failed");
+            return err;
+    }
+    
+    // no message content received?
+    if (msg.buf.msglen <= 0)
+        return err;
+    debug_printf("msg buflen %zu\n", msg.buf.msglen);
+    debug_printf("msg ˘ −>words[0] = 0x%lx\n", msg.words[0]);
+    void* answer;
+    void* answer_args;
+    if (msg.words[0] == AOS_RPC_ID_NUM) {
+        answer_args = answer_number(&cap, &msg);
+        answer = (void*) send_received;
+    }
+    else if (msg.words[0] == AOS_RPC_ID_INIT) {
+        answer_args = answer_init(&cap);
+        answer = (void*) send_received;
+    }
+    else {
+        answer = NULL;
+        answer_args = NULL;
+    }
+    struct lmp_chan* ret_chan = (struct lmp_chan*) answer_args;
+    err = lmp_chan_register_send(ret_chan, get_default_waitset(), MKCLOSURE(answer, answer_args));
+    if (err_is_fail(err)) {
+            DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan register send failed");
+            return err;
+    }
+    return SYS_ERR_OK;
+}
+
+errval_t whois(struct capref cap, struct client* he_is) {
+    he_is = client_list;
+    struct capability return_cap;
+    errval_t err = debug_cap_identify(cap, &return_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c whois: debug identify cap failed");
+        return err;
+    }
+    while (he_is != NULL) {
+        if (return_cap.u.endpoint.listener == he_is->end.listener && return_cap.u.endpoint.epoffset == he_is->end.epoffset)
+            break;
+        he_is = he_is->next;
+    }
+    return err;
+}
+void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
+    debug_printf("server received number: %u\n", (uint32_t) msg->words[1]);
+    
+    // create answer
+    struct client* he_is = NULL;
+    errval_t err = whois(*cap, he_is);
+    if (err_is_fail(err) || he_is == NULL) {
+        DEBUG_ERR(err, "usr/main.c answer number: could not identify client");
+        return NULL;
+    }
+
+    // lmp channel for the response handler
+    return (void*) &(he_is->lmp);
+}
+
+// sets up the client struct for new processes
+void* answer_init(struct capref* cap) {
+    struct client* potential = NULL;
+    errval_t err = whois(*cap, potential);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c answer init: could not identify client");
+        return NULL;
+    }
+    else if (potential == NULL) {
+        return (void*) &(potential->lmp);
+    }
+    potential = (struct client*) malloc(sizeof(struct client));
+    
+    struct capability return_cap;
+    debug_cap_identify(*cap, &return_cap);
+    potential->end = return_cap.u.endpoint;
+    potential->prev = NULL;
+    if (client_list == NULL) {
+        potential->next = NULL;
+    }
+    else {
+        potential->next = client_list;
+        client_list->prev = potential;
+    }
+    client_list = potential;
+    
+    err = lmp_chan_accept(&potential->lmp, DEFAULT_LMP_BUF_WORDS, *cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c answer init: could not do lmp chan accept");
+        return NULL;
+    }
+    return (void*) &(potential->lmp); 
+}
+
+// handler to send a signal that the message was received
+errval_t send_received(void* arg) {
+    struct lmp_chan* lmp = (struct lmp_chan*) arg;
+    errval_t err = lmp_chan_send1(lmp, LMP_FLAG_SYNC, NULL_CAP, 1); // send a 1 to signal that the message arrived
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c send received: could not do lmp chan send1");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
 int main(int argc, char *argv[])
 {
     errval_t err;
-
+    client_list = NULL;
     /* Set the core id in the disp_priv struct */
     err = invoke_kernel_get_core_id(cap_kernel, &my_core_id);
     assert(err_is_ok(err));
@@ -55,7 +201,29 @@ int main(int argc, char *argv[])
     if(err_is_fail(err)){
         DEBUG_ERR(err, "initialize_ram_alloc");
     }
-
+    
+    err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: cap retype of dispatcher to selfep failed");
+    }
+    struct lmp_chan* lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
+    lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
+    err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp chan accept failed");
+    }
+    err = lmp_chan_alloc_recv_slot(lmp);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp chan alloc recv slot failed");
+    }
+    err = cap_copy(cap_initep, lmp->local_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp cap copy of lmp->local_cap to cap_initep failed");
+    }
+    err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, lmp));
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp chan register recv failed");
+    }
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
     spawn_load_by_name("/armv7/sbin/hello", si);
 

@@ -20,7 +20,9 @@
 #define AOS_RPC_ATTEMPTS            4 // how many attempts do we want for sending/receiving before throwing an error
 
 // IDs for different transmission types
+// 1 << 0 is reserved for acknowleding that the message arrived successfully
 #define AOS_RPC_ID_NUM              1 << 4
+#define AOS_RPC_ID_INIT             1 << 2
 
 
 struct aos_rpc {
@@ -30,8 +32,9 @@ struct aos_rpc {
     
     // TODO: add state for your implementation
 };
+errval_t aos_rpc_send_handler_for_init (void* v_args);
 errval_t aos_rpc_send_handler_for_num (void* v_args);
-errval_t aos_rpc_rcv_handler_for_num (void* v_args);
+errval_t aos_rpc_rcv_handler_general (void* v_args);
 
 
 errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintptr_t* args);
@@ -105,7 +108,7 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc, lpaddr_t paddr, size_t byte
  * TODO: you may want to change the inteface of your init function, depending
  * on how you design your message passing code.
  */
-errval_t aos_rpc_init(struct aos_rpc *rpc);
+errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc);
 
 
 /**

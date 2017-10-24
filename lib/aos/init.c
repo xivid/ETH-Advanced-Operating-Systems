@@ -19,6 +19,7 @@
 #include <aos/dispatch.h>
 #include <aos/curdispatcher_arch.h>
 #include <aos/dispatcher_arch.h>
+#include <aos/aos_rpc.h>
 #include <barrelfish_kpi/dispatcher_shared.h>
 #include <aos/morecore.h>
 #include <aos/paging.h>
@@ -155,6 +156,13 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
         return SYS_ERR_OK;
     }
 
+    struct aos_rpc* rpc = (struct aos_rpc*) malloc(sizeof(struct aos_rpc));
+    err = aos_rpc_init(default_ws, rpc);
+    if (err_is_fail(err)) {
+        debug_printf("lib aos init.c: aos_rpc_init failed\n");
+        return err;
+    }
+    set_init_rpc(rpc);
     // TODO MILESTONE 3: register ourselves with init
     /* allocate lmp channel structure */
     /* create local endpoint */
