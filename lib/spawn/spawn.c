@@ -103,8 +103,6 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
 
     errval_t err;
 
-    printf("create dispatcher 1\n");
-
     size_t actual_bytes;
     struct capref dispatcher_cap;
     // Init dispatcher_cap as a frame cap, otherwise paging_map fails.
@@ -113,7 +111,6 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
         debug_printf("Frame alloc failed in create_dispatcher\n");
         return err;
     }
-    printf("create dispatcher 1.5\n");
 
     // Copy the dispatcher cap from parent's CSpace to child's.
     struct capref dispatcher_cap_in_child = {
@@ -391,7 +388,7 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     }
 
     // move base by offset to make sure the lower part of the virtual address is correct
-    ret += offset;
+    *ret += offset;
 
     // map frame into the processes vtable with the requested permissions
     uint32_t permission = 0;
