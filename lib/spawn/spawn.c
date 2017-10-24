@@ -158,7 +158,7 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
     strncpy(disp->name, "Child process!!\0", DISP_NAME_LEN);
 
     printf("entry elf %llx entry load_elf %llx\n", ((struct Elf32_Ehdr *)elf_base)->e_entry, entry_point);
-    disabled_area->named.pc = ((struct Elf32_Ehdr *)elf_base)->e_entry;//(uint32_t) entry_point;//
+    disabled_area->named.pc = ((struct Elf32_Ehdr *)elf_base)->e_entry;// entry_point;
     printf("disabled area %p named pc %llx \n", disabled_area, disabled_area->named.pc);
 
     // Initialize offset registers.
@@ -316,7 +316,7 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         return err;
     }
 
-    genvaddr_t child_entry;
+    genvaddr_t child_entry; // what is this used for?
     err = elf_load(EM_ARM, elf_allocate, &si->process_paging_state, map_elf, id_child_frame.bytes, &child_entry);
     if (err_is_fail(err)) {
         debug_printf("Error: unable to load elf\n");
