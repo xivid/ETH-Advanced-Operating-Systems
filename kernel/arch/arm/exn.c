@@ -46,7 +46,7 @@ void handle_user_page_fault(lvaddr_t fault_address,
 
     assert(dcb_current->disp_cte.cap.type == ObjType_Frame);
 
-#if 0
+#if 1
     printk(LOG_WARN, "user page fault%s in '%.*s': addr %"PRIxLVADDR
                       " IP %"PRIxPTR"%s\n",
            dcb_current->disabled ? " WHILE DISABLED" : "", DISP_NAME_LEN,

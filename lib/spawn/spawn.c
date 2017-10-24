@@ -11,7 +11,7 @@ extern struct bootinfo *bi;
 
 errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret);
 errval_t init_child_vspace(struct spawninfo* si);
-errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes);
+errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes, genvaddr_t entry_point);
 errval_t add_args(struct spawninfo* si, struct mem_region* module);
 
 errval_t init_child_cspace(struct spawninfo* si) {
@@ -83,7 +83,7 @@ errval_t init_child_vspace(struct spawninfo* si) {
     }
 
     err = paging_init_state(&si->process_paging_state, VADDR_OFFSET,
-            l1_pt_in_parent_space, default_sa);
+                            l1_pt_in_parent_space, default_sa);
     if (err_is_fail(err)) {
         debug_printf("Error initing the paging state\n");
         return err;
@@ -99,7 +99,7 @@ errval_t init_child_vspace(struct spawninfo* si) {
     return SYS_ERR_OK;
 }
 
-errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes) {
+errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes, genvaddr_t entry_point) {
 
     errval_t err;
 
@@ -157,7 +157,9 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
     disp->fpu_trap = 1;
     strncpy(disp->name, "Child process!!\0", DISP_NAME_LEN);
 
-    disabled_area->named.pc = ((struct Elf32_Ehdr *)elf_base)->e_entry;
+    printf("entry elf %llx entry load_elf %llx\n", ((struct Elf32_Ehdr *)elf_base)->e_entry, entry_point);
+    disabled_area->named.pc = ((struct Elf32_Ehdr *)elf_base)->e_entry;//(uint32_t) entry_point;//
+    printf("disabled area %p named pc %llx \n", disabled_area, disabled_area->named.pc);
 
     // Initialize offset registers.
     struct Elf32_Shdr *got_addr = elf32_find_section_header_name(elf_base, elf_bytes, ".got");
@@ -320,9 +322,10 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error: unable to load elf\n");
         return err;
     }
+
     debug_printf("Done loading elf\n");
 
-    err = create_dispatcher(si, map_elf, id_child_frame.bytes);
+    err = create_dispatcher(si, map_elf, id_child_frame.bytes, child_entry);
     if (err_is_fail(err)) {
         debug_printf("Error during dispatcher creation\n");
         return err;
@@ -349,7 +352,15 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         return err;
     }
 
-    // TODO: copy dispatcher_cap to TASKCN_SLOT_DISPATCHER
+    struct capref child_dispatcher = {
+        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+        .slot = TASKCN_SLOT_DISPATCHER
+    };
+    err = cap_copy(child_dispatcher, dispatcher_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Error copying the dispatcher capability to the child\n");
+        return err;
+    }
 
     struct capref dispatcher_frame = {
         .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
@@ -361,8 +372,6 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error on invoking dispatcher\n");
         return err;
     }
-
-    printf("reached end of stuff which is implemented so far\n");
 
     return SYS_ERR_OK;
 }
@@ -387,9 +396,6 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
         return err;
     }
 
-    // move base by offset to make sure the lower part of the virtual address is correct
-    *ret += offset;
-
     // map frame into the processes vtable with the requested permissions
     uint32_t permission = 0;
     if (flags & PF_X) {
@@ -405,6 +411,9 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
         debug_printf("Failed to map binary region into child vtable\n");
         return err;
     }
+
+    // move base by offset to make sure the lower part of the virtual address is correct
+    *ret += offset;
 
     return SYS_ERR_OK;
 }
