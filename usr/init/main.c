@@ -29,7 +29,7 @@ struct client {
     struct EndPoint end;
     struct client* prev;
     struct client* next;
-    
+
     struct lmp_chan lmp;
 } *client_list = NULL;
 errval_t recv_handler(void* arg);
@@ -39,6 +39,7 @@ void* answer_init(struct capref* cap);
 errval_t send_received(void* arg);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
+bool test_multi_spawn(int spawns);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
@@ -60,7 +61,7 @@ errval_t recv_handler(void* arg)
             return err;
         }
     }
-    
+
     // register again for receiving
     err = lmp_chan_alloc_recv_slot(lmp);
     if (err_is_fail(err)) {
@@ -72,7 +73,7 @@ errval_t recv_handler(void* arg)
             DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan register recv failed");
             return err;
     }
-    
+
     // no message content received?
     if (msg.buf.msglen <= 0)
         return err;
@@ -118,7 +119,7 @@ errval_t whois(struct capref cap, struct client* he_is) {
 }
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
     debug_printf("server received number: %u\n", (uint32_t) msg->words[1]);
-    
+
     // create answer
     struct client* he_is = NULL;
     errval_t err = whois(*cap, he_is);
@@ -143,7 +144,7 @@ void* answer_init(struct capref* cap) {
         return (void*) &(potential->lmp);
     }
     potential = (struct client*) malloc(sizeof(struct client));
-    
+
     struct capability return_cap;
     debug_cap_identify(*cap, &return_cap);
     potential->end = return_cap.u.endpoint;
@@ -156,13 +157,13 @@ void* answer_init(struct capref* cap) {
         client_list->prev = potential;
     }
     client_list = potential;
-    
+
     err = lmp_chan_accept(&potential->lmp, DEFAULT_LMP_BUF_WORDS, *cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c answer init: could not do lmp chan accept");
         return NULL;
     }
-    return (void*) &(potential->lmp); 
+    return (void*) &(potential->lmp);
 }
 
 // handler to send a signal that the message was received
@@ -201,7 +202,7 @@ int main(int argc, char *argv[])
     if(err_is_fail(err)){
         DEBUG_ERR(err, "initialize_ram_alloc");
     }
-    
+
     err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c: cap retype of dispatcher to selfep failed");
@@ -289,5 +290,21 @@ bool test_virtual_memory(int count, int size) {
         ((int *)buf)[0] = 42;
     }
     debug_printf("virtual memory test succeeded\n");
+    return true;
+}
+
+__attribute__((unused))
+bool test_multi_spawn(int spawns) {
+    errval_t err;
+
+    for (int i = 0; i < spawns; i++) {
+        struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/hello", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed allocating capability %i\n", i);
+            return false;
+        }
+    }
+    debug_printf("Spawning test succeeded\n");
     return true;
 }
