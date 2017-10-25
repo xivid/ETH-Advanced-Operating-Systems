@@ -13,6 +13,7 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
 errval_t init_child_vspace(struct spawninfo* si);
 errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes);
 errval_t add_args(struct spawninfo* si, struct mem_region* module);
+errval_t rpc_init(struct spawninfo* si);
 
 errval_t init_child_cspace(struct spawninfo* si) {
 
@@ -43,7 +44,7 @@ errval_t init_child_cspace(struct spawninfo* si) {
         debug_printf("Error during copy of L1Cnode cap to taskcn: %s", err_getstring(err));
         return err;
     }
-    
+
     // setup up initep
     struct capref parent_initep = {
         .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
@@ -271,6 +272,31 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
     return SYS_ERR_OK;
 }
 
+errval_t rpc_init(struct spawninfo* si) {
+    errval_t err;
+
+    struct capref endpoint_child = {
+        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+        .slot = TASKCN_SLOT_INITEP
+    };
+
+    struct lmp_endpoint *endpoint;
+    struct capref endpoint_cap;
+
+    err = endpoint_create(DEFAULT_LMP_BUF_WORDS, &endpoint_cap, &endpoint);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to create the endpoint\n");
+        return err;
+    }
+
+    err = cap_copy(endpoint_child, endpoint_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to copy the endpoint to the child\n");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
 // TODO(M4): Build and pass a messaging channel to your child process
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     printf("spawn start_child: starting: %s\n", binary_name);
@@ -368,6 +394,12 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         .slot = TASKCN_SLOT_DISPFRAME
     };
 
+    err = rpc_init(si);
+    if (err_is_fail(err)) {
+        debug_printf("Error initializing rpc\n");
+        return err;
+    }
+
     err = invoke_dispatcher(dispatcher_cap, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, dispatcher_frame, true);
     if (err_is_fail(err)) {
         debug_printf("Error on invoking dispatcher\n");
@@ -401,7 +433,7 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     uint32_t permission = 0;
     if (flags & PF_X) {
         permission |= VREGION_FLAGS_EXECUTE;
-    } 
+    }
     if (flags & PF_W) {
         permission |= VREGION_FLAGS_WRITE;
     }
