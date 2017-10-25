@@ -225,8 +225,8 @@ int main(int argc, char *argv[])
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c: lmp chan register recv failed");
     }
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    spawn_load_by_name("/armv7/sbin/hello", si);
+
+    test_multi_spawn(4);
 
     debug_printf("Message handler loop\n");
     // Hang around
@@ -301,7 +301,7 @@ bool test_multi_spawn(int spawns) {
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
         err = spawn_load_by_name("/armv7/sbin/hello", si);
         if (err_is_fail(err)) {
-            debug_printf("Failed allocating capability %i\n", i);
+            debug_printf("Failed spawning process %i\n", i);
             return false;
         }
     }
