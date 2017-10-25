@@ -261,7 +261,6 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
     return SYS_ERR_OK;
 }
 
-// TODO(M2): Implement this function such that it starts a new process
 // TODO(M4): Build and pass a messaging channel to your child process
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     printf("spawn start_child: starting: %s\n", binary_name);
@@ -283,7 +282,6 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     memset(si, 0, sizeof(*si));
     si->binary_name = binary_name;
 
-
     // - Map multiboot module in your address space
     struct frame_identity id_child_frame;
     frame_identify(child_frame, &id_child_frame);
@@ -294,8 +292,6 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error during paging_map_frame: %s\n", err_getstring(err));
         return err;
     }
-
-    printf("ELF header: %0x %c %c %c\n", ((char*)map_elf)[0], ((char*)map_elf)[1], ((char*)map_elf)[2], ((char*)map_elf)[3]);
 
     struct Elf32_Ehdr *elf_head = (void*)map_elf;
     if (!IS_ELF(*elf_head)) {
@@ -322,21 +318,17 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         return err;
     }
 
-    debug_printf("Done loading elf\n");
-
     err = create_dispatcher(si, map_elf, id_child_frame.bytes);
     if (err_is_fail(err)) {
         debug_printf("Error during dispatcher creation\n");
         return err;
     }
-    debug_printf("Done creating dispatcher\n");
 
     err = add_args(si, module);
     if (err_is_fail(err)) {
         debug_printf("Error on setting up arguments\n");
         return err;
     }
-    debug_printf("Done adding args\n");
 
     struct capref dispatcher_cap;
     err = slot_alloc(&dispatcher_cap);
@@ -371,8 +363,6 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         debug_printf("Error on invoking dispatcher\n");
         return err;
     }
-
-    //invoke_dispatcher_dump_ptables(dispatcher_cap);
 
     return SYS_ERR_OK;
 }
