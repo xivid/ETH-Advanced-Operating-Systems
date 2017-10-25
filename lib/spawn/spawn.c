@@ -410,10 +410,12 @@ errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
     // map frame into the processes vtable with the requested permissions
     uint32_t permission = 0;
     if (flags & PF_X) {
-        permission |= VREGION_FLAGS_EXECUTE | VREGION_FLAGS_READ;
-    } else if (flags & PF_W) {
+        permission |= VREGION_FLAGS_EXECUTE;
+    } 
+    if (flags & PF_W) {
         permission |= VREGION_FLAGS_WRITE;
-    } else if (flags & PF_R) {
+    }
+    if (flags & PF_R) {
         permission |= VREGION_FLAGS_READ;
     }
     err = paging_map_fixed_attr(state, rounded_down_base, region_cap,
