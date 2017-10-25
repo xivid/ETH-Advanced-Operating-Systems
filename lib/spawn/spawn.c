@@ -43,6 +43,17 @@ errval_t init_child_cspace(struct spawninfo* si) {
         debug_printf("Error during copy of L1Cnode cap to taskcn: %s", err_getstring(err));
         return err;
     }
+    
+    // setup up initep
+    struct capref parent_initep = {
+        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+        .slot = TASKCN_SLOT_INITEP
+    };
+    err = cap_copy(parent_initep, cap_initep);
+    if (err_is_fail(err)) {
+        debug_printf("Error during copy of L1Cnode parent initep cap to cap_initep: %s", err_getstring(err));
+        return err;
+    }
 
     // allocate BASE_PAGE_CN slots in ram
     struct capref cap = {
@@ -123,7 +134,7 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
         return err;
     }
 
-    // Map dispatcer's frame into child space.
+    // Map dispatcher's frame into child space.
     dispatcher_handle_t dispatcher_in_child;
     err = paging_map_frame_attr(&si->process_paging_state,
             (void **)&dispatcher_in_child, actual_bytes, dispatcher_cap,
@@ -133,7 +144,7 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
         return err;
     }
 
-    // Map dispatcer's frame into parent's space.
+    // Map dispatcher's frame into parent's space.
     dispatcher_handle_t handle;
     err = paging_map_frame_attr(get_current_paging_state(),
             (void **)&handle, actual_bytes, dispatcher_cap,
@@ -236,17 +247,16 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
     lvaddr_t child_base_addr = sizeof(struct spawn_domain_params) + (lvaddr_t) child_args_vaddr;
     strcpy(base, args);
     size_t argc = 0;
-    char *last = base;
     for (char *it = base; *it; ++it) {
         if (*it== ' ') {
             *it = 0;
             spawn_params->argv[argc++] = (void*) child_base_addr + (end-base);
             ++it;
-            last = it;
+            end = it;
         }
     }
 
-    spawn_params->argv[argc++] = (void*) (last-base) + child_base_addr;
+    spawn_params->argv[argc++] = (void*) (end-base) + child_base_addr;
     spawn_params->argc = argc;
 
     // zero the rest

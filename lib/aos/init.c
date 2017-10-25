@@ -162,7 +162,9 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
         debug_printf("lib aos init.c: aos_rpc_init failed\n");
         return err;
     }
+    debug_printf("set init rpc\n");
     set_init_rpc(rpc);
+    debug_printf("set init rpc done\n");
     // TODO MILESTONE 3: register ourselves with init
     /* allocate lmp channel structure */
     /* create local endpoint */

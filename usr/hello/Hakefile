@@ -12,7 +12,7 @@
 
 [ build application { target = "hello",
   		              cFiles = [ "hello.c" ],
-                      addLinkFlags = [ "-e _start_init"],
+                      addLinkFlags = [ "-e _start"],
                       architectures = allArchitectures
                     }
 ]
