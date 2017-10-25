@@ -73,6 +73,14 @@ static void libc_assert(const char *expression, const char *file,
     sys_print(buf, len < sizeof(buf) ? len : sizeof(buf));
 }
 
+/* static size_t lmp_terminal_write(const char *buf, size_t len) */
+/* { */
+/*     if (len) { */
+/*         // TODO: do a lmp call to init (the terminal server) */
+/*     } */
+/*     return 0; */
+/* } */
+
 static size_t syscall_terminal_write(const char *buf, size_t len)
 {
     if (len) {
@@ -94,7 +102,7 @@ void barrelfish_libc_glue_init(void)
     // what we need for that
     // TODO: change these to use the user-space serial driver if possible
     _libc_terminal_read_func = dummy_terminal_read;
-    _libc_terminal_write_func = syscall_terminal_write;
+    _libc_terminal_write_func = syscall_terminal_write; // lmp terminal write
     _libc_exit_func = libc_exit;
     _libc_assert_func = libc_assert;
     /* morecore func is setup by morecore_init() */

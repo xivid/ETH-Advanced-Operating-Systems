@@ -201,32 +201,37 @@ int main(int argc, char *argv[])
     err = initialize_ram_alloc();
     if(err_is_fail(err)){
         DEBUG_ERR(err, "initialize_ram_alloc");
+        return EXIT_FAILURE;
     }
 
     err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c: cap retype of dispatcher to selfep failed");
+        return EXIT_FAILURE;
     }
     struct lmp_chan* lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
-    lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
     err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c: lmp chan accept failed");
+        return EXIT_FAILURE;
     }
     err = lmp_chan_alloc_recv_slot(lmp);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c: lmp chan alloc recv slot failed");
+        return EXIT_FAILURE;
     }
     err = cap_copy(cap_initep, lmp->local_cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c: lmp cap copy of lmp->local_cap to cap_initep failed");
+        return EXIT_FAILURE;
     }
     err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, lmp));
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c: lmp chan register recv failed");
+        return EXIT_FAILURE;
     }
 
-    test_multi_spawn(4);
+    test_multi_spawn(1);
 
     debug_printf("Message handler loop\n");
     // Hang around

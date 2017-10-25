@@ -26,7 +26,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < argc; ++i) {
         printf("%i is: %s\n", i, argv[i]);
     }
-    
+
     printf("convert 420 to uintptr_t:\n");
     uint32_t* num = malloc(sizeof(uint32_t));
     *num = 420;
