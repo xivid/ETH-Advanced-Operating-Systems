@@ -186,6 +186,8 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
     rpc->ws = ws;
     
     // channel to the init endpoint
+    rpc->lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
+    
     errval_t err = lmp_chan_accept(rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_initep);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_init: lmp_chan_accept failed\n");
