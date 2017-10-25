@@ -26,6 +26,7 @@
 
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
+bool test_multi_spawn(int spawns);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
@@ -56,8 +57,7 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "initialize_ram_alloc");
     }
 
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    spawn_load_by_name("/armv7/sbin/hello", si);
+    // test_multi_spawn(5);
 
     debug_printf("Message handler loop\n");
     // Hang around
@@ -121,5 +121,21 @@ bool test_virtual_memory(int count, int size) {
         ((int *)buf)[0] = 42;
     }
     debug_printf("virtual memory test succeeded\n");
+    return true;
+}
+
+__attribute__((unused))
+bool test_multi_spawn(int spawns) {
+    errval_t err;
+
+    for (int i = 0; i < spawns; i++) {
+        struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/hello", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed allocating capability %i\n", i);
+            return false;
+        }
+    }
+    debug_printf("Spawning test succeeded\n");
     return true;
 }
