@@ -47,7 +47,8 @@ errval_t aos_rpc_send_handler_for_num (void* v_args) {
     return err;
 }
 
-errval_t aos_rpc_send_handler_for_char (void* v_args) {
+errval_t aos_rpc_send_handler_for_char (void* v_args)
+{
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     char character = (char) args[1];
@@ -56,6 +57,25 @@ errval_t aos_rpc_send_handler_for_char (void* v_args) {
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
         err = lmp_chan_send2(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_CHAR, character);
+        if (!err_is_fail(err))
+            return SYS_ERR_OK;
+        count++;
+    }
+    debug_printf("aos_rpc_send_handler_for_num: too many failed attempts\n");
+    return err;
+}
+
+errval_t aos_rpc_send_handler_for_string (void* v_args)
+{
+    errval_t err;
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+
+    int len = strnlen((const char*) &args[1], 32) / 4;
+
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS) {
+        err = lmp_chan_send(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, len + 1, AOS_RPC_ID_STR, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -187,8 +207,32 @@ errval_t aos_rpc_send_number(struct aos_rpc *chan, uintptr_t val)
 
 errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
 {
-    // TODO: implement functionality to send a string over the given channel
-    // and wait for a response.
+    uintptr_t args[9];
+    args[0] = (uintptr_t) chan;
+
+    int str_size = strlen(string) + 1;
+
+    for (int i = 0; i < str_size / 32; i++) {
+        for (int j = 0; j < 8; j++) {
+            args[j+1] = ((uintptr_t *) string)[9*i + j];
+        }
+        errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_string, aos_rpc_rcv_handler_general, args);
+        if (err_is_fail(err)) {
+            debug_printf("aos_rpc_send_string failed\n");
+            return err;
+        }
+    }
+
+    // send the remaining partial packet
+    for (int j = 0; j < (str_size % (32))/ 4; j++) {
+        args[j+1] = ((uintptr_t *) string)[9*(str_size/32 + 1) + j];
+    }
+    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_string, aos_rpc_rcv_handler_general, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_string last failed\n");
+        return err;
+    }
+
     return SYS_ERR_OK;
 }
 

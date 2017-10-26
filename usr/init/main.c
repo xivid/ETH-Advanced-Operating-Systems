@@ -36,6 +36,7 @@ errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
 void* answer_char(struct capref* cap, struct lmp_recv_msg* msg);
+void* answer_str(struct capref* cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref* cap);
 void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
@@ -100,6 +101,10 @@ errval_t recv_handler(void* arg)
         answer_args = answer_char(&cap, &msg);
         answer = (void*) send_received;
     }
+    else if (msg.words[0] == AOS_RPC_ID_STR) {
+        answer_args = answer_str(&cap, &msg);
+        answer = (void*) send_received;
+    }
     else {
         answer = NULL;
         answer_args = NULL;
@@ -147,9 +152,30 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
     return (void*) &(he_is->lmp);
 }
 
-void* answer_char(struct capref* cap, struct lmp_recv_msg* msg) {
-
+void* answer_char(struct capref* cap, struct lmp_recv_msg* msg)
+{
     errval_t err = sys_print((const char *)&msg->words[1], 1);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c answer char: could not sys_print");
+        return NULL;
+    }
+
+    // create answer
+    struct client* he_is = NULL;
+    err = whois(*cap, &he_is);
+    if (err_is_fail(err) || he_is == NULL) {
+        DEBUG_ERR(err, "usr/main.c answer char: could not identify client");
+        return NULL;
+    }
+
+    // lmp channel for the response handler
+    return (void*) &(he_is->lmp);
+}
+
+void* answer_str(struct capref* cap, struct lmp_recv_msg* msg)
+{
+    int len = strnlen((const char*) &msg->words[1], 32) / 4;
+    errval_t err = sys_print((const char *)&msg->words[1], len + 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c answer char: could not sys_print");
         return NULL;
