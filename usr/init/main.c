@@ -36,7 +36,9 @@ errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref* cap);
+void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
+errval_t send_ram(void* arg);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 bool test_multi_spawn(int spawns);
@@ -88,6 +90,10 @@ errval_t recv_handler(void* arg)
     else if (msg.words[0] == AOS_RPC_ID_INIT) {
         answer_args = answer_init(&cap);
         answer = (void*) send_received;
+    }
+    else if (msg.words[0] == AOS_RPC_ID_RAM) {
+        answer_args = answer_ram(&cap, &msg);
+        answer = (void*) send_ram;
     }
     else {
         answer = NULL;
@@ -169,6 +175,11 @@ void* answer_init(struct capref* cap) {
     return (void*) &(potential->lmp);
 }
 
+void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
+    debug_printf("answer ram in init main.c is not implemented yet!\n");
+    return NULL;
+}
+
 // handler to send a signal that the message was received
 errval_t send_received(void* arg) {
     struct lmp_chan* lmp = (struct lmp_chan*) arg;
@@ -177,6 +188,11 @@ errval_t send_received(void* arg) {
         DEBUG_ERR(err, "usr/main.c send received: could not do lmp chan send1");
         return err;
     }
+    return SYS_ERR_OK;
+}
+
+errval_t send_ram(void* arg) {
+    debug_printf("answer ram in init main.c is not implemented yet!\n");
     return SYS_ERR_OK;
 }
 
