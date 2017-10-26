@@ -27,11 +27,19 @@
 #define AOS_RPC_ID_CHAR             1 << 5
 #define AOS_RPC_ID_STR              1 << 6
 
+struct domaininfo {
+    char *domain_name;
+    domainid_t pid;
+    struct domaininfo *next;
+};
+
 struct aos_rpc {
     struct lmp_chan* lmp;
     struct waitset* ws;
     char* buffer;
 
+    struct domaininfo* head;
+    domainid_t current_pid;
     // TODO: add state for your implementation
 };
 errval_t aos_rpc_send_handler_for_init (void* v_args);
