@@ -396,6 +396,10 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         return err;
     }
 
+    // dirty hack to get the domain id
+    struct dispatcher_generic *disp_gen = get_dispatcher_generic(si->handle);
+    si->domain_id = disp_gen->domain_id;
+
     return SYS_ERR_OK;
 }
 

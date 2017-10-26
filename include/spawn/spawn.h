@@ -34,6 +34,8 @@ struct spawninfo {
     struct capref l1pagetable;
 
     arch_registers_state_t *enabled_area;
+
+    domainid_t domain_id;
     // TODO: Use this structure to keep track
     // of information you need for building/starting
     // your new process!
