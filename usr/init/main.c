@@ -33,10 +33,12 @@ struct client {
     struct lmp_chan lmp;
 } *client_list = NULL;
 errval_t recv_handler(void* arg);
-errval_t whois(struct capref cap, struct client* he_is);
+errval_t whois(struct capref cap, struct client **he_is);
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref* cap);
+void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
+errval_t send_ram(void* arg);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 bool test_multi_spawn(int spawns);
@@ -78,7 +80,7 @@ errval_t recv_handler(void* arg)
     if (msg.buf.msglen <= 0)
         return err;
     debug_printf("msg buflen %zu\n", msg.buf.msglen);
-    debug_printf("msg ˘ −>words[0] = 0x%lx\n", msg.words[0]);
+    debug_printf("msg−>words[0] = 0x%lx\n", msg.words[0]);
     void* answer;
     void* answer_args;
     if (msg.words[0] == AOS_RPC_ID_NUM) {
@@ -88,6 +90,10 @@ errval_t recv_handler(void* arg)
     else if (msg.words[0] == AOS_RPC_ID_INIT) {
         answer_args = answer_init(&cap);
         answer = (void*) send_received;
+    }
+    else if (msg.words[0] == AOS_RPC_ID_RAM) {
+        answer_args = answer_ram(&cap, &msg);
+        answer = (void*) send_ram;
     }
     else {
         answer = NULL;
@@ -102,18 +108,21 @@ errval_t recv_handler(void* arg)
     return SYS_ERR_OK;
 }
 
-errval_t whois(struct capref cap, struct client* he_is) {
-    he_is = client_list;
+errval_t whois(struct capref cap, struct client **he_is) {
+    struct client *cur = client_list;
     struct capability return_cap;
     errval_t err = debug_cap_identify(cap, &return_cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c whois: debug identify cap failed");
         return err;
     }
-    while (he_is != NULL) {
-        if (return_cap.u.endpoint.listener == he_is->end.listener && return_cap.u.endpoint.epoffset == he_is->end.epoffset)
+    while (cur != NULL) {
+        if (return_cap.u.endpoint.listener == cur->end.listener
+                && return_cap.u.endpoint.epoffset == cur->end.epoffset) {
+            *he_is = cur;
             break;
-        he_is = he_is->next;
+        }
+        cur = cur->next;
     }
     return err;
 }
@@ -122,7 +131,7 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
 
     // create answer
     struct client* he_is = NULL;
-    errval_t err = whois(*cap, he_is);
+    errval_t err = whois(*cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
         DEBUG_ERR(err, "usr/main.c answer number: could not identify client");
         return NULL;
@@ -134,13 +143,13 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
 
 // sets up the client struct for new processes
 void* answer_init(struct capref* cap) {
-    struct client* potential = NULL;
-    errval_t err = whois(*cap, potential);
+    struct client *potential = NULL;
+    errval_t err = whois(*cap, &potential);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c answer init: could not identify client");
         return NULL;
     }
-    else if (potential == NULL) {
+    if (potential != NULL) {
         return (void*) &(potential->lmp);
     }
     potential = (struct client*) malloc(sizeof(struct client));
@@ -166,6 +175,11 @@ void* answer_init(struct capref* cap) {
     return (void*) &(potential->lmp);
 }
 
+void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
+    debug_printf("answer ram in init main.c is not implemented yet!\n");
+    return NULL;
+}
+
 // handler to send a signal that the message was received
 errval_t send_received(void* arg) {
     struct lmp_chan* lmp = (struct lmp_chan*) arg;
@@ -174,6 +188,11 @@ errval_t send_received(void* arg) {
         DEBUG_ERR(err, "usr/main.c send received: could not do lmp chan send1");
         return err;
     }
+    return SYS_ERR_OK;
+}
+
+errval_t send_ram(void* arg) {
+    debug_printf("answer ram in init main.c is not implemented yet!\n");
     return SYS_ERR_OK;
 }
 
@@ -231,7 +250,15 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    test_multi_spawn(1);
+    //test_multi_spawn(1);
+
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/memeater", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed spawning process memeater\n");
+            return false;
+        }
+    
 
     printf("Call self printf\n");
     debug_printf("Message handler loop\n");
