@@ -88,8 +88,8 @@ errval_t recv_handler(void* arg)
     // no message content received?
     if (msg.buf.msglen <= 0)
         return err;
-    debug_printf("msg buflen %zu\n", msg.buf.msglen);
-    debug_printf("msg−>words[0] = 0x%lx\n", msg.words[0]);
+    //debug_printf("msg buflen %zu\n", msg.buf.msglen);
+    //debug_printf("msg−>words[0] = 0x%lx\n", msg.words[0]);
     void* answer;
     void* answer_args;
     if (msg.words[0] == AOS_RPC_ID_NUM) {
