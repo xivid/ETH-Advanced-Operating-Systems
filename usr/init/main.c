@@ -49,6 +49,7 @@ void* answer_init(struct capref* cap);
 void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
+errval_t send_process(void* args);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 bool test_multi_spawn(int spawns);
@@ -114,7 +115,7 @@ errval_t recv_handler(void* arg)
             break;
         case AOS_RPC_ID_PROCESS:
             answer_args = answer_process(&cap, &msg);
-            answer = (void*) send_received;
+            answer = (void*) send_process;
             break;
         default:
             return LIB_ERR_NOT_IMPLEMENTED;
@@ -213,6 +214,7 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
         DEBUG_ERR(err, "usr/init/main.c could not start a process\n");
         return NULL;
     }
+    debug_printf("domain id is %d\n", si->domain_id);
     // create answer
     struct client* he_is = NULL;
     err = whois(*cap, &he_is);
@@ -221,8 +223,25 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
         return NULL;
     }
 
-    // lmp channel for the response handler
-    return (void*) &(he_is->lmp);
+
+    size_t size_of_args = sizeof(domainid_t) +
+        ROUND_UP(sizeof(struct lmp_chan),4) +
+        ROUND_UP(sizeof(errval_t),4);
+    void* args_ptr = malloc(size_of_args);
+    void* args = args_ptr;
+    
+    
+    // add channel to args
+    *((struct lmp_chan*) args) = he_is->lmp;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // add error to args
+    *((errval_t*) args) = err;
+    // cast to void* and move pointer to after the error
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
+    *((domainid_t*) args) = si->domain_id;
+    
+    return (void*) args_ptr;
 }
 // sets up the client struct for new processes
 void* answer_init(struct capref* cap) {
@@ -321,6 +340,26 @@ errval_t send_ram(void* args) {
     size_t* allocated_size = (size_t*) args;
     
     errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), *allocated_size, (uintptr_t) *err);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/main.c send ram: could not do lmp chan send3");
+        return err_send;
+    }
+    
+    return SYS_ERR_OK;
+}
+
+errval_t send_process(void *args) {
+    // get channel
+    struct lmp_chan* lmp = (struct lmp_chan*) args;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // get error
+    errval_t* err = (errval_t*) args;
+    // cast to void* and move pointer to after the error
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
+    domainid_t *domain_id = (domainid_t*) args;
+
+    errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, NULL_CAP, (size_t)(err_is_fail(*err)? 0:1), *domain_id, (uintptr_t) *err);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/main.c send ram: could not do lmp chan send3");
         return err_send;

@@ -54,6 +54,7 @@ errval_t aos_rpc_rcv_handler_general (void* v_args);
 
 errval_t aos_rpc_send_handler_for_ram (void* v_args);
 errval_t aos_rpc_rcv_handler_for_ram (void* v_args);
+errval_t aos_rpc_handler_for_process(void* v_args);
 
 errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintptr_t* args);
 

@@ -173,6 +173,32 @@ errval_t aos_rpc_rcv_handler_for_ram (void* v_args) {
     return (errval_t) lmp_msg.words[2];
 }
 
+errval_t aos_rpc_handler_for_process(void* v_args) {
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    domainid_t *new_pid = (size_t*) args[1];
+
+    struct capref cap;
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    errval_t err = lmp_chan_recv(rpc->lmp, &lmp_msg, &cap);
+
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
+        err = lmp_chan_register_recv(rpc->lmp, rpc->ws,
+                MKCLOSURE((void*) aos_rpc_rcv_handler_for_ram, args));
+        count++;
+    }
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_rcv_handler_for_process: too many failed attempts or non transient error\n");
+        return err;
+    }
+    // check that message was received
+    if (lmp_msg.buf.msglen == 3 && lmp_msg.words[0]) {
+        *new_pid = (domainid_t) lmp_msg.words[1];
+    }
+
+    return (errval_t) lmp_msg.words[2];
+}
 errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintptr_t* args) {
 
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
@@ -304,15 +330,17 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
                                coreid_t core, domainid_t *newpid)
 {
+    // TODO: don't ignore core?
+    // TODO: what if string is bigger than 28 chars?
     uintptr_t args[9];
-    // order: 0-chan, 1-core, 2..8-the name
+    // order: 0-chan, 1-newpid, 2..8-the name
     args[0] = (uintptr_t) chan;
-    args[1] = (uintptr_t) &core;
+    args[1] = (uintptr_t) newpid;
     int str_size = strlen(name) + 1;
     for (int j = 0; j < (str_size / 4) + 1 ; j++) {
         args[j+2] = ((uintptr_t *) name)[j];
     }
-    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_process, aos_rpc_rcv_handler_general, args);
+    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_process, aos_rpc_handler_for_process, args);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_send_string last failed\n");
         return err;
