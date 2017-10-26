@@ -281,8 +281,7 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_send_char failed\n");
         return err;
-    }
-    return SYS_ERR_OK;
+    }    return SYS_ERR_OK;
 }
 
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
@@ -295,15 +294,36 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
 errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
                                   char **name)
 {
-    // TODO (milestone 5): implement name lookup for process given a process
-    // id
+    struct domaininfo *current = chan->head;
+    while (current != NULL) {
+        if (current->pid == pid) {
+            *name = current->domain_name;
+            return SYS_ERR_OK;
+        }
+        current = current->next;
+    }
+    debug_printf("Error: Didn't find process!\n");
     return SYS_ERR_OK;
 }
 
 errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
                                       domainid_t **pids, size_t *pid_count)
 {
-    // TODO (milestone 5): implement process id discovery
+    int count = 0;
+    struct domaininfo *current = chan->head;
+    while (current != NULL) {
+        count++;
+        current = current->next;
+    }
+
+    *pid_count = count;
+    *pids = malloc(count * sizeof(domainid_t));
+    current = chan->head;
+    int i = 0;
+    while (current != NULL) {
+        *pids[i++] = current->pid;
+        current = current->next;
+    }
     return SYS_ERR_OK;
 }
 
