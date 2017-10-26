@@ -11,7 +11,7 @@ extern struct bootinfo *bi;
 
 errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret);
 errval_t init_child_vspace(struct spawninfo* si);
-errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes);
+errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes, const char* name);
 errval_t add_args(struct spawninfo* si, struct mem_region* module);
 
 errval_t init_child_cspace(struct spawninfo* si) {
@@ -110,7 +110,7 @@ errval_t init_child_vspace(struct spawninfo* si) {
     return SYS_ERR_OK;
 }
 
-errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes) {
+errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes, const char *name) {
 
     errval_t err;
 
@@ -166,7 +166,7 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
     disp_gen->core_id = disp_get_core_id(); // run child on the same core
     disp->udisp = dispatcher_in_child;
     disp->fpu_trap = 1;
-    strncpy(disp->name, "Child process!!\0", DISP_NAME_LEN);
+    strncpy(disp->name, name, DISP_NAME_LEN);
 
     disabled_area->named.pc = ((struct Elf32_Ehdr *)elf_base)->e_entry;
 
@@ -329,7 +329,7 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
         return err;
     }
 
-    err = create_dispatcher(si, map_elf, id_child_frame.bytes);
+    err = create_dispatcher(si, map_elf, id_child_frame.bytes, (const char *)binary_name);
     if (err_is_fail(err)) {
         debug_printf("Error during dispatcher creation\n");
         return err;

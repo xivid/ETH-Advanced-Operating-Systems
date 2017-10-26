@@ -24,17 +24,20 @@
 #define AOS_RPC_ID_INIT             1 << 2
 #define AOS_RPC_ID_RAM              1 << 3
 #define AOS_RPC_ID_NUM              1 << 4
-
+#define AOS_RPC_ID_CHAR             1 << 5
+#define AOS_RPC_ID_STR              1 << 6
 
 struct aos_rpc {
     struct lmp_chan* lmp;
     struct waitset* ws;
     char* buffer;
-    
+
     // TODO: add state for your implementation
 };
 errval_t aos_rpc_send_handler_for_init (void* v_args);
 errval_t aos_rpc_send_handler_for_num (void* v_args);
+errval_t aos_rpc_send_handler_for_char (void* v_args);
+errval_t aos_rpc_send_handler_for_string (void* v_args);
 errval_t aos_rpc_rcv_handler_general (void* v_args);
 
 errval_t aos_rpc_send_handler_for_ram (void* v_args);
