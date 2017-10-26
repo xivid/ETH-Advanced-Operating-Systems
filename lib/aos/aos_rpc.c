@@ -65,7 +65,7 @@ errval_t aos_rpc_send_handler_for_char (void* v_args)
     return err;
 }
 
-errval_t aos_rpc_send_handler_for_string (void* v_args)
+errval_t aos_rpc_send_handler_for_string(void* v_args)
 {
     errval_t err;
     uintptr_t* args = (uintptr_t*) v_args;
@@ -76,6 +76,23 @@ errval_t aos_rpc_send_handler_for_string (void* v_args)
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS) {
         err = lmp_chan_send(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, len + 1, AOS_RPC_ID_STR, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
+        if (!err_is_fail(err))
+            return SYS_ERR_OK;
+        count++;
+    }
+    debug_printf("aos_rpc_send_handler_for_num: too many failed attempts\n");
+    return err;
+}
+
+errval_t aos_rpc_send_handler_for_process(void* v_args)
+{
+    errval_t err;
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS) {
+        err = lmp_chan_send9(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_PROCESS, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -287,7 +304,20 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
                                coreid_t core, domainid_t *newpid)
 {
-    // TODO (milestone 5): implement spawn new process rpc
+    uintptr_t args[9];
+    // order: 0-chan, 1-core, 2..8-the name
+    args[0] = (uintptr_t) chan;
+    args[1] = (uintptr_t) &core;
+    int str_size = strlen(name) + 1;
+    for (int j = 0; j < (str_size / 4) + 1 ; j++) {
+        args[j+2] = ((uintptr_t *) name)[j];
+    }
+    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_process, aos_rpc_rcv_handler_general, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_string last failed\n");
+        return err;
+    }
+
     return SYS_ERR_OK;
 }
 
