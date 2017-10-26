@@ -234,7 +234,15 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    test_multi_spawn(1);
+    //test_multi_spawn(1);
+
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/memeater", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed spawning process memeater\n");
+            return false;
+        }
+    
 
     debug_printf("Message handler loop\n");
     // Hang around
