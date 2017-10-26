@@ -25,6 +25,13 @@
 #include "mem_alloc.h"
 #include <spawn/spawn.h>
 
+#ifndef min
+#define min(a,b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef max
+#define max(a,b) ((a) > (b) ? (a) : (b))
+#endif
+
 struct client {
     struct EndPoint end;
     struct client* prev;
@@ -38,7 +45,7 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref* cap);
 void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
-errval_t send_ram(void* arg);
+errval_t send_ram(void* args);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 bool test_multi_spawn(int spawns);
@@ -176,8 +183,39 @@ void* answer_init(struct capref* cap) {
 }
 
 void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
-    debug_printf("answer ram in init main.c is not implemented yet!\n");
-    return NULL;
+    struct client *sender = NULL;
+    errval_t err = whois(*cap, &sender);
+    if (err_is_fail(err) || sender == NULL) {
+        DEBUG_ERR(err, "usr/main.c answer init: could not identify client");
+        return NULL;
+    }
+    struct capref return_cap;
+    size_t alignment = ROUND_UP((size_t) msg->words[2], BASE_PAGE_SIZE);
+    alignment = max(alignment, BASE_PAGE_SIZE); // in case alignment is 0
+    size_t allocated_size = ROUND_UP(msg->words[1], alignment);
+    err = ram_alloc_aligned(&return_cap, (size_t) msg->words[1], (size_t) msg->words[2]);
+    
+    
+    size_t size_of_args = sizeof(size_t) + ROUND_UP(sizeof(struct lmp_chan),4) + ROUND_UP(sizeof(errval_t),4) + ROUND_UP(sizeof(struct capref),4);
+    void* args_ptr = malloc(size_of_args);
+    void* args = args_ptr;
+    
+    
+    // add channel to args
+    *((struct lmp_chan*) args) = sender->lmp;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // add error to args
+    *((errval_t*) args) = err;
+    // cast to void* and move pointer to after the error
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
+    // add cap to args
+    *((struct capref*) args) = return_cap;
+    // cast t void* and move pointer
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct capref), 4);
+    *((size_t*) args) = allocated_size;
+    
+    return (void*) args_ptr;
 }
 
 // handler to send a signal that the message was received
@@ -191,8 +229,27 @@ errval_t send_received(void* arg) {
     return SYS_ERR_OK;
 }
 
-errval_t send_ram(void* arg) {
-    debug_printf("answer ram in init main.c is not implemented yet!\n");
+errval_t send_ram(void* args) {
+    // get channel
+    struct lmp_chan* lmp = (struct lmp_chan*) args;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // get error
+    errval_t* err = (errval_t*) args;
+    // cast to void* and move pointer to after the error
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
+    // get cap
+    struct capref* cap = (struct capref*) args;
+    // cast t void* and move pointer
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct capref), 4);
+    size_t* allocated_size = (size_t*) args;
+    
+    errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), *allocated_size, (uintptr_t) *err);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/main.c send ram: could not do lmp chan send3");
+        return err_send;
+    }
+    
     return SYS_ERR_OK;
 }
 
