@@ -29,12 +29,6 @@ enum nodetype {
     NodeType_Allocated  ///< This region exists and is allocated
 };
 
-struct capinfo {
-    struct capref cap;
-    genpaddr_t base;
-    gensize_t size;
-};
-
 /**
  * \brief Node in Memory manager
  *
@@ -43,7 +37,7 @@ struct capinfo {
  */
 struct mmnode {
     enum nodetype type;    ///< Type of `this` node.
-    struct capinfo cap;    ///< Cap in which this region exists
+    struct capref cap;    ///< Cap in which this region exists
     struct mmnode *prev;   ///< Previous node in the list.
     struct mmnode *next;   ///< Next node in the list.
     genpaddr_t base;       ///< Base address of this region

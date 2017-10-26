@@ -23,7 +23,7 @@ errval_t split_cap(struct mm *mm, struct capref source,
         size_t left_size, size_t right_size, struct capref *left_slot,
         struct capref *right_slot);
 
-bool can_split_with_alignment(struct capinfo cap, size_t alignment,
+bool can_split_with_alignment(struct mmnode *node, size_t alignment,
         size_t *left_size, size_t *right_size);
 
 errval_t split_mmnode(struct mm *mm, struct mmnode *current,
@@ -32,11 +32,11 @@ errval_t split_mmnode(struct mm *mm, struct mmnode *current,
 
 __attribute__ ((unused))
 void mm_print_node(struct mmnode *node) {
-    printf("-- Printing node --\n");
-    printf("node size: %llu\n", node->size);
-    printf("node base: %llu\n", node->base);
-    printf("node type is free: %i\n", node->type == NodeType_Free);
-    printf("\n");
+    debug_printf("-- Printing node --\n");
+    debug_printf("node size: %llu\n", node->size);
+    debug_printf("node base: %llu\n", node->base);
+    debug_printf("node type is free: %i\n", node->type == NodeType_Free);
+    debug_printf("\n");
 }
 
  __attribute__ ((unused))
@@ -131,11 +131,13 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 errval_t mm_do_initial_split(struct mm *mm) {
     struct mmnode *head = mm->head;
     size_t left_size, right_size;
-    if (can_split_with_alignment(head->cap, INITIAL_SPLIT_ALIGNMENT,
+    if (can_split_with_alignment(head, INITIAL_SPLIT_ALIGNMENT,
                 &left_size, &right_size)) {
         struct mmnode *left, *right;
         errval_t err = split_mmnode(mm, mm->head, &left, &right,
                 left_size, right_size);
+        // TODO: change this dirty bugfix
+        mm->head = right;
         return err;
     }
     debug_printf("Initial split failed\n");
@@ -199,7 +201,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
             }
 
             left_size = largest_contained_power_of_2(current->size);
-            right_size = current->cap.size - left_size;
+            right_size = current->size - left_size;
             err = split_mmnode(mm, current, &left_node, &right_node,
                             left_size, right_size);
             if (err_is_fail(err)) {
@@ -212,8 +214,9 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         mm->allocating_ram = false;
     }
     current->type = NodeType_Allocated;
-    assert(aligned(current->cap.base, alignment));
-    *retcap = current->cap.cap;
+    assert(aligned(current->base, alignment));
+    assert(current->size >= size);
+    *retcap = current->cap;
     return SYS_ERR_OK;
 }
 
@@ -249,10 +252,10 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
         return MM_ERR_MISSING_CAPS;
     }
 
-    while (current->cap.cap.cnode.croot != cap.cnode.croot ||
-           current->cap.cap.cnode.cnode != cap.cnode.cnode ||
-           current->cap.cap.cnode.level != cap.cnode.level ||
-           current->cap.cap.slot != cap.slot) {
+    while (current->cap.cnode.croot != cap.cnode.croot ||
+           current->cap.cnode.cnode != cap.cnode.cnode ||
+           current->cap.cnode.level != cap.cnode.level ||
+           current->cap.slot != cap.slot) {
         current = current->next;
         if (current == mm->head) {
             printf("Trying to free a capability that was not added\n");
@@ -294,7 +297,7 @@ size_t largest_contained_power_of_2(size_t size) {
 errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, struct mmnode **current) {
 
     assert(current != NULL && *current != NULL);
-    while (!((*current)->type == NodeType_Free && (*current)->cap.size >= size && aligned((*current)->cap.base, alignment))) {
+    while (!((*current)->type == NodeType_Free && (*current)->size >= size && aligned((*current)->base, alignment))) {
         *current = (*current)->next;
         assert(*current != NULL);
         if (*current == mm->head) {
@@ -322,9 +325,7 @@ struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base,
         return NULL;
     }
     ret->type = NodeType_Free;
-    ret->cap.cap = cap;
-    ret->cap.base = base;
-    ret->cap.size = size;
+    ret->cap = cap;
     ret->base = base;
     ret->size = size;
     return ret;
@@ -407,11 +408,11 @@ errval_t split_cap(struct mm *mm, struct capref source, size_t left_size,
 
 }
 
-bool can_split_with_alignment(struct capinfo cap, size_t alignment,
+bool can_split_with_alignment(struct mmnode *node, size_t alignment,
         size_t *left_size, size_t *right_size) {
     // Done like this to avoid int overflows.
-    uint64_t cap_size = cap.size;
-    uint64_t base = cap.base;
+    uint64_t cap_size = node->size;
+    uint64_t base = node->base;
     uint64_t split_point = ROUND_UP(base, alignment);
     if (split_point < base + cap_size) {
         *left_size = (size_t) split_point - base;
@@ -425,17 +426,17 @@ errval_t split_mmnode(struct mm *mm, struct mmnode *current,
         struct mmnode **left_node, struct mmnode **right_node,
         size_t left_size, size_t right_size) {
     struct capref left_slot, right_slot;
-    split_cap(mm, current->cap.cap, left_size, right_size, &left_slot,
+    split_cap(mm, current->cap, left_size, right_size, &left_slot,
             &right_slot);
 
-    *left_node = mm_create_node(mm, left_slot, current->cap.base, left_size);
+    *left_node = mm_create_node(mm, left_slot, current->base, left_size);
     if (!left_node) {
         return MM_ERR_NEW_NODE;
     }
     mm_insert_node(mm, *left_node, current);
 
     *right_node = mm_create_node(mm, right_slot,
-            current->cap.base + left_size, right_size);
+            current->base + left_size, right_size);
     if (!right_node) {
         return MM_ERR_NEW_NODE;
     }
