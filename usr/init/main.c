@@ -35,6 +35,7 @@ struct client {
 errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
+void* answer_char(struct capref* cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref* cap);
 void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
@@ -95,6 +96,10 @@ errval_t recv_handler(void* arg)
         answer_args = answer_ram(&cap, &msg);
         answer = (void*) send_ram;
     }
+    else if (msg.words[0] == AOS_RPC_ID_CHAR) {
+        answer_args = answer_char(&cap, &msg);
+        answer = (void*) send_received;
+    }
     else {
         answer = NULL;
         answer_args = NULL;
@@ -126,6 +131,7 @@ errval_t whois(struct capref cap, struct client **he_is) {
     }
     return err;
 }
+
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
     debug_printf("server received number: %u\n", (uint32_t) msg->words[1]);
 
@@ -134,6 +140,26 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
     errval_t err = whois(*cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
         DEBUG_ERR(err, "usr/main.c answer number: could not identify client");
+        return NULL;
+    }
+
+    // lmp channel for the response handler
+    return (void*) &(he_is->lmp);
+}
+
+void* answer_char(struct capref* cap, struct lmp_recv_msg* msg) {
+
+    errval_t err = sys_print((const char *)&msg->words[1], 1);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c answer char: could not sys_print");
+        return NULL;
+    }
+
+    // create answer
+    struct client* he_is = NULL;
+    err = whois(*cap, &he_is);
+    if (err_is_fail(err) || he_is == NULL) {
+        DEBUG_ERR(err, "usr/main.c answer char: could not identify client");
         return NULL;
     }
 
@@ -253,12 +279,11 @@ int main(int argc, char *argv[])
     //test_multi_spawn(1);
 
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
-        err = spawn_load_by_name("/armv7/sbin/memeater", si);
-        if (err_is_fail(err)) {
-            debug_printf("Failed spawning process memeater\n");
-            return false;
-        }
-    
+    err = spawn_load_by_name("/armv7/sbin/memeater", si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawning process memeater\n");
+        return false;
+    }
 
     printf("Call self printf\n");
     debug_printf("Message handler loop\n");
