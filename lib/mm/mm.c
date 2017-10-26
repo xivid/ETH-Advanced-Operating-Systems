@@ -136,6 +136,8 @@ errval_t mm_do_initial_split(struct mm *mm) {
         struct mmnode *left, *right;
         errval_t err = split_mmnode(mm, mm->head, &left, &right,
                 left_size, right_size);
+        // TODO: change this dirty bugfix
+        mm->head = right;
         return err;
     }
     debug_printf("Initial split failed\n");
