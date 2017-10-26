@@ -233,6 +233,7 @@ int main(int argc, char *argv[])
 
     test_multi_spawn(1);
 
+    printf("Call self printf\n");
     debug_printf("Message handler loop\n");
     // Hang around
     struct waitset *default_ws = get_default_waitset();
