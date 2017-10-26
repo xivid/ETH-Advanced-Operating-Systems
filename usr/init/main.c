@@ -78,7 +78,7 @@ errval_t recv_handler(void* arg)
     if (msg.buf.msglen <= 0)
         return err;
     debug_printf("msg buflen %zu\n", msg.buf.msglen);
-    debug_printf("msg ˘ −>words[0] = 0x%lx\n", msg.words[0]);
+    debug_printf("msg−>words[0] = 0x%lx\n", msg.words[0]);
     void* answer;
     void* answer_args;
     if (msg.words[0] == AOS_RPC_ID_NUM) {
@@ -140,7 +140,7 @@ void* answer_init(struct capref* cap) {
         DEBUG_ERR(err, "usr/main.c answer init: could not identify client");
         return NULL;
     }
-    else if (potential == NULL) {
+    if (potential != NULL) {
         return (void*) &(potential->lmp);
     }
     potential = (struct client*) malloc(sizeof(struct client));
