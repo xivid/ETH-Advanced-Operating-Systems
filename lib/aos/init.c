@@ -140,7 +140,13 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     // Initialize ram_alloc state
     ram_alloc_init();
     /* All domains use smallcn to initialize */
-    err = ram_alloc_set(ram_alloc_fixed);
+    if (init_domain) {
+        err = ram_alloc_set(ram_alloc_fixed);
+    }
+    else
+        // we can't directly call ram_alloc_set(ram_alloc_remote) as ram_alloc_remote is a static function and thus can't be passed as argument
+        err = ram_alloc_set(NULL);
+    
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_RAM_ALLOC_SET);
     }

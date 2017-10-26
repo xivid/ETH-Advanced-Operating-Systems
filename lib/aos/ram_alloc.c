@@ -13,12 +13,14 @@
  */
 
 #include <aos/aos.h>
+#include <aos/aos_rpc.h>
 #include <aos/core_state.h>
 
 /* remote (indirect through a channel) version of ram_alloc, for most domains */
 static errval_t ram_alloc_remote(struct capref *ret, size_t size, size_t alignment)
 {
-    return LIB_ERR_NOT_IMPLEMENTED;
+    size_t actual_bytes;
+    return aos_rpc_get_ram_cap(get_init_rpc(), size, alignment, ret, &actual_bytes);
 }
 
 
@@ -133,7 +135,6 @@ errval_t ram_alloc_set(ram_alloc_func_t local_allocator)
         return SYS_ERR_OK;
     }
 
-    USER_PANIC("ram_alloc_set(NULL) NYI");
     ram_alloc_state->ram_alloc_func = ram_alloc_remote;
-    return LIB_ERR_NOT_IMPLEMENTED;
+    return SYS_ERR_OK;
 }
