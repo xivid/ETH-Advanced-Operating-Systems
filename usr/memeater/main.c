@@ -31,6 +31,7 @@ const char *str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, "
                   "occaecat cupidatat non proident, sunt in culpa qui officia "
                   "deserunt mollit anim id est laborum.";
 
+__attribute__((unused))
 static errval_t request_and_map_memory(void)
 {
     errval_t err;
@@ -138,6 +139,19 @@ static errval_t test_basic_rpc(void)
     return SYS_ERR_OK;
 }
 
+static errval_t test_spawn_process(void)
+{
+    errval_t err;
+    debug_printf("RPC: testing process spawn\n");
+    err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 0, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "could not spawn a process using RPC\n");
+        return err;
+    }
+
+    debug_printf("RPC: testing process spawn. SUCCESS\n");
+    return SYS_ERR_OK;
+}
 
 int main(int argc, char *argv[])
 {
@@ -152,11 +166,15 @@ int main(int argc, char *argv[])
         USER_PANIC_ERR(err, "failure in testing basic RPC\n");
     }
 
-    err = request_and_map_memory();
-    if (err_is_fail(err)) {
-        USER_PANIC_ERR(err, "could not request and map memory\n");
-    }
+    /* err = request_and_map_memory(); */
+    /* if (err_is_fail(err)) { */
+    /*     USER_PANIC_ERR(err, "could not request and map memory\n"); */
+    /* } */
 
+    err = test_spawn_process();
+    if (err_is_fail(err)) {
+        USER_PANIC_ERR(err, "could not spawn a process\n");
+    }
 
     /* test printf functionality */
     debug_printf("testing terminal printf function...\n");
