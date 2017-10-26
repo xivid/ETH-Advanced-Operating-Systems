@@ -33,7 +33,7 @@ struct client {
     struct lmp_chan lmp;
 } *client_list = NULL;
 errval_t recv_handler(void* arg);
-errval_t whois(struct capref cap, struct client* he_is);
+errval_t whois(struct capref cap, struct client **he_is);
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref* cap);
 errval_t send_received(void* arg);
@@ -102,18 +102,21 @@ errval_t recv_handler(void* arg)
     return SYS_ERR_OK;
 }
 
-errval_t whois(struct capref cap, struct client* he_is) {
-    he_is = client_list;
+errval_t whois(struct capref cap, struct client **he_is) {
+    struct client *cur = client_list;
     struct capability return_cap;
     errval_t err = debug_cap_identify(cap, &return_cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c whois: debug identify cap failed");
         return err;
     }
-    while (he_is != NULL) {
-        if (return_cap.u.endpoint.listener == he_is->end.listener && return_cap.u.endpoint.epoffset == he_is->end.epoffset)
+    while (cur != NULL) {
+        if (return_cap.u.endpoint.listener == cur->end.listener
+                && return_cap.u.endpoint.epoffset == cur->end.epoffset) {
+            *he_is = cur;
             break;
-        he_is = he_is->next;
+        }
+        cur = cur->next;
     }
     return err;
 }
@@ -122,7 +125,7 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
 
     // create answer
     struct client* he_is = NULL;
-    errval_t err = whois(*cap, he_is);
+    errval_t err = whois(*cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
         DEBUG_ERR(err, "usr/main.c answer number: could not identify client");
         return NULL;
@@ -134,8 +137,8 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
 
 // sets up the client struct for new processes
 void* answer_init(struct capref* cap) {
-    struct client* potential = NULL;
-    errval_t err = whois(*cap, potential);
+    struct client *potential = NULL;
+    errval_t err = whois(*cap, &potential);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c answer init: could not identify client");
         return NULL;
