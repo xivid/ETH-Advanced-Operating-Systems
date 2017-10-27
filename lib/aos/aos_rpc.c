@@ -74,11 +74,12 @@ errval_t aos_rpc_send_handler_for_string(void* v_args)
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
 
-    int len = strnlen((const char*) &args[1], 32) / 4;
+    int len = strnlen((const char*) &args[1], 32);
+    int words = len / 4 + (len % 4 != 0);
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, len + 1, AOS_RPC_ID_STR, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
+        err = lmp_chan_send(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, words + 1, AOS_RPC_ID_STR, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -260,10 +261,12 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
     args[0] = (uintptr_t) chan;
 
     int str_size = strlen(string) + 1;
+    //debug_printf("Sending string with length %i\n", str_size);
 
     for (int i = 0; i < str_size / 32; i++) {
         for (int j = 0; j < 8; j++) {
             args[j+1] = ((uintptr_t *) string)[9*i + j];
+            //debug_printf("Sending large string here: %c%c%c%c\n", ((char*)&args[j+1])[0], ((char*)&args[j+1])[1], ((char*)&args[j+1])[2], ((char*)&args[j+1])[3]);
         }
         errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_string, aos_rpc_rcv_handler_general, args);
         if (err_is_fail(err)) {
@@ -273,13 +276,16 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
     }
 
     // send the remaining partial packet
-    for (int j = 0; j < (str_size % (32))/ 4; j++) {
-        args[j+1] = ((uintptr_t *) string)[9*(str_size/32 + 1) + j];
-    }
-    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_string, aos_rpc_rcv_handler_general, args);
-    if (err_is_fail(err)) {
-        debug_printf("aos_rpc_send_string last failed\n");
-        return err;
+    if (str_size % 32 != 0) {
+        for (int j = 0; j < (str_size % 32)/ 4 + ((str_size % 32) % 4 != 0); j++) {
+            args[j+1] = ((uintptr_t *) string)[9*(str_size/32) + j];
+            //debug_printf("Sending string here: %c%c%c%c\n", ((char*)&args[j+1])[0], ((char*)&args[j+1])[1], ((char*)&args[j+1])[2], ((char*)&args[j+1])[3]);
+        }
+        errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_string, aos_rpc_rcv_handler_general, args);
+        if (err_is_fail(err)) {
+            debug_printf("aos_rpc_send_string last failed\n");
+            return err;
+        }
     }
 
     return SYS_ERR_OK;

@@ -185,8 +185,9 @@ void* answer_char(struct capref* cap, struct lmp_recv_msg* msg)
 
 void* answer_str(struct capref* cap, struct lmp_recv_msg* msg)
 {
-    int len = strnlen((const char*) &msg->words[1], 32) / 4;
-    errval_t err = sys_print((const char *)&msg->words[1], len + 1);
+    int len = strnlen((const char*) &msg->words[1], 32);
+    //debug_printf("Got packet len(%i) %lx!\n", len, &msg->words[3]);
+    errval_t err = sys_print((const char *)&msg->words[1], len);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c answer char: could not sys_print");
         return NULL;
@@ -229,8 +230,8 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
         ROUND_UP(sizeof(errval_t),4);
     void* args_ptr = malloc(size_of_args);
     void* args = args_ptr;
-    
-    
+
+
     // add channel to args
     *((struct lmp_chan*) args) = he_is->lmp;
     // cast to void* and move pointer to after the lmp channel
@@ -240,7 +241,7 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
     // cast to void* and move pointer to after the error
     args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
     *((domainid_t*) args) = si->domain_id;
-    
+
     return (void*) args_ptr;
 }
 // sets up the client struct for new processes
@@ -289,13 +290,13 @@ void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
     alignment = max(alignment, BASE_PAGE_SIZE); // in case alignment is 0
     size_t allocated_size = ROUND_UP(msg->words[1], alignment);
     err = ram_alloc_aligned(&return_cap, (size_t) msg->words[1], (size_t) msg->words[2]);
-    
-    
+
+
     size_t size_of_args = sizeof(size_t) + ROUND_UP(sizeof(struct lmp_chan),4) + ROUND_UP(sizeof(errval_t),4) + ROUND_UP(sizeof(struct capref),4);
     void* args_ptr = malloc(size_of_args);
     void* args = args_ptr;
-    
-    
+
+
     // add channel to args
     *((struct lmp_chan*) args) = sender->lmp;
     // cast to void* and move pointer to after the lmp channel
@@ -309,7 +310,7 @@ void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
     // cast t void* and move pointer
     args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct capref), 4);
     *((size_t*) args) = allocated_size;
-    
+
     return (void*) args_ptr;
 }
 
@@ -338,13 +339,13 @@ errval_t send_ram(void* args) {
     // cast t void* and move pointer
     args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct capref), 4);
     size_t* allocated_size = (size_t*) args;
-    
+
     errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), *allocated_size, (uintptr_t) *err);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/main.c send ram: could not do lmp chan send3");
         return err_send;
     }
-    
+
     return SYS_ERR_OK;
 }
 
@@ -364,7 +365,7 @@ errval_t send_process(void *args) {
         DEBUG_ERR(err_send, "usr/main.c send ram: could not do lmp chan send3");
         return err_send;
     }
-    
+
     return SYS_ERR_OK;
 }
 
@@ -431,7 +432,6 @@ int main(int argc, char *argv[])
         return false;
     }
 
-    printf("Call self printf\n");
     debug_printf("Message handler loop\n");
     // Hang around
     struct waitset *default_ws = get_default_waitset();
