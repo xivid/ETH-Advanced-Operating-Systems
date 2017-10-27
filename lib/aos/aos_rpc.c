@@ -14,6 +14,9 @@
 
 #include <aos/aos_rpc.h>
 
+static void add_new_process(struct aos_rpc *rpc, char *name, domainid_t id);
+static void print_process_table(struct aos_rpc *rpc);
+
 errval_t aos_rpc_send_handler_for_init (void* v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
@@ -177,6 +180,7 @@ errval_t aos_rpc_handler_for_process(void* v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     domainid_t *new_pid = (size_t*) args[1];
+    char *name = (char *) &args[2];
 
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
@@ -195,6 +199,8 @@ errval_t aos_rpc_handler_for_process(void* v_args) {
     // check that message was received
     if (lmp_msg.buf.msglen == 3 && lmp_msg.words[0]) {
         *new_pid = (domainid_t) lmp_msg.words[1];
+        add_new_process(rpc, name, lmp_msg.words[1]);
+        print_process_table(rpc);
     }
 
     return (errval_t) lmp_msg.words[2];
@@ -444,4 +450,34 @@ struct aos_rpc *aos_rpc_get_process_channel(void)
 struct aos_rpc *aos_rpc_get_serial_channel(void)
 {
     return get_init_rpc();
+}
+
+
+static void add_new_process(struct aos_rpc *rpc, char *name, domainid_t id) {
+    struct domaininfo *new_domain = malloc(sizeof(struct domaininfo));
+    new_domain->domain_name = name;
+    new_domain->pid = id;
+    new_domain->next = NULL;
+    if (rpc->head == NULL) {
+        rpc->head = new_domain;
+        return;
+    }
+
+    struct domaininfo *cur = rpc->head, *prev = NULL;
+    while (cur != NULL) {
+        prev = cur;
+        cur = cur->next;
+    }
+    prev->next = new_domain;
+}
+
+static void print_process_table(struct aos_rpc *rpc) {
+    struct domaininfo *cur = rpc->head;
+    debug_printf("printing process table\n");
+    debug_printf("pid | name\n");
+    while (cur) {
+        debug_printf(" %d  | %s\n", cur->pid, cur->domain_name);
+        cur = cur->next;
+    }
+    debug_printf("--------------------------------------------\n");
 }
