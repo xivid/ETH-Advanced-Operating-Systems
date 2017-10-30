@@ -1124,7 +1124,10 @@ static int bootstrap_thread(struct spawn_domain_params *params)
     }
     slab_init(&thread_slabs, blocksize, refill_thread_slabs);
 
-#if MILESTONE <= 3
+    // Until we have self-paging, we cannot use the paging-region based thread
+    // control block slab allocator, so just run main thread directly
+#ifndef SELF_PAGING_WORKS
+    // we aren't prepared to run real threads yet
     main_thread(params);
 #else
     if (init_domain_global) {
