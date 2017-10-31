@@ -265,7 +265,7 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
 
     for (int i = 0; i < str_size / 32; i++) {
         for (int j = 0; j < 8; j++) {
-            args[j+1] = ((uintptr_t *) string)[9*i + j];
+            args[j+1] = ((uintptr_t *) string)[8*i + j];
             //debug_printf("Sending large string here: %c%c%c%c\n", ((char*)&args[j+1])[0], ((char*)&args[j+1])[1], ((char*)&args[j+1])[2], ((char*)&args[j+1])[3]);
         }
         errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_string, aos_rpc_rcv_handler_general, args);
@@ -278,7 +278,7 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
     // send the remaining partial packet
     if (str_size % 32 != 0) {
         for (int j = 0; j < (str_size % 32)/ 4 + ((str_size % 32) % 4 != 0); j++) {
-            args[j+1] = ((uintptr_t *) string)[9*(str_size/32) + j];
+            args[j+1] = ((uintptr_t *) string)[8*(str_size/32) + j];
             //debug_printf("Sending string here: %c%c%c%c\n", ((char*)&args[j+1])[0], ((char*)&args[j+1])[1], ((char*)&args[j+1])[2], ((char*)&args[j+1])[3]);
         }
         errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_string, aos_rpc_rcv_handler_general, args);
