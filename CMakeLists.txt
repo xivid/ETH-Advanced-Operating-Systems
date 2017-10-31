@@ -3,6 +3,9 @@ project(bf_aos)
 
 include_directories(include)
 include_directories(include/target/arm)
+# include_directories(include/spawn)
+include_directories(include/arch/arm)
+include_directories(kernel/include)
 
 link_directories(lib)
 

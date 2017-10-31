@@ -7,11 +7,11 @@ C_FLAGS = -g
 
 C_DEFINES = 
 
-C_INCLUDES = -I/home/zhiyang/groupf/groupf/include -I/home/zhiyang/groupf/groupf/include/target/arm 
+C_INCLUDES = -I/local/zhiyang/groupf/include -I/local/zhiyang/groupf/include/target/arm -I/local/zhiyang/groupf/include/arch/arm -I/local/zhiyang/groupf/kernel/include 
 
 CXX_FLAGS = -g   -std=gnu++11
 
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/home/zhiyang/groupf/groupf/include -I/home/zhiyang/groupf/groupf/include/target/arm 
+CXX_INCLUDES = -I/local/zhiyang/groupf/include -I/local/zhiyang/groupf/include/target/arm -I/local/zhiyang/groupf/include/arch/arm -I/local/zhiyang/groupf/kernel/include 
 
