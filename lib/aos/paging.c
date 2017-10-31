@@ -53,14 +53,51 @@ static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir, struct slot_allocator * ca)
 {
-    // TODO (M4): Implement page fault handler that installs frames when a page fault
-    // occurs and keeps track of the virtual address space.
     st->l1_capref = pdir;
     st->slot_alloc = ca;
     st->next_free_addr = start_vaddr;
     for (int i = 0; i < ARM_L1_MAX_ENTRIES; ++i) {
         st->l2_pagetabs[i].initialized = false;
     }
+    
+    const size_t SLAB_SIZE = BASE_PAGE_SIZE;
+    const lvaddr_t VIRTUAL_SPACE_SIZE = 0xffffffff;
+
+    // slab init involves a couple of steps:
+    // 1. setup the slab object.
+    slab_init(&(st->slabs), sizeof(struct paging_region), slab_default_refill);
+    // 2. create the first paging_region on stack and init it.
+    struct paging_region head_on_stack;
+    head_on_stack.base_addr = start_vaddr;
+    head_on_stack.current_addr = start_vaddr;
+    head_on_stack.region_size = (size_t) (VIRTUAL_SPACE_SIZE - start_vaddr); 
+    head_on_stack.prev = NULL;
+    head_on_stack.next = NULL;
+    // 3. allocate some raw memory for slab.
+    struct capref frame;
+    size_t real_size;
+    frame_alloc(&frame, SLAB_SIZE, &real_size);
+    // 4. make the state's head point to the paging_region allocated on stack.
+    st->free_list_head = &head_on_stack;
+    // 5. map the raw memory to the paging_region.
+    void *slab_ptr;
+    paging_map_frame_readwrite(&slab_ptr, SLAB_SIZE, frame);
+    // 6. grow slab.
+    slab_grow(&(st->slabs), slab_ptr, SLAB_SIZE);
+    // 7. allocate the true head on slab.
+    struct paging_region *true_head = slab_alloc(&(st->slabs)); 
+    // 8. copy data from the stack to slab (note that it changed since step 2).
+    true_head->base_addr = head_on_stack.base_addr;
+    true_head->current_addr = head_on_stack.current_addr;
+    true_head->region_size = head_on_stack.region_size;
+    true_head->next = head_on_stack.next;
+    true_head->prev = head_on_stack.prev;
+    // 9. replace st->head.
+    st->free_list_head = true_head;
+    
+    debug_printf("finished the slab init\n");
+    struct paging_region *ret = (struct paging_region *) slab_alloc(&(st->slabs));
+    debug_printf("sldjasdljasd %p\n", ret);
     return SYS_ERR_OK;
 }
 
@@ -95,8 +132,11 @@ errval_t paging_init(void)
         .cnode = cnode_page,
         .slot = 0,
     };
-    paging_init_state(&current, initial_offset, l1_cap_dest, default_sa);
+    // The order here is important: current paging state has to be set up
+    // before calling paging_init_state, because paging_init_state calls
+    // paging_map_fixed_attr.
     set_current_paging_state(&current);
+    paging_init_state(&current, initial_offset, l1_cap_dest, default_sa);
     return SYS_ERR_OK;
 }
 
@@ -208,6 +248,7 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 errval_t
 slab_refill_no_pagefault(struct slab_allocator *slabs, struct capref frame, size_t minbytes)
 {
+    //TODO: implement me
     // Refill the two-level slot allocator without causing a page-fault
     return LIB_ERR_NOT_IMPLEMENTED;
 }
@@ -267,7 +308,8 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
 
         lvaddr_t l2_offset = ARM_L2_OFFSET(cur_vaddr);
         uint64_t source_offset = (uint64_t) (cur_vaddr - vaddr);
-        uint64_t pte_count = MIN(bytes_left / BASE_PAGE_SIZE, ARM_L2_MAX_ENTRIES - l2_offset);
+        uint64_t pte_count = MIN(bytes_left / BASE_PAGE_SIZE,
+                ARM_L2_MAX_ENTRIES - l2_offset);
         err = vnode_map(l2_cap, frame, l2_offset, flags,
                         source_offset, pte_count, mapping);
         if (err_is_fail(err)) {
