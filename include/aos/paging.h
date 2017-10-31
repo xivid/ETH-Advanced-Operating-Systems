@@ -63,12 +63,12 @@ struct paging_region {
 struct paging_state {
     struct slab_allocator slabs;
     struct slot_allocator* slot_alloc;
-    lvaddr_t next_free_addr;
     struct l2_pagetab l2_pagetabs[ARM_L1_MAX_ENTRIES];
     struct capref l1_capref;
     // We'll store only the free regions in the list.
     // The regions will be sorted by address.
     struct paging_region *free_list_head;
+    struct paging_region first_region;
 };
 
 /// A wrapper around paging_map_frame_attr
