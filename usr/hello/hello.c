@@ -18,24 +18,33 @@
 #include <aos/aos.h>
 #include <aos/aos_rpc.h>
 #include <aos/waitset.h>
+#include <aos/except.h>
+
+// For now the exception stack is a statically allocated buffer
+#define stack_size 8*BASE_PAGE_SIZE
+static char exception_stack[stack_size];
+
+void page_fault_handler(enum exception_type type, int subtype, void *addr, 
+        arch_registers_state_t *regs, arch_registers_fpu_state_t *fpuregs);
+
+__attribute__((noreturn))
+void page_fault_handler(enum exception_type type, int subtype, void *addr, 
+        arch_registers_state_t *regs, arch_registers_fpu_state_t *fpuregs) {
+    debug_printf("a page fault occured\n");
+    while (1) {};
+}
 
 int main(int argc, char *argv[])
 {
-    debug_printf("Hello, world! from userspace\n");
-    /* printf("Arguments:\n"); */
-    /* for (int i = 0; i < argc; ++i) { */
-    /*     printf("%i is: %s\n", i, argv[i]); */
-    /* } */
-
-    /* printf("convert 420 to uintptr_t:\n"); */
-    /* uint32_t* num = malloc(sizeof(uint32_t)); */
-    /* *num = 420; */
-    /* printf("halfway\n"); */
-    /* uintptr_t num_ptr = (uintptr_t)(*num); */
-    /* printf("send now %u\n", (uint32_t) num_ptr); */
-    /* errval_t err = aos_rpc_send_number(get_init_rpc(), num_ptr); */
-    /* if (err_is_fail(err)) { */
-    /*     debug_printf("hello.c: aos rpc send number failed\n"); */
-    /* } */
+    errval_t err = thread_set_exception_handler(page_fault_handler, NULL,
+            exception_stack, &exception_stack[stack_size-1], NULL, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed setting a page fault handler in hello.c");
+        return err;
+    }
+    debug_printf("handler set, accessing!\n");
+    int *invalid_ptr = (int *) 0xffff0000;
+    int a = *invalid_ptr;
+    debug_printf("a is %d\n", a);
     return 0;
 }
