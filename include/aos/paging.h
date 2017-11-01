@@ -65,10 +65,13 @@ struct paging_state {
     struct slot_allocator* slot_alloc;
     struct l2_pagetab l2_pagetabs[ARM_L1_MAX_ENTRIES];
     struct capref l1_capref;
-    // We'll store only the free regions in the list.
-    // The regions will be sorted by address.
     struct paging_region *free_list_head;
+    // The list of taken regions is needed to do unmap properly since we are
+    // given only the virtual address of the start of the region, but not its
+    // size.
+    struct paging_region *taken_list_head;
     struct paging_region first_region;
+    int refilling_slab;
 };
 
 /// A wrapper around paging_map_frame_attr
