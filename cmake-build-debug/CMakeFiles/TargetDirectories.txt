@@ -1,3 +1,0 @@
-/local/zhiyang/groupf/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/local/zhiyang/groupf/cmake-build-debug/CMakeFiles/edit_cache.dir
-/local/zhiyang/groupf/cmake-build-debug/CMakeFiles/bf_aos.dir

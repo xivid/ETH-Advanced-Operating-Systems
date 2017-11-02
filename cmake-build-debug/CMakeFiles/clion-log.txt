@@ -1,4 +1,0 @@
-/nas/zhiyang/clion/bin/cmake/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /local/zhiyang/groupf
--- Configuring done
--- Generating done
--- Build files have been written to: /local/zhiyang/groupf/cmake-build-debug
