@@ -101,23 +101,13 @@ static void *morecore_alloc(size_t bytes, size_t *retbytes)
 
     size_t aligned_bytes = ROUND_UP(bytes, sizeof(Header));
     err = paging_region_map(&state->region, aligned_bytes, &retbuf, retbytes);
-    if (err_is_fail(err)) {
-        // The request would exhaust all of the paging region.
+    if (err_is_fail(err) || (*retbytes < aligned_bytes)) {
         // We ignore the current region and allocate a new one.
-        debug_printf("morecore: the request would exhaust the region.\
-                Allocating a new one!\n");
         paging_region_init(state->paging_st, &state->region,
                 aligned_bytes);
         err = paging_region_map(&state->region, aligned_bytes, &retbuf,
                 retbytes);
         assert(!err_is_fail(err) && (*retbytes >= aligned_bytes));
-    } else if (*retbytes < aligned_bytes) {
-        // The next request will exhaust the region.
-        // We return the currently allocated bytes and create a new region.
-        debug_printf("morecore: the request did exhaust the region.\
-                Allocating a new one!\n");
-        paging_region_init(state->paging_st, &state->region,
-                aligned_bytes);
     }
     // We've allocated enough space or even more. Just return the pointer.
     debug_printf("morecore: returning pointer %p\n", retbuf);

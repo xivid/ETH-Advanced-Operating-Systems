@@ -50,15 +50,17 @@ void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
 errval_t send_process(void* args);
-bool test_alloc_free(int count);
-bool test_virtual_memory(int count, int size);
-bool test_multi_spawn(int spawns);
 errval_t init_rpc(void);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
 
 
+bool test_alloc_free(int count);
+bool test_virtual_memory(int count, int size);
+bool test_multi_spawn(int spawns);
+bool test_huge_malloc(void);
+bool test_dynamic_slots(int count);
 
 int main(int argc, char *argv[])
 {
@@ -93,13 +95,14 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
-    if (err_is_fail(err)) {
-        debug_printf("Failed spawning process hello\n");
-        return false;
-    }
+    test_huge_malloc();
+    test_dynamic_slots(3000);
+    /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
+    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
+    /* if (err_is_fail(err)) { */
+    /*     debug_printf("Failed spawning process hello\n"); */
+    /*     return false; */
+    /* } */
 
     debug_printf("Message handler loop\n");
     // Hang around
@@ -370,6 +373,7 @@ void* answer_init(struct capref* cap) {
 }
 
 void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
+    debug_printf("got to answer ram\n");
     struct client *sender = NULL;
     errval_t err = whois(*cap, &sender);
     if (err_is_fail(err) || sender == NULL) {
@@ -527,3 +531,32 @@ bool test_multi_spawn(int spawns) {
     debug_printf("Spawning test succeeded\n");
     return true;
 }
+
+__attribute__((unused))
+bool test_huge_malloc(void) {
+    debug_printf("testing huge malloc\n");
+    int *tmp = malloc(100 * 1024 * 1024);
+    tmp[10000] = 42;
+    tmp[10001] = 43;
+    debug_printf("tmp=%p &tmp[10000]=%p\n", tmp, &tmp[10000]);
+    debug_printf("testing huge malloc done\n");
+    return true;
+}
+
+__attribute__((unused))
+bool test_dynamic_slots(int count) {
+    debug_printf("testing dynamic slots\n");
+    for (int i = 0 ; i < count ; ++i) {
+        struct capref slot;
+        /* errval_t err = frame_alloc(&frame, BASE_PAGE_SIZE, NULL); */
+        errval_t err = slot_alloc(&slot);
+        if (err_is_fail(err)) {
+            debug_printf("err at test: %d. err=%s\n", i, err_getstring(err));
+            return false;
+        }
+    }
+    debug_printf("testing dynamic slots done\n");
+    return true;
+}
+
+

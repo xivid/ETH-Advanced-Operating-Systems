@@ -103,25 +103,17 @@ void exception_handler(enum exception_type type, int subtype,
         void *addr, arch_registers_state_t *regs,
         arch_registers_fpu_state_t *fpuregs)
 {
-    bool is_null = false;
-    debug_printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-    debug_printf("an exception occured\n");
+    bool is_null = (addr == NULL);
+    debug_printf("****************************************\n");
+    debug_printf("\tan exception occured\n");
     if (type != EXCEPT_PAGEFAULT) {
-        debug_printf("the exception is not a page fault\n");
+        debug_printf("\tthe exception is not a page fault\n");
     } else {
-        /* if (subtype == PAGEFLT_NULL) { */
-        if (addr == NULL) {
-            debug_printf("it's a &NULL\n");
-            is_null = true;
-        } else {
-            debug_printf("it's a bad access\n");
-        }
-        debug_printf("ip=0x%x address=%p\n", regs->named.pc, addr);
+        debug_printf("\tip=0x%x address=%p\n", regs->named.pc, addr);
     }
-    debug_printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    debug_printf("****************************************\n");
     if (!is_null) {
         // We've got an access page fault. Need to allocate some ram and map it.
-        debug_printf("got an access page fault\n");
         struct capref frame;
         size_t real_size;
         errval_t err;
@@ -129,21 +121,16 @@ void exception_handler(enum exception_type type, int subtype,
         lvaddr_t offset = (lvaddr_t) addr;
         lvaddr_t aligned = ROUND_DOWN(offset, BASE_PAGE_SIZE);
         err = frame_alloc(&frame, BASE_PAGE_SIZE, &real_size);
-        // TODO: alloc frame via RPC
         if (err_is_fail(err)) {
             debug_printf("failed allocating frame\n");
             goto loop;
         }
-        debug_printf("allocated frame\n");
         err = paging_map_fixed_attr(st, aligned, frame, real_size,
                 VREGION_FLAGS_READ_WRITE);
         if (err_is_fail(err)) {
             debug_printf("failed mapping the frame\n");
             goto loop;
         }
-        debug_printf("mapped the frame at: %p\n", (void *) aligned);
-        /* int *tmp = addr; */
-        /* *tmp = 42; */
         return;
     }
 loop:
@@ -273,7 +260,6 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     /* paging_list_dump(st->free_list_head); */
     /* debug_printf("printing taken list:\n"); */
     /* paging_list_dump(st->taken_list_head); */
-    debug_printf("paging alloc returning: %p\n", *buf);
     return SYS_ERR_OK;
 }
 
@@ -523,5 +509,6 @@ errval_t paging_set_handler(void)
         debug_printf("failed setting a page fault handler");
         return err;
     }
+    debug_printf("paging handler set up base=%p top=%p\n", (void *) base, (void *)top);
     return SYS_ERR_OK;
 }
