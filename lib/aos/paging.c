@@ -288,9 +288,23 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 errval_t
 slab_refill_no_pagefault(struct slab_allocator *slabs, struct capref frame, size_t minbytes)
 {
-    //TODO: implement me
-    // Refill the two-level slot allocator without causing a page-fault
-    return LIB_ERR_NOT_IMPLEMENTED;
+    void *buf;
+    errval_t err;
+    size_t real_bytes = ROUND_UP(minbytes, BASE_PAGE_SIZE);
+    struct paging_state *st = get_current_paging_state();
+    err = frame_create(frame, real_bytes, &real_bytes);
+    if (err_is_fail(err)) {
+        debug_printf("error at creating frame in slab_refill_no_pagefault\n");
+        return err;
+    }
+    err = paging_map_frame_attr(st, &buf, real_bytes, frame,
+            VREGION_FLAGS_READ_WRITE, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("error at mapping frame in slab_refill_no_pagefault\n");
+        return err;
+    }
+    slab_grow(slabs, buf, real_bytes);
+    return SYS_ERR_OK;
 }
 
 errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
