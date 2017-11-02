@@ -93,6 +93,7 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
     mm->allocating_ram = false;
     mm->objtype = objtype;
     mm->head = NULL;
+    mm->aligned_base = 0;
 
     return SYS_ERR_OK;
 }
