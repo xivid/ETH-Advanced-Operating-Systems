@@ -432,6 +432,7 @@ int main(int argc, char *argv[])
         return false;
     }
 
+    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
     debug_printf("Message handler loop\n");
     // Hang around
     struct waitset *default_ws = get_default_waitset();

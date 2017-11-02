@@ -45,18 +45,30 @@ typedef int paging_flags_t;
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
 
+// TODO: write docs for data structures.
 struct l2_pagetab {
     bool initialized;
     struct capref cap;
 };
+
+struct paging_region {
+    lvaddr_t base_addr;
+    lvaddr_t current_addr;
+    size_t region_size;
+    struct paging_region *next;
+    struct paging_region *prev;
+};
+
 // struct to store the paging status of a process
 struct paging_state {
+    struct slab_allocator slabs;
     struct slot_allocator* slot_alloc;
-    lvaddr_t next_free_addr;
     struct l2_pagetab l2_pagetabs[ARM_L1_MAX_ENTRIES];
     struct capref l1_capref;
-
-    // TODO: add struct members to keep track of the page tables etc
+    // We'll store only the free regions in the list.
+    // The regions will be sorted by address.
+    struct paging_region *free_list_head;
+    struct paging_region first_region;
 };
 
 /// A wrapper around paging_map_frame_attr
@@ -71,12 +83,6 @@ errval_t paging_init(void);
 /// setup paging on new thread (used for user-level threads)
 void paging_init_onthread(struct thread *t);
 
-struct paging_region {
-    lvaddr_t base_addr;
-    lvaddr_t current_addr;
-    size_t region_size;
-    // TODO: if needed add struct members for tracking state
-};
 errval_t paging_region_init(struct paging_state *st,
                             struct paging_region *pr, size_t size);
 
