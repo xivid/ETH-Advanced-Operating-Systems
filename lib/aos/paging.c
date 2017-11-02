@@ -21,6 +21,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#define STACK_SIZE 8*BASE_PAGE_SIZE
+static char exception_stack[STACK_SIZE];
+
 static struct paging_state current;
 
 static void exception_handler(enum exception_type type, int subtype,
@@ -82,8 +85,6 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     }
 
     // Set up page fault handler. The exception stack is a static buffer.
-#define STACK_SIZE 8*BASE_PAGE_SIZE
-    static char exception_stack[STACK_SIZE];
     errval_t err = thread_set_exception_handler(exception_handler, NULL,
             exception_stack, &exception_stack[STACK_SIZE-1], NULL, NULL);
     if (err_is_fail(err)) {
@@ -105,24 +106,54 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
  * \brief Handles exceptions.
  */
 
-__attribute__((noreturn))
 void exception_handler(enum exception_type type, int subtype,
         void *addr, arch_registers_state_t *regs,
         arch_registers_fpu_state_t *fpuregs)
 {
+    bool is_null = false;
     debug_printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
     debug_printf("an exception occured\n");
     if (type != EXCEPT_PAGEFAULT) {
         debug_printf("the exception is not a page fault\n");
     } else {
-        if (subtype == PAGEFLT_NULL) {
+        /* if (subtype == PAGEFLT_NULL) { */
+        if (addr == NULL) {
             debug_printf("it's a &NULL\n");
+            is_null = true;
         } else {
             debug_printf("it's a bad access\n");
         }
-        debug_printf("address %p\n", addr);
+        debug_printf("ip=0x%x address=%p\n", regs->named.pc, addr);
     }
     debug_printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    if (!is_null) {
+        // We've got an access page fault. Need to allocate some ram and map it.
+        debug_printf("got an access page fault\n");
+        struct capref frame;
+        size_t real_size;
+        errval_t err;
+        struct paging_state *st = get_current_paging_state();
+        lvaddr_t offset = (lvaddr_t) addr;
+        lvaddr_t aligned = ROUND_DOWN(offset, BASE_PAGE_SIZE);
+        err = frame_alloc(&frame, BASE_PAGE_SIZE, &real_size);
+        // TODO: alloc frame via RPC
+        if (err_is_fail(err)) {
+            debug_printf("failed allocating frame\n");
+            goto loop;
+        }
+        debug_printf("allocated frame\n");
+        err = paging_map_fixed_attr(st, aligned, frame, real_size,
+                VREGION_FLAGS_READ_WRITE);
+        if (err_is_fail(err)) {
+            debug_printf("failed mapping the frame\n");
+            goto loop;
+        }
+        debug_printf("mapped the frame at: %p\n", (void *) aligned);
+        /* int *tmp = addr; */
+        /* *tmp = 42; */
+        return;
+    }
+loop:
     while (true) {
     }
 }
@@ -227,12 +258,12 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
-    if (!st->refilling_slab && !slab_freecount(&st->slabs)) {
-        st->refilling_slab = true;
-        debug_printf("%p %p %p\n", st, &st->slabs, st->slabs.refill_func);
-        st->slabs.refill_func(&st->slabs);
-        st->refilling_slab = false;
-    }
+    /* if (!st->refilling_slab && !slab_freecount(&st->slabs)) { */
+    /*     st->refilling_slab = true; */
+    /*     debug_printf("%p %p %p\n", st, &st->slabs, st->slabs.refill_func); */
+    /*     st->slabs.refill_func(&st->slabs); */
+    /*     st->refilling_slab = false; */
+    /* } */
     size_t round_size = ROUND_UP(bytes, BASE_PAGE_SIZE);
     struct paging_region *node = free_list_find_node(st->free_list_head,
             round_size);
@@ -241,17 +272,18 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     }
     *buf = (void *) node->base_addr;
     free_list_node_dec_size(st, node, round_size);
-    if (st->refilling_slab) {
-        return SYS_ERR_OK;
-    }
-    struct paging_region *taken_node = paging_list_create_node(st,
-            (lvaddr_t) *buf, (lvaddr_t) *buf, round_size, NULL, NULL);
-    taken_list_node_insert(st, taken_node);
+    /* if (st->refilling_slab) { */
+    /*     return SYS_ERR_OK; */
+    /* } */
+    /* struct paging_region *taken_node = paging_list_create_node(st, */
+    /*         (lvaddr_t) *buf, (lvaddr_t) *buf, round_size, NULL, NULL); */
+    /* taken_list_node_insert(st, taken_node); */
 
     /* debug_printf("printing free list slab=%d:\n", slab_freecount(&st->slabs)); */
     /* paging_list_dump(st->free_list_head); */
     /* debug_printf("printing taken list:\n"); */
     /* paging_list_dump(st->taken_list_head); */
+    debug_printf("paging alloc returning: %p\n", *buf);
     return SYS_ERR_OK;
 }
 
