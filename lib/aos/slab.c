@@ -178,11 +178,9 @@ size_t slab_freecount(struct slab_allocator *slabs)
  */
 static errval_t slab_refill_pages(struct slab_allocator *slabs, size_t bytes)
 {
-    size_t retsize;
-    struct capref frame;
     void *buf;
-    frame_alloc(&frame, bytes, &retsize);
-    errval_t err = paging_map_frame_readwrite(&buf, BASE_PAGE_SIZE, frame);
+    struct paging_state *st = get_current_paging_state();
+    errval_t err = paging_alloc(st, &buf, BASE_PAGE_SIZE);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "error at mapping in slab_refill_pages");
         return err;
