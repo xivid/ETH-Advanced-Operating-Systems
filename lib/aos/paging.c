@@ -21,8 +21,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define STACK_SIZE 8*BASE_PAGE_SIZE
-static char exception_stack[STACK_SIZE];
+#define EXCEPTION_STACK_SIZE 8*BASE_PAGE_SIZE
+static errval_t paging_set_handler(void);
 
 static struct paging_state current;
 
@@ -84,13 +84,6 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         st->l2_pagetabs[i].initialized = false;
     }
 
-    // Set up page fault handler. The exception stack is a static buffer.
-    errval_t err = thread_set_exception_handler(exception_handler, NULL,
-            exception_stack, &exception_stack[STACK_SIZE-1], NULL, NULL);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed setting a page fault handler");
-        return err;
-    }
     const lvaddr_t VIRTUAL_SPACE_SIZE = 0xffffffff;
 
     slab_init(&st->slabs, sizeof(struct paging_region), slab_default_refill);
@@ -176,12 +169,9 @@ errval_t paging_init(void)
         .cnode = cnode_page,
         .slot = 0,
     };
-    // The order here is important: current paging state has to be set up
-    // before calling paging_init_state, because paging_init_state calls
-    // paging_map_fixed_attr.
-    set_current_paging_state(&current);
     paging_init_state(&current, initial_offset, l1_cap_dest, default_sa);
-    return SYS_ERR_OK;
+    set_current_paging_state(&current);
+    return paging_set_handler();
 }
 
 
@@ -519,4 +509,19 @@ void free_list_node_dec_size(struct paging_state *st,
         }
     }
 
+}
+
+errval_t paging_set_handler(void)
+{
+    // Set up page fault handler. The exception stack is a static buffer.
+    static char exception_stack[EXCEPTION_STACK_SIZE];
+    lvaddr_t base = ROUND_UP((lvaddr_t) exception_stack, 4);
+    lvaddr_t top = ROUND_DOWN(base + EXCEPTION_STACK_SIZE - 1, 4);
+    errval_t err = thread_set_exception_handler(exception_handler, NULL,
+            (void *) base, (void *) top, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("failed setting a page fault handler");
+        return err;
+    }
+    return SYS_ERR_OK;
 }
