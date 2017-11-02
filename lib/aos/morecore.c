@@ -26,14 +26,14 @@ extern morecore_free_func_t sys_morecore_free;
 
 // this define makes morecore use an implementation that just has a static
 // 16MB heap.
-#define USE_STATIC_HEAP
+/* #define USE_STATIC_HEAP */
 
+#define HEAP_SIZE (1<<24)
 
 #ifdef USE_STATIC_HEAP
 
 // dummy mini heap (16M)
 
-#define HEAP_SIZE (1<<24)
 
 static char mymem[HEAP_SIZE] = { 0 };
 static char *endp = mymem + HEAP_SIZE;
@@ -94,8 +94,34 @@ errval_t morecore_init(void)
  */
 static void *morecore_alloc(size_t bytes, size_t *retbytes)
 {
-    USER_PANIC("NYI");
-    return NULL;
+    void *retbuf;
+    errval_t err;
+
+    struct morecore_state *state = get_morecore_state();
+
+    size_t aligned_bytes = ROUND_UP(bytes, sizeof(Header));
+    err = paging_region_map(&state->region, aligned_bytes, &retbuf, retbytes);
+    if (err_is_fail(err)) {
+        // The request would exhaust all of the paging region.
+        // We ignore the current region and allocate a new one.
+        debug_printf("morecore: the request would exhaust the region.\
+                Allocating a new one!\n");
+        paging_region_init(state->paging_st, &state->region,
+                aligned_bytes);
+        err = paging_region_map(&state->region, aligned_bytes, &retbuf,
+                retbytes);
+        assert(!err_is_fail(err) && (*retbytes >= aligned_bytes));
+    } else if (*retbytes < aligned_bytes) {
+        // The next request will exhaust the region.
+        // We return the currently allocated bytes and create a new region.
+        debug_printf("morecore: the request did exhaust the region.\
+                Allocating a new one!\n");
+        paging_region_init(state->paging_st, &state->region,
+                aligned_bytes);
+    }
+    // We've allocated enough space or even more. Just return the pointer.
+    debug_printf("morecore: returning pointer %p\n", retbuf);
+    return retbuf;
 }
 
 static void morecore_free(void *base, size_t bytes)
@@ -105,10 +131,16 @@ static void morecore_free(void *base, size_t bytes)
 
 errval_t morecore_init(void)
 {
-    USER_PANIC("NYI");
+    struct morecore_state *state = get_morecore_state();
+
+    thread_mutex_init(&state->mutex);
+
+    state->paging_st = get_current_paging_state();
+    paging_region_init(state->paging_st, &state->region, BASE_PAGE_SIZE);
+    sys_morecore_alloc = morecore_alloc;
+    sys_morecore_free = morecore_free;
     return SYS_ERR_OK;
 }
-
 #endif
 
 Header *get_malloc_freep(void);
