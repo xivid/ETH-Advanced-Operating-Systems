@@ -20,10 +20,14 @@
 #include <aos/waitset.h>
 #include <aos/morecore.h>
 #include <aos/paging.h>
+#include <aos/kernel_cap_invocations.h>
+#include <aos/coreboot.h>
+#include <multiboot.h>
 
 #include <mm/mm.h>
 #include "mem_alloc.h"
 #include <spawn/spawn.h>
+#include <spawn/multiboot.h>
 
 #ifndef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
@@ -53,6 +57,7 @@ errval_t send_process(void* args);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 bool test_multi_spawn(int spawns);
+errval_t boot_cpu1(void);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
@@ -349,6 +354,138 @@ errval_t send_ram(void* args) {
     return SYS_ERR_OK;
 }
 
+errval_t boot_cpu1(void) {
+    struct capref kcb_ram;
+    errval_t err = ram_alloc(&kcb_ram, OBJSIZE_KCB);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not ram alloc kcb_ram");
+        return err;
+    }
+    err = slot_alloc(&kcb_ram);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not slot alloc kcb_ram");
+        return err;
+    }
+    struct capref kcb;
+    err = cap_retype(kcb, kcb_ram, 0, ObjType_KernelControlBlock, OBJSIZE_KCB, 1);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not cap retype kcb");
+        return err;
+    }
+    
+    struct capref core_data_f;
+    size_t ret;
+    err = frame_alloc(&core_data_f, OBJSIZE_KCB, &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc core data frame");
+        return err;
+    }
+    err = invoke_kcb_clone(kcb, core_data_f);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke kcb clone");
+        return err;
+    }
+    
+    struct arm_core_data* core_data;
+    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, BASE_PAGE_SIZE, core_data_f, NULL, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map frame core data to core_data_f");
+        return err;
+    }
+    
+    // allocate memory for the new core
+    core_data->memory_bytes = 3u*BASE_PAGE_SIZE*ARM_CORE_DATA_PAGES;
+    core_data->memory_base_start = (uint32_t) malloc(core_data->memory_bytes);
+    core_data->cmdline = (lvaddr_t) core_data->cmdline_buf;
+    
+    // fill rest of core_data
+    struct mem_region* module = multiboot_find_module(bi, "init");
+    if (module == NULL) {
+        debug_printf("usr/main.c boot cpu1: init module not found");
+        return SPAWN_ERR_FIND_MODULE;
+    }
+    struct multiboot_modinfo monitor_modinfo = {
+        .mod_start = module->mr_base,
+        .mod_end = module->mrmod_size + module->mr_base,
+        .string = module->mrmod_data,
+        .reserved = 0
+    };
+    core_data->monitor_module = monitor_modinfo;
+    
+    // load and relocate cpu driver
+    struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
+    if (module == NULL) {
+        debug_printf("usr/main.c boot cpu1: cpu driver module not found");
+        return SPAWN_ERR_FIND_MODULE;
+    }
+    struct capref cpu_frame = {
+        .cnode = cnode_module,
+        .slot = cpu_module->mrmod_slot
+    };
+    
+    struct frame_identity cpu_frame_id;
+    err = frame_identify(cpu_frame, &cpu_frame_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify");
+        return err;
+    }
+    
+    // memory for relocatable segment
+    struct capref relocatable_segment;
+    err = frame_alloc(&relocatable_segment, cpu_frame_id.bytes, &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc relocatable_segment");
+        return err;
+    }
+    void* segment_addr;
+    err = paging_map_frame(get_current_paging_state(), &segment_addr, ret, relocatable_segment, NULL, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map relocatable segment memory");
+        return err;
+    }
+    
+    struct frame_identify segment_id;
+    err = frame_identify(relocatable_segment, &segment_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify the relocatable_segment");
+        return err;
+    }
+    
+    // elf text segment
+    void* elfdata;
+    err = paging_map_frame(get_current_paging_state(), &elfdata, cpu_frame_id.bytes, cpu_frame, NULL, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map elf frame");
+        return err;
+    }
+    
+    //TODO: is this the correct upper limit of the heap?
+    lvaddr_t heap_upper_limit = VADDR_OFFSET;
+    err = load_cpu_relocatable_segment(elfdata, segment_addr, segment_id.base + heap_upper_limit, core_data->kernel_load_base, &core_data->got_base);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not load cpu relocatable segment");
+        return err;
+    }
+    err = sys_debug_flush_cache();
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not flush cache");
+        return err;
+    }
+    sys_armv7_cache_invalidate(core_data, core_data + sizeof(core_data));
+    sys_armv7_cache_clean_poc(core_data, core_data + sizeof(core_data));
+    sys_armv7_cache_clean_pou(core_data, core_data + sizeof(core_data));
+    sys_armv7_cache_invalidate(segment_id, segment_id + ret);
+    sys_armv7_cache_clean_poc(segment_id, segment_id + ret);
+    sys_armv7_cache_clean_pou(segment_id, segment_id + ret);
+    
+    err = invoke_monitor_spawn_core(1, CPU_ARM7, (forvaddr_t) core_data->entry_point);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke cpu1");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
 errval_t send_process(void *args) {
     // get channel
     struct lmp_chan* lmp = (struct lmp_chan*) args;
@@ -424,7 +561,15 @@ int main(int argc, char *argv[])
     }
 
     //test_multi_spawn(1);
-
+    if (my_core_id == 0) {
+        err = boot_cpu1();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "usr/main.c: boot_cpu1 failed");
+            return EXIT_FAILURE;
+        }
+    }
+    
+    
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
     err = spawn_load_by_name("/armv7/sbin/hello", si);
     if (err_is_fail(err)) {
