@@ -9,9 +9,11 @@
 #define MIN_SPLIT_SIZE BASE_PAGE_SIZE
 #define aligned(address, alignment) (address & (alignment -1)) == 0
 #define INITIAL_SPLIT_ALIGNMENT 1024*1024 // 1MB
+#define MIN_FREE_SLOTS 15 // How many do we really need?
 
 errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment,
                                struct mmnode **current);
+struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base);
 struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base,
                               size_t size);
 void mm_insert_node(struct mm *mm, struct mmnode *new_node,
@@ -266,8 +268,8 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
  */
 errval_t refill_slots_if_needed(struct mm *mm, bool *refilled)
 {
-    if (!mm->allocating_ram && // Need more slots // TODO: what are min slots?
-        !slot_alloc_enough_slots(mm->slot_alloc_inst, 2)) {
+    if (!mm->allocating_ram &&
+        !slot_alloc_enough_slots(mm->slot_alloc_inst, MIN_FREE_SLOTS)) {
 
         mm->allocating_ram = true;
         errval_t err = slot_prealloc_refill(mm->slot_alloc_inst);
@@ -309,40 +311,49 @@ errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
 errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
                  gensize_t size)
 {
+    struct frame_identity ident;
+    frame_identify(cap, &ident);
+    assert(ident.base == base && ident.bytes == size);
+    // TODO: more sanity checks
+
     errval_t err;
-    // TODO: Implement
-    /* struct mmnode *current = mm->head; */
-
-    /* if (current == NULL) { */
-    /*     printf("No capability slots to free"); */
-    /*     return MM_ERR_MISSING_CAPS; */
-    /* } */
-
-    /* while (current->cap.cnode.croot != cap.cnode.croot || */
-    /*        current->cap.cnode.cnode != cap.cnode.cnode || */
-    /*        current->cap.cnode.level != cap.cnode.level || */
-    /*        current->cap.slot != cap.slot) { */
-    /*     current = current->next; */
-    /*     if (current == mm->head) { */
-    /*         printf("Trying to free a capability that was not added\n"); */
-    /*         return MM_ERR_NOT_FOUND; */
-    /*     } */
-    /* } */
-
-    /* if (current->type != NodeType_Allocated) { */
-    /*     printf("Double free of a capability"); */
-    /*     return MM_ERR_MM_FREE; */
-    /* } */
-
-    /* current->type = NodeType_Free; */
-    // TODO: merge with neighboring capability if it is free
-
-    err = refill_slots_if_needed(mm, NULL);
-    if (err_is_fail(err)) {
-        debug_printf("Refilling slots failed in mm_free\n");
-        return err;
+    if (mm->head == NULL) {
+        printf("No capability slots to free");
+        return MM_ERR_MISSING_CAPS;
     }
 
+    struct mmnode *buddy = mm_find_node_by_base(mm, base + size);
+
+    if (buddy == NULL) {
+        struct mmnode *newly_free = mm_create_node(mm, cap, base, size);
+        mm_insert_node(mm, newly_free, mm->head);
+
+        err = refill_slots_if_needed(mm, NULL);
+        if (err_is_fail(err)) {
+            debug_printf("Refilling slots failed in mm_free\n");
+            return err;
+        }
+    } else {
+        gensize_t curr_size = size;
+        cap_destroy(cap);
+        struct mmnode *current;
+
+        while (true) {
+            buddy->size += curr_size;
+            buddy->base -= curr_size;
+            if (buddy->size != curr_size) {
+                buddy->type = NodeType_Handout;
+            }
+
+            current = buddy;
+            curr_size = current->size;
+            buddy = mm_find_node_by_base(mm, current->base + current->size);
+            if (buddy == NULL) {
+                break;
+            }
+            mm_delete_node(mm, current, true);
+        }
+    }
     return SYS_ERR_OK;
 }
 
@@ -383,6 +394,29 @@ errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment,
     }
 
     return SYS_ERR_OK;
+}
+
+/**
+ * \brief Finds a node that starts at the given base
+ *
+ * Only returns keep nodes
+ *
+ * \return the node with the given base or NULL if not found
+ */
+struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base)
+{
+    assert(mm->head != NULL);
+
+    struct mmnode *current = mm->head;
+
+    while (current->base != base || current->type != NodeType_Keep) {
+        current = current->next;
+        assert(current != NULL);
+        if (current == mm->head) {
+            return NULL;
+        }
+    }
+    return current;
 }
 
 /**
@@ -477,6 +511,8 @@ void mm_extract_node(struct mm *mm, struct mmnode *node)
 /**
  * Splits the given node onto two non-overlapping mmnodes and throws away the
  * original cap. These two caps can't be merged anymore!
+ *
+ * Should only be called once per mm.
  */
 errval_t split_mmnode_final(struct mm *mm, struct mmnode *current,
                             size_t right_offset)
@@ -499,6 +535,8 @@ errval_t split_mmnode_final(struct mm *mm, struct mmnode *current,
         return MM_ERR_NEW_NODE;
     }
     mm_insert_node(mm, right_node, current);
+
+    mm->aligned_base = current->base + right_offset;
 
     err = mm_delete_node(mm, current, true);
     if (err_is_fail(err)) {

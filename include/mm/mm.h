@@ -64,9 +64,10 @@ struct mm {
     slot_alloc_t slot_alloc;     ///< Slot allocator for allocating cspace
     slot_refill_t slot_refill;   ///< Slot allocator refill function
     void *slot_alloc_inst;       ///< Opaque instance pointer for slot allocator
-    int allocating_ram;          ///< Flag indicating that an alloc is in process
+    int allocating_ram;          ///< Flag indicating an in-process refill
     enum objtype objtype;        ///< Type of capabilities stored
-    struct mmnode *head;         ///< Head of doubly-linked list of nodes in order
+    struct mmnode *head;         ///< Smallest node in doubly-linked list
+    genpaddr_t aligned_base;     ///< Base address of the aligned parent region
 };
 
 errval_t mm_init(struct mm *mm, enum objtype objtype,
@@ -77,9 +78,10 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
 errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size);
 errval_t mm_do_initial_split(struct mm *mm);
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
-                              struct capref *retcap);
+                          struct capref *retcap);
 errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap);
-errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t size);
+errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
+                 gensize_t size);
 void mm_destroy(struct mm *mm);
 
 // Debugging functions
