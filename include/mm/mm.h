@@ -24,9 +24,15 @@
 
 __BEGIN_DECLS
 
+/**
+ * \brief Type of the Memory Node
+ *
+ * A node of type `keep` maps to a memory region that is larger than described by
+ * `size` and `base`. It's capability will not be handed out directly.
+ */
 enum nodetype {
-    NodeType_Free,      ///< This region exists and is free
-    NodeType_Allocated  ///< This region exists and is allocated
+    NodeType_Handout,   ///< Nodes of this type can be handed out by libmm
+    NodeType_Keep       ///< Nodes of this type have to be split before handout
 };
 
 /**
@@ -37,7 +43,7 @@ enum nodetype {
  */
 struct mmnode {
     enum nodetype type;    ///< Type of `this` node.
-    struct capref cap;    ///< Cap in which this region exists
+    struct capref cap;     ///< Cap in which this region exists
     struct mmnode *prev;   ///< Previous node in the list.
     struct mmnode *next;   ///< Next node in the list.
     genpaddr_t base;       ///< Base address of this region
@@ -64,18 +70,22 @@ struct mm {
 };
 
 errval_t mm_init(struct mm *mm, enum objtype objtype,
-                     slab_refill_func_t slab_refill_func,
-                     slot_alloc_t slot_alloc_func,
-                     slot_refill_t slot_refill_func,
-                     void *slot_alloc_inst);
+                 slab_refill_func_t slab_refill_func,
+                 slot_alloc_t slot_alloc_func,
+                 slot_refill_t slot_refill_func,
+                 void *slot_alloc_inst);
 errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size);
 errval_t mm_do_initial_split(struct mm *mm);
 errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
                               struct capref *retcap);
 errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap);
 errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t size);
-void mm_dump_mmnodes(struct mm *mm);
 void mm_destroy(struct mm *mm);
+
+// Debugging functions
+
+void mm_print_node(struct mmnode *node);
+void mm_traverse_list(struct mmnode *head);
 
 __END_DECLS
 
