@@ -53,10 +53,101 @@ errval_t send_process(void* args);
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 bool test_multi_spawn(int spawns);
+errval_t init_rpc(void);
 
 coreid_t my_core_id;
 struct bootinfo *bi;
 
+
+
+int main(int argc, char *argv[])
+{
+    errval_t err;
+    client_list = NULL;
+    /* Set the core id in the disp_priv struct */
+    err = invoke_kernel_get_core_id(cap_kernel, &my_core_id);
+    assert(err_is_ok(err));
+    disp_set_core_id(my_core_id);
+
+    debug_printf("init: on core %" PRIuCOREID " invoked as:", my_core_id);
+    for (int i = 0; i < argc; i++) {
+       printf(" %s", argv[i]);
+    }
+    printf("\n");
+
+    /* First argument contains the bootinfo location, if it's not set */
+    bi = (struct bootinfo*)strtol(argv[1], NULL, 10);
+    if (!bi) {
+        assert(my_core_id > 0);
+    }
+
+    err = initialize_ram_alloc();
+    if(err_is_fail(err)){
+        DEBUG_ERR(err, "initialize_ram_alloc");
+        return EXIT_FAILURE;
+    }
+
+    err = init_rpc();
+    if(err_is_fail(err)){
+        DEBUG_ERR(err, "init_rpc");
+        return EXIT_FAILURE;
+    }
+
+
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+    err = spawn_load_by_name("/armv7/sbin/hello", si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawning process hello\n");
+        return false;
+    }
+
+    debug_printf("Message handler loop\n");
+    // Hang around
+    struct waitset *default_ws = get_default_waitset();
+    while (true) {
+        err = event_dispatch(default_ws);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "in event_dispatch");
+            abort();
+        }
+    }
+
+    return EXIT_SUCCESS;
+}
+
+// ****************************** RPC *************************************
+
+errval_t init_rpc(void)
+{
+    errval_t err;
+    err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: cap retype of dispatcher to selfep failed");
+        return EXIT_FAILURE;
+    }
+    struct lmp_chan* lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
+    err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp chan accept failed");
+        return EXIT_FAILURE;
+    }
+    err = lmp_chan_alloc_recv_slot(lmp);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp chan alloc recv slot failed");
+        return EXIT_FAILURE;
+    }
+    err = cap_copy(cap_initep, lmp->local_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp cap copy of lmp->local_cap to cap_initep failed");
+        return EXIT_FAILURE;
+    }
+    err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, lmp));
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c: lmp chan register recv failed");
+        return EXIT_FAILURE;
+    }
+    return SYS_ERR_OK;
+}
 
 // see also book page 98
 errval_t recv_handler(void* arg)
@@ -369,84 +460,7 @@ errval_t send_process(void *args) {
     return SYS_ERR_OK;
 }
 
-int main(int argc, char *argv[])
-{
-    errval_t err;
-    client_list = NULL;
-    /* Set the core id in the disp_priv struct */
-    err = invoke_kernel_get_core_id(cap_kernel, &my_core_id);
-    assert(err_is_ok(err));
-    disp_set_core_id(my_core_id);
-
-    debug_printf("init: on core %" PRIuCOREID " invoked as:", my_core_id);
-    for (int i = 0; i < argc; i++) {
-       printf(" %s", argv[i]);
-    }
-    printf("\n");
-
-    /* First argument contains the bootinfo location, if it's not set */
-    bi = (struct bootinfo*)strtol(argv[1], NULL, 10);
-    if (!bi) {
-        assert(my_core_id > 0);
-    }
-
-    err = initialize_ram_alloc();
-    if(err_is_fail(err)){
-        DEBUG_ERR(err, "initialize_ram_alloc");
-        return EXIT_FAILURE;
-    }
-
-    err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: cap retype of dispatcher to selfep failed");
-        return EXIT_FAILURE;
-    }
-    struct lmp_chan* lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
-    err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp chan accept failed");
-        return EXIT_FAILURE;
-    }
-    err = lmp_chan_alloc_recv_slot(lmp);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp chan alloc recv slot failed");
-        return EXIT_FAILURE;
-    }
-    err = cap_copy(cap_initep, lmp->local_cap);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp cap copy of lmp->local_cap to cap_initep failed");
-        return EXIT_FAILURE;
-    }
-    err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, lmp));
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp chan register recv failed");
-        return EXIT_FAILURE;
-    }
-
-    //test_multi_spawn(1);
-
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
-    if (err_is_fail(err)) {
-        debug_printf("Failed spawning process memeater\n");
-        return false;
-    }
-
-    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
-    debug_printf("Message handler loop\n");
-    // Hang around
-    struct waitset *default_ws = get_default_waitset();
-    while (true) {
-        err = event_dispatch(default_ws);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "in event_dispatch");
-            abort();
-        }
-    }
-
-    return EXIT_SUCCESS;
-}
-
+// ****************************** TESTS *************************************
 __attribute__((unused))
 bool test_alloc_free(int allocations) {
     struct capref capabilities[allocations];
