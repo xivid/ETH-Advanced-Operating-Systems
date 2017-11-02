@@ -95,13 +95,14 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    test_huge_malloc();
-    test_dynamic_slots(3000);
+    /* test_huge_malloc(); */
+    /* test_dynamic_slots(3000); */
+    /* test_virtual_memory(1000, 4*BASE_PAGE_SIZE); */
     /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
     /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
     /* if (err_is_fail(err)) { */
     /*     debug_printf("Failed spawning process hello\n"); */
-    /*     return false; */
+        /* return false; */
     /* } */
 
     debug_printf("Message handler loop\n");
