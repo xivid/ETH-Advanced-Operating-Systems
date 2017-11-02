@@ -93,7 +93,6 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
     mm->allocating_ram = false;
     mm->objtype = objtype;
     mm->head = NULL;
-    mm->aligned_base = 0;
 
     return SYS_ERR_OK;
 }
@@ -160,6 +159,8 @@ errval_t mm_do_initial_split(struct mm *mm)
         debug_printf("Cannot do initial split with alignment\n");
         return MM_ERR_NEW_NODE;
     }
+
+    debug_printf("Doing initial split with size %i and size %i \n", right_offset, mm->head->size - right_offset);
 
     if (right_offset > 0) {
         errval_t err = split_mmnode_final(mm, mm->head, right_offset);
@@ -234,6 +235,11 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
             mm_insert_node(mm, new_node, current);
             current = new_node;
         } else {
+
+            debug_printf("\nAlloc 1 (requested %i)\n", size);
+            debug_printf("==================\n");
+            mm_traverse_list(mm->head);
+
             return SYS_ERR_OK;
         }
 
@@ -261,6 +267,11 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
         *retcap = current->cap;
         mm_delete_node(mm, current, false);
     }
+
+    debug_printf("\nAlloc 2 (requested %i)\n", size);
+    debug_printf("==================\n");
+    mm_traverse_list(mm->head);
+
     return SYS_ERR_OK;
 }
 
@@ -327,7 +338,7 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
 
     if (buddy == NULL) {
         struct mmnode *newly_free = mm_create_node(mm, cap, base, size);
-        mm_insert_node(mm, newly_free, mm->head);
+        mm_insert_node(mm, newly_free, mm->head->prev);
 
         err = refill_slots_if_needed(mm, NULL);
         if (err_is_fail(err)) {
@@ -342,19 +353,32 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
         while (true) {
             buddy->size += curr_size;
             buddy->base -= curr_size;
-            if (buddy->size != curr_size) {
-                buddy->type = NodeType_Handout;
+
+            struct frame_identity fi;
+            frame_identify(buddy->cap, &fi);
+            if (buddy->base != fi.base) {
+                mm_extract_node(mm, buddy);
+                mm_insert_node(mm, buddy, mm->head->prev);
+                break;
             }
 
+            buddy->type = NodeType_Handout;
             current = buddy;
             curr_size = current->size;
             buddy = mm_find_node_by_base(mm, current->base + current->size);
             if (buddy == NULL) {
+                mm_extract_node(mm, current);
+                mm_insert_node(mm, current, mm->head->prev);
                 break;
             }
             mm_delete_node(mm, current, true);
         }
     }
+
+    debug_printf("\nFree\n");
+    debug_printf("==================\n");
+    mm_traverse_list(mm->head);
+
     return SYS_ERR_OK;
 }
 
@@ -448,7 +472,7 @@ struct mmnode *mm_create_node(struct mm *mm, struct capref cap,
  * Insert the given node into the node list
  *
  * The node will be inserted in sorted order provided the start node is larger
- * than the given node or start points to the head of the node list.
+ * than the given node or start points to the head->prev of the node list.
  *
  * \param       mm        The memory manager
  * \param       new_node  The node to insert
@@ -536,8 +560,6 @@ errval_t split_mmnode_final(struct mm *mm, struct mmnode *current,
         return MM_ERR_NEW_NODE;
     }
     mm_insert_node(mm, right_node, current);
-
-    mm->aligned_base = current->base + right_offset;
 
     err = mm_delete_node(mm, current, true);
     if (err_is_fail(err)) {

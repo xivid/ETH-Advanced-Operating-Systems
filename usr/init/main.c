@@ -95,6 +95,8 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    test_alloc_free(3);
+
     /* test_huge_malloc(); */
     /* test_dynamic_slots(3000); */
     /* test_virtual_memory(1000, 4*BASE_PAGE_SIZE); */
@@ -559,5 +561,3 @@ bool test_dynamic_slots(int count) {
     debug_printf("testing dynamic slots done\n");
     return true;
 }
-
-

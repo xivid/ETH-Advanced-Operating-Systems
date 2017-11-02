@@ -67,7 +67,6 @@ struct mm {
     int allocating_ram;          ///< Flag indicating an in-process refill
     enum objtype objtype;        ///< Type of capabilities stored
     struct mmnode *head;         ///< Smallest node in doubly-linked list
-    genpaddr_t aligned_base;     ///< Base address of the aligned parent region
 };
 
 errval_t mm_init(struct mm *mm, enum objtype objtype,
