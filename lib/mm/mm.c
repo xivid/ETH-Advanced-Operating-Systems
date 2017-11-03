@@ -13,7 +13,7 @@
 
 errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment,
                                struct mmnode **current);
-struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base);
+struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base, enum nodetype type);
 struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base,
                               size_t size);
 void mm_insert_node(struct mm *mm, struct mmnode *new_node,
@@ -52,9 +52,9 @@ void mm_traverse_list(struct mmnode *head) {
     struct mmnode *cur = head;
     while (true) {
         if (cur->type == NodeType_Keep) {
-            printf("%llu (keep), ", cur->size);
+            printf("%llu [%llu] (keep), ", cur->size, cur->base);
         } else {
-            printf("%llu (hand), ", cur->size);
+            printf("%llu [%llu] (hand), ", cur->size, cur->base);
         }
         if (cur->next == head) {
             break;
@@ -334,7 +334,7 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
         return MM_ERR_MISSING_CAPS;
     }
 
-    struct mmnode *buddy = mm_find_node_by_base(mm, base + size);
+    struct mmnode *buddy = mm_find_node_by_base(mm, base + size, NodeType_Keep);
 
     if (buddy == NULL) {
         struct mmnode *newly_free = mm_create_node(mm, cap, base, size);
@@ -350,28 +350,40 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
         cap_destroy(cap);
         struct mmnode *current;
 
+        buddy->size += curr_size;
+        buddy->base -= curr_size;
+
         while (true) {
-            buddy->size += curr_size;
-            buddy->base -= curr_size;
-
-            struct frame_identity fi;
-            frame_identify(buddy->cap, &fi);
-            if (buddy->base != fi.base) {
-                mm_extract_node(mm, buddy);
-                mm_insert_node(mm, buddy, mm->head->prev);
-                break;
-            }
-
-            buddy->type = NodeType_Handout;
             current = buddy;
             curr_size = current->size;
-            buddy = mm_find_node_by_base(mm, current->base + current->size);
-            if (buddy == NULL) {
-                mm_extract_node(mm, current);
-                mm_insert_node(mm, current, mm->head->prev);
-                break;
+
+            struct frame_identity fi;
+            frame_identify(current->cap, &fi);
+            if (current->base != fi.base) {
+                buddy = mm_find_node_by_base(mm, current->base - current->size, NodeType_Handout);
+
+                if (buddy == NULL) {
+                    mm_extract_node(mm, current);
+                    mm_insert_node(mm, current, mm->head->prev);
+                    break;
+                }
+                mm_delete_node(mm, current, true);
+
+                buddy->size += curr_size;
+            } else {
+                current->type = NodeType_Handout;
+                buddy = mm_find_node_by_base(mm, current->base + current->size, NodeType_Keep);
+
+                if (buddy == NULL) {
+                    mm_extract_node(mm, current);
+                    mm_insert_node(mm, current, mm->head->prev);
+                    break;
+                }
+                mm_delete_node(mm, current, true);
+
+                buddy->size += curr_size;
+                buddy->base -= curr_size;
             }
-            mm_delete_node(mm, current, true);
         }
     }
 
@@ -428,13 +440,13 @@ errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment,
  *
  * \return the node with the given base or NULL if not found
  */
-struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base)
+struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base, enum nodetype type)
 {
     assert(mm->head != NULL);
 
     struct mmnode *current = mm->head;
 
-    while (current->base != base || current->type != NodeType_Keep) {
+    while (current->base != base || current->type != type) {
         current = current->next;
         assert(current != NULL);
         if (current == mm->head) {
