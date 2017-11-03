@@ -235,11 +235,6 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
             mm_insert_node(mm, new_node, current);
             current = new_node;
         } else {
-
-            debug_printf("\nAlloc 1 (requested %i)\n", size);
-            debug_printf("==================\n");
-            mm_traverse_list(mm->head);
-
             return SYS_ERR_OK;
         }
 
@@ -267,10 +262,6 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
         *retcap = current->cap;
         mm_delete_node(mm, current, false);
     }
-
-    debug_printf("\nAlloc 2 (requested %i)\n", size);
-    debug_printf("==================\n");
-    mm_traverse_list(mm->head);
 
     return SYS_ERR_OK;
 }
@@ -386,10 +377,6 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
             }
         }
     }
-
-    debug_printf("\nFree\n");
-    debug_printf("==================\n");
-    mm_traverse_list(mm->head);
 
     return SYS_ERR_OK;
 }
