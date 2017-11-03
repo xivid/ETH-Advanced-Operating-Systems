@@ -21,6 +21,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#define EXCEPTION_STACK_SIZE 8*BASE_PAGE_SIZE
+#define VIRTUAL_SPACE_SIZE 0xffffffff
+#define SLAB_REGION_SIZE BASE_PAGE_SIZE
+
+static errval_t paging_set_handler(void);
+
+static errval_t paging_slab_refill(struct slab_allocator *slabs);
+
 static struct paging_state current;
 
 static void exception_handler(enum exception_type type, int subtype,
@@ -30,20 +38,27 @@ static errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
                                 struct capref l1_cap, lvaddr_t index_l1,
                                 int flags);
 
-// Helper functions to work with the free list.
-static void free_list_dump(struct paging_state *st);
-static void free_list_node_insert(struct paging_state *st,
-        struct paging_region *node);
+static void paging_list_dump(struct paging_region *head);
+static void paging_list_init_node(struct paging_region *node,
+        lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
+        struct paging_region *prev);
+static struct paging_region *paging_list_create_node(struct paging_state *st,
+        lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
+        struct paging_region *prev);
+
+
+static struct paging_region *free_list_find_node(struct paging_region *head,
+        size_t size);
 static void free_list_node_dec_size(struct paging_state *st,
         struct paging_region *node, size_t decrement);
-static void free_list_init_node(struct paging_region *node,
-        lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
-        struct paging_region *prev);
-static struct paging_region *free_list_create_node(struct paging_state *st,
-        lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
-        struct paging_region *prev);
-static struct paging_region *free_list_find_node(struct paging_state *st,
-        size_t size);
+static void free_list_node_insert(struct paging_state *st,
+        struct paging_region *node);
+
+static void taken_list_node_insert(struct paging_state *st,
+        struct paging_region *node);
+static struct paging_region *taken_list_find_node(
+        struct paging_region *head, lvaddr_t base);
+
 /**
  * \brief Helper function that allocates a slot and
  *        creates a ARM l2 page table capability
@@ -68,32 +83,25 @@ static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir, struct slot_allocator * ca)
 {
-    debug_printf("paging_init_state got called\n");
     st->l1_capref = pdir;
     st->slot_alloc = ca;
     for (int i = 0; i < ARM_L1_MAX_ENTRIES; ++i) {
         st->l2_pagetabs[i].initialized = false;
     }
 
-    // Set up page fault handler. The exception stack is a static buffer.
-#define STACK_SIZE 8*BASE_PAGE_SIZE
-    static char exception_stack[STACK_SIZE];
-    errval_t err = thread_set_exception_handler(exception_handler, NULL,
-            exception_stack, &exception_stack[STACK_SIZE-1], NULL, NULL);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed setting a page fault handler");
-        return err;
-    }
-    const lvaddr_t VIRTUAL_SPACE_SIZE = 0xffffffff;
+    // Init slab and give it some memory region.
+    slab_init(&st->slabs, sizeof(struct paging_region), paging_slab_refill);
+    st->refilling_slab = false;
+    // We can't just invoke paging_region_init here, because it invokes
+    // paging_alloc, which requires some slab space.
+    st->slab_region.base_addr = start_vaddr;
+    st->slab_region.current_addr = start_vaddr;
+    st->slab_region.region_size = SLAB_REGION_SIZE;
+    start_vaddr += SLAB_REGION_SIZE;
 
-    // Init slab and give it some memory.
-    slab_init(&st->slabs, sizeof(struct paging_region), slab_default_refill);
-
-    // Initialize head.
-    free_list_init_node(&st->first_region, start_vaddr, start_vaddr,
+    paging_list_init_node(&st->first_region, start_vaddr, start_vaddr,
             (size_t) VIRTUAL_SPACE_SIZE - start_vaddr, NULL, NULL);
     st->free_list_head = &st->first_region;
-    debug_printf("finished the slab init\n");
     return SYS_ERR_OK;
 }
 
@@ -101,11 +109,41 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
  * \brief Handles exceptions.
  */
 
-__attribute__((noreturn))
 void exception_handler(enum exception_type type, int subtype,
-                                     void *addr, arch_registers_state_t *regs,
-                                     arch_registers_fpu_state_t *fpuregs) {
-    debug_printf("an exception occured\n");
+        void *addr, arch_registers_state_t *regs,
+        arch_registers_fpu_state_t *fpuregs)
+{
+    bool is_null = (addr == NULL);
+    debug_printf("****************************************\n");
+    debug_printf("\tan exception occured\n");
+    if (type != EXCEPT_PAGEFAULT) {
+        debug_printf("\tthe exception is not a page fault\n");
+    } else {
+        debug_printf("\tip=0x%x address=%p\n", regs->named.pc, addr);
+    }
+    debug_printf("****************************************\n");
+    if (!is_null) {
+        // We've got an access page fault. Need to allocate some ram and map it.
+        struct capref frame;
+        size_t real_size;
+        errval_t err;
+        struct paging_state *st = get_current_paging_state();
+        lvaddr_t offset = (lvaddr_t) addr;
+        lvaddr_t aligned = ROUND_DOWN(offset, BASE_PAGE_SIZE);
+        err = frame_alloc(&frame, BASE_PAGE_SIZE, &real_size);
+        if (err_is_fail(err)) {
+            debug_printf("failed allocating frame\n");
+            goto loop;
+        }
+        err = paging_map_fixed_attr(st, aligned, frame, real_size,
+                VREGION_FLAGS_READ_WRITE);
+        if (err_is_fail(err)) {
+            debug_printf("failed mapping the frame\n");
+            goto loop;
+        }
+        return;
+    }
+loop:
     while (true) {
     }
 }
@@ -115,13 +153,6 @@ void exception_handler(enum exception_type type, int subtype,
  */
 errval_t paging_init(void)
 {
-    debug_printf("paging_init\n");
-    // TODO (M4): initialize self-paging handler
-    // TIP: use thread_set_exception_handler() to setup a page fault handler
-    // TIP: Think about the fact that later on, you'll have to make sure that
-    // you can handle page faults in any thread of a domain.
-    // TIP: it might be a good idea to call paging_init_state() from here to
-    // avoid code duplication.
     struct slot_allocator *default_sa = get_default_slot_allocator();
     // The initial offset has to be BASE_PAGE_SIZE aligned!
     lvaddr_t initial_offset = VADDR_OFFSET; // 1 GB
@@ -129,12 +160,14 @@ errval_t paging_init(void)
         .cnode = cnode_page,
         .slot = 0,
     };
-    // The order here is important: current paging state has to be set up
-    // before calling paging_init_state, because paging_init_state calls
-    // paging_map_fixed_attr.
     set_current_paging_state(&current);
-    paging_init_state(&current, initial_offset, l1_cap_dest, default_sa);
-    return SYS_ERR_OK;
+    errval_t err = paging_set_handler();
+    if (err_is_fail(err)) {
+        debug_printf("setting the paging fault handler failed\n");
+        return err;
+    }
+    err = paging_init_state(&current, initial_offset, l1_cap_dest, default_sa);
+    return err;
 }
 
 
@@ -184,8 +217,6 @@ errval_t paging_region_map(struct paging_region *pr, size_t req_size,
         *retbuf = (void*)pr->current_addr;
         *ret_size = rem;
         pr->current_addr += rem;
-        debug_printf("exhausted paging region, "
-                "expect badness on next allocation\n");
     } else {
         return LIB_ERR_VSPACE_MMU_AWARE_NO_SPACE;
     }
@@ -212,12 +243,25 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
     size_t round_size = ROUND_UP(bytes, BASE_PAGE_SIZE);
-    struct paging_region *node = free_list_find_node(st, round_size);
+    struct paging_region *node = free_list_find_node(st->free_list_head,
+            round_size);
     if (!node) {
         return LIB_ERR_VSPACE_MMU_AWARE_NO_SPACE;
     }
     *buf = (void *) node->base_addr;
     free_list_node_dec_size(st, node, round_size);
+    if (st->refilling_slab) {
+        // Slab regions are not unmapped, so we don't track them.
+        return SYS_ERR_OK;
+    }
+    struct paging_region *taken_node = paging_list_create_node(st,
+            (lvaddr_t) *buf, (lvaddr_t) *buf, round_size, NULL, NULL);
+    taken_list_node_insert(st, taken_node);
+
+    /* debug_printf("printing free list slab=%d:\n", slab_freecount(&st->slabs)); */
+    /* paging_list_dump(st->free_list_head); */
+    /* debug_printf("printing taken list:\n"); */
+    /* paging_list_dump(st->taken_list_head); */
     return SYS_ERR_OK;
 }
 
@@ -246,9 +290,23 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 errval_t
 slab_refill_no_pagefault(struct slab_allocator *slabs, struct capref frame, size_t minbytes)
 {
-    //TODO: implement me
-    // Refill the two-level slot allocator without causing a page-fault
-    return LIB_ERR_NOT_IMPLEMENTED;
+    void *buf;
+    errval_t err;
+    size_t real_bytes = ROUND_UP(minbytes, BASE_PAGE_SIZE);
+    struct paging_state *st = get_current_paging_state();
+    err = frame_create(frame, real_bytes, &real_bytes);
+    if (err_is_fail(err)) {
+        debug_printf("error at creating frame in slab_refill_no_pagefault\n");
+        return err;
+    }
+    err = paging_map_frame_attr(st, &buf, real_bytes, frame,
+            VREGION_FLAGS_READ_WRITE, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("error at mapping frame in slab_refill_no_pagefault\n");
+        return err;
+    }
+    slab_grow(slabs, buf, real_bytes);
+    return SYS_ERR_OK;
 }
 
 errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
@@ -327,14 +385,18 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
  */
 errval_t paging_unmap(struct paging_state *st, const void *region)
 {
+    // 1. Create a new paging_region.
+    // 2. Insert it into the free list.
+    // 3. Do the defragmentation.
+    // 4. Change the arm page tables.
     return SYS_ERR_OK;
 }
 
 __attribute__((unused))
-static void free_list_dump(struct paging_state *st)
+void paging_list_dump(struct paging_region *head)
 {
-    struct paging_region *cur = st->free_list_head;
-    debug_printf("paging free list:\n");
+    struct paging_region *cur = head;
+    debug_printf("dumping list:\n");
     while (cur) {
         debug_printf("b=0x%x s=0x%x\n", cur->current_addr, cur->region_size);
         cur = cur->next;
@@ -343,17 +405,17 @@ static void free_list_dump(struct paging_state *st)
 }
 
 __attribute__((unused))
-static struct paging_region *free_list_create_node(struct paging_state *st,
+struct paging_region *paging_list_create_node(struct paging_state *st,
         lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
         struct paging_region *prev)
 {
     struct paging_region *node = slab_alloc(&st->slabs);
-    free_list_init_node(node, base, cur, size, next, prev);
+    paging_list_init_node(node, base, cur, size, next, prev);
     return node;
 }
 
-static void free_list_init_node(struct paging_region *node,
-        lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
+void paging_list_init_node(struct paging_region *node, lvaddr_t base,
+        lvaddr_t cur, size_t size, struct paging_region *next,
         struct paging_region *prev)
 {
     node->base_addr = base;
@@ -362,16 +424,49 @@ static void free_list_init_node(struct paging_region *node,
     node->prev = next;
     node->next = prev;
 }
+
 __attribute__((unused))
-static void free_list_node_insert(struct paging_state *st,
+void free_list_node_insert(struct paging_state *st,
         struct paging_region *node)
 {
+    // This list is sorted by base.
+    if (st->free_list_head == NULL) {
+        st->free_list_head = node;
+        node->next = NULL;
+        node->prev = NULL;
+        return;
+    }
+    struct paging_region *next, *prev;
+    next = st->free_list_head;
+    while (next && next->base_addr < node->base_addr) {
+        prev = next;
+        next = next->next;
+    }
+    if (prev) prev->next = node;
+    if (next) next->prev = node;
+    node->next = next;
+    node->prev = prev;
 }
 
-static struct paging_region *free_list_find_node(struct paging_state *st,
+__attribute__((unused))
+void taken_list_node_insert(struct paging_state *st,
+        struct paging_region *node)
+{
+    // This list is not sorted, so insert at front.
+    if (st->taken_list_head == NULL) {
+        node->prev = NULL;
+    } else {
+        st->taken_list_head->prev = node;
+    }
+    node->next = st->taken_list_head;
+    st->taken_list_head = node;
+}
+
+__attribute__((unused))
+struct paging_region *free_list_find_node(struct paging_region *head,
         size_t size)
 {
-    struct paging_region *cur = st->free_list_head;
+    struct paging_region *cur = head;
     while (cur) {
         if (cur->region_size >= size) {
             return cur;
@@ -381,7 +476,21 @@ static struct paging_region *free_list_find_node(struct paging_state *st,
     return NULL;
 }
 
-static void free_list_node_dec_size(struct paging_state *st,
+__attribute__((unused))
+struct paging_region *taken_list_find_node(struct paging_region *head,
+        lvaddr_t base)
+{
+    struct paging_region *cur = head;
+    while (cur) {
+        if (cur->base_addr == base) {
+            return cur;
+        }
+        cur = cur->next;
+    }
+    return NULL;
+}
+
+void free_list_node_dec_size(struct paging_state *st,
         struct paging_region *node, size_t decrement)
 {
     if (node->region_size > decrement) {
@@ -402,4 +511,47 @@ static void free_list_node_dec_size(struct paging_state *st,
         }
     }
 
+}
+
+errval_t paging_set_handler(void)
+{
+    // Set up page fault handler. The exception stack is a static buffer.
+    static char exception_stack[EXCEPTION_STACK_SIZE];
+    lvaddr_t base = ROUND_UP((lvaddr_t) exception_stack, 4);
+    lvaddr_t top = ROUND_DOWN(base + EXCEPTION_STACK_SIZE - 1, 4);
+    errval_t err = thread_set_exception_handler(exception_handler, NULL,
+            (void *) base, (void *) top, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("failed setting a page fault handler");
+        return err;
+    }
+    debug_printf("paging handler set up base=%p top=%p\n", (void *) base, (void *)top);
+    return SYS_ERR_OK;
+}
+
+errval_t paging_slab_refill(struct slab_allocator *slabs)
+{
+    void *buf;
+    size_t ret_size;
+    errval_t err;
+
+    struct paging_state *st = get_current_paging_state();
+    struct paging_region *slab_region = &st->slab_region;
+
+    // After this call we deplete the region.
+    err = paging_region_map(slab_region, SLAB_REGION_SIZE, &buf, &ret_size);
+    if (err_is_fail(err)) {
+        debug_printf("failed to get memory from slab region\n");
+        return err;
+    }
+    slab_grow(slabs, buf, ret_size);
+    // So we need to allocate a new one.
+    st->refilling_slab = true;
+    err = paging_region_init(st, slab_region, SLAB_REGION_SIZE);
+    if (err_is_fail(err)) {
+        debug_printf("failed to create a new slab region\n");
+        return err;
+    }
+    st->refilling_slab = false;
+    return SYS_ERR_OK;
 }

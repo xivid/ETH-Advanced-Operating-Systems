@@ -55,7 +55,7 @@ errval_t two_level_alloc(struct slot_allocator *ca, struct capref *ret)
     /* It works the following way:
      * For new slots we need some slab memory. If we ran out of slab memory,
      * we need to grow the slab. To grow the slab we need at least one slot.
-     * Thus we get an infinite recursion. To avoid it the flag 
+     * Thus we get an infinite recursion. To avoid it the flag
      * "growing_in_progress" and a non-zero limit for minimal number of slots
      * were added.
      */
@@ -107,8 +107,7 @@ errval_t two_level_alloc(struct slot_allocator *ca, struct capref *ret)
                 return err_push(err, LIB_ERR_SLOT_ALLOC);
             }
             // use slab refill function that never causes a pagefault
-            /* err = slab_refill_no_pagefault(&mca->slab, frame, mca->slab.blocksize); */
-            err = slab_default_refill(&mca->slab);
+            err = slab_refill_no_pagefault(&mca->slab, frame, mca->slab.blocksize);
             if (err_is_fail(err)) {
                 return err_push(err, LIB_ERR_SLAB_REFILL);
             }

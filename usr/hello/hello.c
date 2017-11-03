@@ -25,7 +25,9 @@ bool test_virtual_memory(int count, int size);
 int main(int argc, char *argv[])
 {
     debug_printf("hello started testing\n");
-    test_virtual_memory(1000, BASE_PAGE_SIZE);
+    int *tmp = malloc(100*1024*1024);
+    *tmp = 42;
+    debug_printf("*%p = %d\n", tmp, *tmp);
     return 0;
 }
 
