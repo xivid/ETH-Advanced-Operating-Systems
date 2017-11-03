@@ -98,12 +98,12 @@ int main(int argc, char *argv[])
     /* test_huge_malloc(); */
     /* test_dynamic_slots(3000); */
     /* test_virtual_memory(1000, 4*BASE_PAGE_SIZE); */
-    /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
-    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
-    /* if (err_is_fail(err)) { */
-    /*     debug_printf("Failed spawning process hello\n"); */
-        /* return false; */
-    /* } */
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+    err = spawn_load_by_name("/armv7/sbin/hello", si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawning process hello\n");
+        return false;
+    }
 
     debug_printf("Message handler loop\n");
     // Hang around
@@ -374,7 +374,6 @@ void* answer_init(struct capref* cap) {
 }
 
 void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
-    debug_printf("got to answer ram\n");
     struct client *sender = NULL;
     errval_t err = whois(*cap, &sender);
     if (err_is_fail(err) || sender == NULL) {

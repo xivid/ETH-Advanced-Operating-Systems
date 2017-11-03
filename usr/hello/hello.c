@@ -21,13 +21,14 @@
 #include <aos/except.h>
 
 bool test_virtual_memory(int count, int size);
+bool test_huge_malloc(void);
+bool test_dynamic_slots(int count);
 
 int main(int argc, char *argv[])
 {
     debug_printf("hello started testing\n");
-    int *tmp = malloc(100*1024*1024);
-    *tmp = 42;
-    debug_printf("*%p = %d\n", tmp, *tmp);
+    test_huge_malloc();
+    test_dynamic_slots(3000);
     return 0;
 }
 
@@ -53,3 +54,31 @@ bool test_virtual_memory(int count, int size) {
     debug_printf("virtual memory test succeeded\n");
     return true;
 }
+__attribute__((unused))
+bool test_huge_malloc(void) {
+    debug_printf("testing huge malloc\n");
+    int *tmp = malloc(100 * 1024 * 1024);
+    tmp[10000] = 42;
+    tmp[10001] = 43;
+    debug_printf("tmp=%p &tmp[10000]=%p\n", tmp, &tmp[10000]);
+    debug_printf("testing huge malloc done\n");
+    return true;
+}
+
+__attribute__((unused))
+bool test_dynamic_slots(int count) {
+    debug_printf("testing dynamic slots\n");
+    for (int i = 0 ; i < count ; ++i) {
+        struct capref slot;
+        /* errval_t err = frame_alloc(&frame, BASE_PAGE_SIZE, NULL); */
+        errval_t err = slot_alloc(&slot);
+        if (err_is_fail(err)) {
+            debug_printf("err at test: %d. err=%s\n", i, err_getstring(err));
+            return false;
+        }
+    }
+    debug_printf("testing dynamic slots done\n");
+    return true;
+}
+
+

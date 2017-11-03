@@ -37,7 +37,7 @@ struct domaininfo {
 };
 
 struct aos_rpc {
-    struct lmp_chan* lmp;
+    struct lmp_chan lmp;
     struct waitset* ws;
     char* buffer;
 

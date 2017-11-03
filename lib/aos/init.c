@@ -144,9 +144,11 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
         err = ram_alloc_set(ram_alloc_fixed);
     }
     else
-        // we can't directly call ram_alloc_set(ram_alloc_remote) as ram_alloc_remote is a static function and thus can't be passed as argument
+        // we can't directly call ram_alloc_set(ram_alloc_remote) as
+        // ram_alloc_remote is a static function and thus can't be
+        // passed as argument
         err = ram_alloc_set(NULL);
-    
+
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_RAM_ALLOC_SET);
     }
@@ -155,11 +157,19 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_VSPACE_INIT);
     }
+    struct paging_state *st = get_current_paging_state();
+    st->refilling_slab = true;
 
     err = slot_alloc_init();
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_SLOT_ALLOC_INIT);
     }
+
+    /* static char slab_space[BASE_PAGE_SIZE]; */
+    /* struct slot_alloc_state *sa_state = get_slot_alloc_state(); */
+    /* struct multi_slot_allocator *def = &sa_state->defca; */
+    /* slab_grow(&def->slab, slab_space, BASE_PAGE_SIZE); */
+
 
     err = morecore_init();
     if (err_is_fail(err)) {
@@ -173,31 +183,27 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
         return SYS_ERR_OK;
     }
 
-    struct aos_rpc* rpc = (struct aos_rpc*) malloc(sizeof(struct aos_rpc));
-    err = aos_rpc_init(default_ws, rpc);
+
+    struct aos_rpc rpc;
+    err = aos_rpc_init(default_ws, &rpc);
     if (err_is_fail(err)) {
-        debug_printf("lib aos init.c: aos_rpc_init failed\n");
+        debug_printf("lib aos init.c: first aos_rpc_init failed\n");
         return err;
     }
-    debug_printf("set init rpc\n");
-    set_init_rpc(rpc);
+    set_init_rpc(&rpc);
+
+    struct aos_rpc *rpc_on_heap = malloc(sizeof(struct aos_rpc));
+    err = aos_rpc_init(default_ws, rpc_on_heap);
+    if (err_is_fail(err)) {
+        debug_printf("lib aos init.c: second aos_rpc_init failed\n");
+        return err;
+    }
+    set_init_rpc(rpc_on_heap);
+
     _libc_terminal_write_func = lmp_terminal_write;
-    debug_printf("set init rpc done\n");
-    // TODO MILESTONE 3: register ourselves with init
-    /* allocate lmp channel structure */
-    /* create local endpoint */
-    /* set remote endpoint to init's endpoint */
-    /* set receive handler */
-    /* send local ep to init */
-    /* wait for init to acknowledge receiving the endpoint */
-    /* initialize init RPC client with lmp channel */
-    /* set init RPC client in our program state */
+    st->refilling_slab = true;
 
-    /* TODO MILESTONE 3: now we should have a channel with init set up and can
-     * use it for the ram allocator */
 
-    // right now we don't have the nameservice & don't need the terminal
-    // and domain spanning, so we return here
     return SYS_ERR_OK;
 }
 

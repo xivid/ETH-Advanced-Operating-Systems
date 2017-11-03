@@ -110,7 +110,6 @@ static void *morecore_alloc(size_t bytes, size_t *retbytes)
         assert(!err_is_fail(err) && (*retbytes >= aligned_bytes));
     }
     // We've allocated enough space or even more. Just return the pointer.
-    debug_printf("morecore: returning pointer %p\n", retbuf);
     return retbuf;
 }
 
