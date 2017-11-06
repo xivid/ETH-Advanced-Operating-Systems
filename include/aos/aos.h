@@ -36,6 +36,7 @@
 #include <barrelfish_kpi/init.h> // kernel-defined part of cspace
 #include <barrelfish_kpi/registers_arch.h>
 #include <barrelfish_kpi/dispatcher_handle.h>
+#include <barrelfish_kpi/arm_core_data.h>
 
 /* libbarrelfish API */
 #include <aos/types.h>
