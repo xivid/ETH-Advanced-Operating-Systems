@@ -393,18 +393,20 @@ errval_t send_ram(void* args) {
 }
 
 errval_t boot_cpu1(void) {
+    errval_t err;
     struct capref kcb_ram;
-    errval_t err = ram_alloc(&kcb_ram, OBJSIZE_KCB);
+    err = ram_alloc(&kcb_ram, OBJSIZE_KCB);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not ram alloc kcb_ram");
         return err;
     }
-    err = slot_alloc(&kcb_ram);
+
+    struct capref kcb;
+    err = slot_alloc(&kcb);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not slot alloc kcb_ram");
         return err;
     }
-    struct capref kcb;
     err = cap_retype(kcb, kcb_ram, 0, ObjType_KernelControlBlock, OBJSIZE_KCB, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not cap retype kcb");
