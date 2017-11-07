@@ -95,8 +95,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    test_alloc_free(50);
-
     /* test_huge_malloc(); */
     /* test_dynamic_slots(3000); */
     /* test_virtual_memory(1000, 4*BASE_PAGE_SIZE); */
