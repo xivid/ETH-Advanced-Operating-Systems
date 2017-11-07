@@ -702,5 +702,3 @@ bool test_dynamic_slots(int count) {
     debug_printf("testing dynamic slots done\n");
     return true;
 }
-
-
