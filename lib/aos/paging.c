@@ -114,14 +114,6 @@ void exception_handler(enum exception_type type, int subtype,
         arch_registers_fpu_state_t *fpuregs)
 {
     bool is_null = (addr == NULL);
-    debug_printf("****************************************\n");
-    debug_printf("\tan exception occured\n");
-    if (type != EXCEPT_PAGEFAULT) {
-        debug_printf("\tthe exception is not a page fault\n");
-    } else {
-        debug_printf("\tip=0x%x address=%p\n", regs->named.pc, addr);
-    }
-    debug_printf("****************************************\n");
     if (!is_null) {
         // We've got an access page fault. Need to allocate some ram and map it.
         struct capref frame;
@@ -143,6 +135,14 @@ void exception_handler(enum exception_type type, int subtype,
         }
         return;
     }
+    debug_printf("****************************************\n");
+    debug_printf("\tan exception occured\n");
+    if (type != EXCEPT_PAGEFAULT) {
+        debug_printf("\tthe exception is not a page fault\n");
+    } else {
+        debug_printf("\tip=0x%x address=%p\n", regs->named.pc, addr);
+    }
+    debug_printf("****************************************\n");
 loop:
     while (true) {
     }
@@ -525,7 +525,6 @@ errval_t paging_set_handler(void)
         debug_printf("failed setting a page fault handler");
         return err;
     }
-    debug_printf("paging handler set up base=%p top=%p\n", (void *) base, (void *)top);
     return SYS_ERR_OK;
 }
 

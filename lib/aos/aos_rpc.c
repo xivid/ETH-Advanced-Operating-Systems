@@ -24,7 +24,7 @@ errval_t aos_rpc_send_handler_for_init (void* v_args) {
     int count = 0;
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send1(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_INIT);
+        err = lmp_chan_send1(&rpc->lmp, LMP_FLAG_SYNC, rpc->lmp.local_cap, AOS_RPC_ID_INIT);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -41,7 +41,7 @@ errval_t aos_rpc_send_handler_for_num (void* v_args) {
     int count = 0;
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send2(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_NUM, *num);
+        err = lmp_chan_send2(&rpc->lmp, LMP_FLAG_SYNC, rpc->lmp.local_cap, AOS_RPC_ID_NUM, *num);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -59,7 +59,7 @@ errval_t aos_rpc_send_handler_for_char (void* v_args)
     int count = 0;
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send2(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_CHAR, character);
+        err = lmp_chan_send2(&rpc->lmp, LMP_FLAG_SYNC, rpc->lmp.local_cap, AOS_RPC_ID_CHAR, character);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -79,7 +79,7 @@ errval_t aos_rpc_send_handler_for_string(void* v_args)
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, words + 1, AOS_RPC_ID_STR, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
+        err = lmp_chan_send(&rpc->lmp, LMP_FLAG_SYNC, rpc->lmp.local_cap, words + 1, AOS_RPC_ID_STR, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -96,7 +96,7 @@ errval_t aos_rpc_send_handler_for_process(void* v_args)
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send9(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_PROCESS, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
+        err = lmp_chan_send9(&rpc->lmp, LMP_FLAG_SYNC, rpc->lmp.local_cap, AOS_RPC_ID_PROCESS, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -111,11 +111,11 @@ errval_t aos_rpc_rcv_handler_general (void* v_args) {
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(rpc->lmp, &lmp_msg, &cap);
+    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(rpc->lmp, rpc->ws,
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
                 MKCLOSURE((void*) aos_rpc_rcv_handler_general, args));
         count++;
     }
@@ -141,7 +141,7 @@ errval_t aos_rpc_send_handler_for_ram (void* v_args) {
     int count = 0;
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send3(rpc->lmp, LMP_FLAG_SYNC, rpc->lmp->local_cap, AOS_RPC_ID_RAM, *size, *align);
+        err = lmp_chan_send3(&rpc->lmp, LMP_FLAG_SYNC, rpc->lmp.local_cap, AOS_RPC_ID_RAM, *size, *align);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -157,11 +157,11 @@ errval_t aos_rpc_rcv_handler_for_ram (void* v_args) {
     size_t* ret_size = (size_t*) args[4];
 
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(rpc->lmp, &lmp_msg, cap);
+    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, cap);
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(rpc->lmp, rpc->ws,
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
                 MKCLOSURE((void*) aos_rpc_rcv_handler_for_ram, args));
         count++;
     }
@@ -185,11 +185,11 @@ errval_t aos_rpc_handler_for_process(void* v_args) {
 
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(rpc->lmp, &lmp_msg, &cap);
+    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(rpc->lmp, rpc->ws,
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
                 MKCLOSURE((void*) aos_rpc_rcv_handler_for_ram, args));
         count++;
     }
@@ -211,13 +211,13 @@ errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintpt
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
 
     // set handlers
-    errval_t err = lmp_chan_register_send(rpc->lmp, rpc->ws, MKCLOSURE(send_handler, args));
+    errval_t err = lmp_chan_register_send(&rpc->lmp, rpc->ws, MKCLOSURE(send_handler, args));
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_send_and_receive: lmp_chan_register_send failed\n");
         return err;
     }
 
-    err = lmp_chan_register_recv(rpc->lmp, rpc->ws, MKCLOSURE(rcv_handler, args));
+    err = lmp_chan_register_recv(&rpc->lmp, rpc->ws, MKCLOSURE(rcv_handler, args));
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_send_and_receive: lmp_chan_register_rcv failed\n");
         return err;
@@ -302,8 +302,10 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
     args[3] = (uintptr_t) retcap;
     args[4] = (uintptr_t) ret_size;
 
+    assert(chan != NULL);
+
     // setup receiver slot
-    errval_t err = lmp_chan_alloc_recv_slot(chan->lmp);
+    errval_t err = lmp_chan_alloc_recv_slot(&chan->lmp);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_get_ram_cap: lmp chan alloc recv slot failed\n");
         return err;
@@ -408,10 +410,7 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
 {
     rpc->ws = ws;
 
-    // channel to the init endpoint
-    rpc->lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
-
-    errval_t err = lmp_chan_accept(rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_initep);
+    errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_initep);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_init: lmp_chan_accept failed\n");
         return err;

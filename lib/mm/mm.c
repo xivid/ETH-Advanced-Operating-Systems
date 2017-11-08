@@ -9,33 +9,39 @@
 #define MIN_SPLIT_SIZE BASE_PAGE_SIZE
 #define aligned(address, alignment) (address & (alignment -1)) == 0
 #define INITIAL_SPLIT_ALIGNMENT 1024*1024 // 1MB
+#define MIN_FREE_SLOTS 15 // How many do we really need?
 
-errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, struct mmnode **current);
-struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size);
-void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start);
-void mm_delete_node(struct mm *mm, struct mmnode *node);
+errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment,
+                               struct mmnode **current);
+struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base, enum nodetype type);
+struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base,
+                              size_t size);
+void mm_insert_node(struct mm *mm, struct mmnode *new_node,
+                    struct mmnode *start);
+errval_t mm_delete_node(struct mm *mm, struct mmnode *node, bool destroy_cap);
+void mm_extract_node(struct mm *mm, struct mmnode *node);
 
 size_t largest_contained_power_of_2(size_t size);
-void mm_print_node(struct mmnode *node);
-void mm_traverse_list(struct mmnode *head);
 
-errval_t split_cap(struct mm *mm, struct capref source,
-        size_t left_size, size_t right_size, struct capref *left_slot,
-        struct capref *right_slot);
+errval_t split_cap(struct mm *mm, struct mmnode *source, size_t offset,
+                   struct capref *left_slot, struct capref *right_slot);
 
 bool can_split_with_alignment(struct mmnode *node, size_t alignment,
-        size_t *left_size, size_t *right_size);
+                              size_t *right_off);
 
-errval_t split_mmnode(struct mm *mm, struct mmnode *current,
-        struct mmnode **left_node, struct mmnode **right_node,
-        size_t left_size, size_t right_size);
+errval_t split_mmnode_final(struct mm *mm, struct mmnode *current,
+                            size_t right_offset);
+errval_t break_off_cap(struct mm *mm, struct mmnode *current,
+                       size_t left_size, struct capref *left_cap);
+
+errval_t refill_slots_if_needed(struct mm *mm, bool *refilled);
 
 __attribute__ ((unused))
 void mm_print_node(struct mmnode *node) {
     debug_printf("-- Printing node --\n");
     debug_printf("node size: %llu\n", node->size);
     debug_printf("node base: %llu\n", node->base);
-    debug_printf("node type is free: %i\n", node->type == NodeType_Free);
+    debug_printf("node type is internal: %i\n", node->type == NodeType_Keep);
     debug_printf("\n");
 }
 
@@ -45,10 +51,10 @@ void mm_traverse_list(struct mmnode *head) {
     printf("Node sizes: ");
     struct mmnode *cur = head;
     while (true) {
-        if (cur->type == NodeType_Free) {
-            printf("%llu (F), ", cur->size);
+        if (cur->type == NodeType_Keep) {
+            printf("%llu [%llu] (keep), ", cur->size, cur->base);
         } else {
-            printf("%llu (T), ", cur->size);
+            printf("%llu [%llu] (hand), ", cur->size, cur->base);
         }
         if (cur->next == head) {
             break;
@@ -58,15 +64,17 @@ void mm_traverse_list(struct mmnode *head) {
     printf("\n");
 }
 
+
 /**
- * Initialize the memory manager.
+ * \brief Initialize the memory manager.
  *
  * \param  mm               The mm struct to initialize.
  * \param  objtype          The cap type this manager should deal with.
  * \param  slab_refill_func Custom function for refilling the slab allocator.
  * \param  slot_alloc_func  Function for allocating capability slots.
  * \param  slot_refill_func Function for refilling (making) new slots.
- * \param  slot_alloc_inst  Pointer to a slot allocator instance (typically passed to the alloc and refill functions).
+ * \param  slot_alloc_inst  Pointer to a slot allocator instance (typically
+ *                          passed to the alloc and refill functions).
  */
 errval_t mm_init(struct mm *mm, enum objtype objtype,
                  slab_refill_func_t slab_refill_func,
@@ -90,14 +98,14 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
 }
 
 /**
- * Destroys the memory allocator.
+ * \brief Destroys the memory allocator.
  */
 void mm_destroy(struct mm *mm)
 {
 }
 
 /**
- * Adds a capability to the memory manager.
+ * \brief Adds a capability to the memory manager.
  *
  * \param  cap  Capability to add
  * \param  base Physical base address of the capability
@@ -105,7 +113,14 @@ void mm_destroy(struct mm *mm)
  */
 errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 {
+    struct frame_identity ident;
+    frame_identify(cap, &ident);
+    assert(ident.base == base && ident.bytes == size);
     struct mmnode *new_memnode = mm_create_node(mm, cap, base, size);
+    if (new_memnode == NULL) {
+        debug_printf("Not possible to create new mmnode\n");
+        return MM_ERR_NEW_NODE;
+    }
     if (mm->head == NULL) {
         new_memnode->prev = new_memnode;
         new_memnode->next = new_memnode;
@@ -120,28 +135,60 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
         return err;
     }
 
+    err = refill_slots_if_needed(mm, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("failed to refill slots in add\n");
+        return err;
+    }
+
     return SYS_ERR_OK;
 }
 
 /**
- * Does the splitting on the initial big chunk into two parts:
- * the left part is unaligned and used for requests with small alignments
- * the right part is aligned and used for requests with big alignments
+ * \brief Split large capability into large aligned part and unaligned part
+ *
+ * The left part is not guaranteed to be aligned to anything and might be used
+ * for requests with small alignments.
+ * The right part is aligned to INITIAL_SPLIT_ALIGNMENT.
  */
-errval_t mm_do_initial_split(struct mm *mm) {
-    struct mmnode *head = mm->head;
-    size_t left_size, right_size;
-    if (can_split_with_alignment(head, INITIAL_SPLIT_ALIGNMENT,
-                &left_size, &right_size)) {
-        struct mmnode *left, *right;
-        errval_t err = split_mmnode(mm, mm->head, &left, &right,
-                left_size, right_size);
-        // TODO: change this dirty bugfix
-        mm->head = right;
-        return err;
+errval_t mm_do_initial_split(struct mm *mm)
+{
+    size_t right_offset;
+    if (!can_split_with_alignment(mm->head, INITIAL_SPLIT_ALIGNMENT,
+                                  &right_offset)) {
+        debug_printf("Cannot do initial split with alignment\n");
+        return MM_ERR_NEW_NODE;
     }
-    debug_printf("Initial split failed\n");
-    return MM_ERR_NEW_NODE;
+
+    debug_printf("Doing initial split with size %i and size %i \n", right_offset, mm->head->size - right_offset);
+
+    if (right_offset > 0) {
+        errval_t err = split_mmnode_final(mm, mm->head, right_offset);
+        if (err_is_fail(err)) {
+            debug_printf("Failed to split initial mmnode\n");
+            return err;
+        }
+    }
+    return SYS_ERR_OK;
+}
+
+/**
+ * \brief check if can split the node with the given alignment
+ *
+ * \param       node            The node to check
+ * \param       alignment       The alignment
+ * \param[out]  right_off       Offset of the right node in the given node
+ *
+ * \return Whether a split is feasible
+ */
+bool can_split_with_alignment(struct mmnode *node, size_t alignment,
+                              size_t *right_off)
+{
+    uint64_t base = node->base;
+    uint64_t split_point = ROUND_UP(base, alignment);
+
+    *right_off = (size_t) split_point - base;
+    return *right_off < node->size;
 }
 
 /**
@@ -149,15 +196,14 @@ errval_t mm_do_initial_split(struct mm *mm) {
  *
  * \param       mm        The memory manager.
  * \param       size      How much memory to allocate.
- * \param       alignment The alignment requirement of the base address for your memory.
+ * \param       alignment The alignment requirement of the base address
  * \param[out]  retcap    Capability for the allocated region.
  */
-errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct capref *retcap)
+errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
+                          struct capref *retcap)
 {
-    size_t left_size = 0, right_size = 0;
-    struct mmnode *left_node = NULL, *right_node = NULL;
-    struct mmnode *current = mm->head;
     errval_t err;
+    struct mmnode *current = mm->head;
     if (current == NULL) {
         DEBUG_ERR(MM_ERR_MISSING_CAPS, "Cannot allocate memory without caps\n");
         return MM_ERR_MISSING_CAPS;
@@ -169,54 +215,76 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment, struct c
         return err;
     }
 
-    if (!mm->allocating_ram) {
-        mm->allocating_ram = true;
+    // Split capability until it has the right size, don't split below 4k.
+    while (current->size >= 2*size && current->size > MIN_SPLIT_SIZE) {
+        size_t offset = largest_contained_power_of_2(current->size);
+        err = break_off_cap(mm, current, offset, retcap);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "Failed at splitting node");
+            return err;
+        }
 
-        // Split capability until it has the right size, don't split below 4k.
-        while (current->size >= 2*size && current->size > MIN_SPLIT_SIZE) {
-            if (!slot_alloc_enough_slots(mm->slot_alloc_inst, 2)) {
-                err = slot_prealloc_refill(mm->slot_alloc_inst);
-                if (err_is_fail(err)) {
-                    DEBUG_ERR(err, "slot refill failed");
-                    return err;
-                }
+        if (current->size >= 2*size && current->size > MIN_SPLIT_SIZE) {
+            struct mmnode *new_node = mm_create_node(mm, *retcap,
+                                                     current->base - offset,
+                                                     offset);
+            if (new_node == NULL) {
+                debug_printf("Failed to create new mmnode\n");
+                return MM_ERR_NEW_NODE;
             }
+            mm_insert_node(mm, new_node, current);
+            current = new_node;
+        } else {
+            return SYS_ERR_OK;
+        }
 
-            // After slab or slot refill the current node may be already taken.
-            if (current->type == NodeType_Allocated) {
-                current = mm->head;
-                err = mm_find_smallest_node(mm, size, alignment, &current);
-                if (err_is_fail(err)) {
-                    DEBUG_ERR(err,
-                            "Error finding smallest node after slot refill\n");
-                    return err;
-                }
-                // After slab/slot refill it may happen that a bigger chunk
-                // was split into smaller chunks and one of them fits current
-                // memory request. In this case we don't have to reiterate
-                // again.
-                if (current->size < 2*size) {
-                    break;
-                }
-            }
-
-            left_size = largest_contained_power_of_2(current->size);
-            right_size = current->size - left_size;
-            err = split_mmnode(mm, current, &left_node, &right_node,
-                            left_size, right_size);
+        bool refilled = false;
+        err = refill_slots_if_needed(mm, &refilled);
+        if (err_is_fail(err)) {
+            debug_printf("Refilling slots failed\n");
+            return err;
+        }
+        if (refilled) {
+            current = mm->head;
+            err = mm_find_smallest_node(mm, size, alignment, &current);
             if (err_is_fail(err)) {
-                DEBUG_ERR(err, "Failed at splitting node");
+                DEBUG_ERR(err, "Error finding node after slot refill\n");
                 return err;
             }
-
-            current = right_node;
         }
-        mm->allocating_ram = false;
     }
-    current->type = NodeType_Allocated;
-    assert(aligned(current->base, alignment));
-    assert(current->size >= size);
-    *retcap = current->cap;
+
+    if (current->type == NodeType_Keep) {
+        break_off_cap(mm, current, current->size, retcap);
+    } else {
+        assert(aligned(current->base, alignment));
+        assert(current->size >= size);
+        *retcap = current->cap;
+        mm_delete_node(mm, current, false);
+    }
+
+    return SYS_ERR_OK;
+}
+
+/**
+ * \brief Make sure we never drop below a certain amount of slots
+ */
+errval_t refill_slots_if_needed(struct mm *mm, bool *refilled)
+{
+    if (!mm->allocating_ram &&
+        !slot_alloc_enough_slots(mm->slot_alloc_inst, MIN_FREE_SLOTS)) {
+
+        mm->allocating_ram = true;
+        errval_t err = slot_prealloc_refill(mm->slot_alloc_inst);
+        mm->allocating_ram = false;
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "slot refill failed");
+            return err;
+        }
+        if (refilled != NULL) {
+            *refilled = true;
+        }
+    }
     return SYS_ERR_OK;
 }
 
@@ -243,33 +311,72 @@ errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
  * \param       base      The physical base address of the region.
  * \param       size      The size of the region.
  */
-errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t size)
+errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
+                 gensize_t size)
 {
-    struct mmnode *current = mm->head;
+    struct frame_identity ident;
+    frame_identify(cap, &ident);
+    assert(ident.base == base && ident.bytes == size);
+    // TODO: more sanity checks
 
-    if (current == NULL) {
+    errval_t err;
+    if (mm->head == NULL) {
         printf("No capability slots to free");
         return MM_ERR_MISSING_CAPS;
     }
 
-    while (current->cap.cnode.croot != cap.cnode.croot ||
-           current->cap.cnode.cnode != cap.cnode.cnode ||
-           current->cap.cnode.level != cap.cnode.level ||
-           current->cap.slot != cap.slot) {
-        current = current->next;
-        if (current == mm->head) {
-            printf("Trying to free a capability that was not added\n");
-            return MM_ERR_NOT_FOUND;
+    struct mmnode *buddy = mm_find_node_by_base(mm, base + size, NodeType_Keep);
+
+    if (buddy == NULL) {
+        struct mmnode *newly_free = mm_create_node(mm, cap, base, size);
+        mm_insert_node(mm, newly_free, mm->head->prev);
+
+        err = refill_slots_if_needed(mm, NULL);
+        if (err_is_fail(err)) {
+            debug_printf("Refilling slots failed in mm_free\n");
+            return err;
+        }
+    } else {
+        gensize_t curr_size = size;
+        cap_destroy(cap);
+        struct mmnode *current;
+
+        buddy->size += curr_size;
+        buddy->base -= curr_size;
+
+        while (true) {
+            current = buddy;
+            curr_size = current->size;
+
+            struct frame_identity fi;
+            frame_identify(current->cap, &fi);
+            if (current->base != fi.base) {
+                buddy = mm_find_node_by_base(mm, current->base - current->size, NodeType_Handout);
+
+                if (buddy == NULL) {
+                    mm_extract_node(mm, current);
+                    mm_insert_node(mm, current, mm->head->prev);
+                    break;
+                }
+                mm_delete_node(mm, current, true);
+
+                buddy->size += curr_size;
+            } else {
+                current->type = NodeType_Handout;
+                buddy = mm_find_node_by_base(mm, current->base + current->size, NodeType_Keep);
+
+                if (buddy == NULL) {
+                    mm_extract_node(mm, current);
+                    mm_insert_node(mm, current, mm->head->prev);
+                    break;
+                }
+                mm_delete_node(mm, current, true);
+
+                buddy->size += curr_size;
+                buddy->base -= curr_size;
+            }
         }
     }
-
-    if (current->type != NodeType_Allocated) {
-        printf("Double free of a capability");
-        return MM_ERR_MM_FREE;
-    }
-
-    current->type = NodeType_Free;
-    // TODO: merge with neighboring capability if it is free
 
     return SYS_ERR_OK;
 }
@@ -279,7 +386,8 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base, gensize_t si
  *
  * \return The largest power of two which fits into size with some extra space
  */
-size_t largest_contained_power_of_2(size_t size) {
+size_t largest_contained_power_of_2(size_t size)
+{
     size_t power = 1;
     while (power < size) {
          power = power << 1;
@@ -294,19 +402,45 @@ size_t largest_contained_power_of_2(size_t size) {
  * \param       size      How much memory to allocate.
  * \param[out]  current   The smallest free node
  */
-errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, struct mmnode **current) {
-
+errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment,
+                               struct mmnode **current)
+{
     assert(current != NULL && *current != NULL);
-    while (!((*current)->type == NodeType_Free && (*current)->size >= size && aligned((*current)->base, alignment))) {
+
+    while (!((*current)->size >= size &&
+             aligned((*current)->base, alignment))) {
         *current = (*current)->next;
         assert(*current != NULL);
         if (*current == mm->head) {
-            printf("No more capabilities left to hand out that are large enough\n");
+            printf("No suitable capabilities left to hand out\n");
             return MM_ERR_NEW_NODE;
         }
     }
 
     return SYS_ERR_OK;
+}
+
+/**
+ * \brief Finds a node that starts at the given base
+ *
+ * Only returns keep nodes
+ *
+ * \return the node with the given base or NULL if not found
+ */
+struct mmnode *mm_find_node_by_base(struct mm *mm, size_t base, enum nodetype type)
+{
+    assert(mm->head != NULL);
+
+    struct mmnode *current = mm->head;
+
+    while (current->base != base || current->type != type) {
+        current = current->next;
+        assert(current != NULL);
+        if (current == mm->head) {
+            return NULL;
+        }
+    }
+    return current;
 }
 
 /**
@@ -318,13 +452,15 @@ errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, str
  * \param       size      The size of the region
  * \param[out]  ret       The newly initialized memory node
  */
-struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size) {
+struct mmnode *mm_create_node(struct mm *mm, struct capref cap,
+                              genpaddr_t base, size_t size)
+{
     struct mmnode *ret = (struct mmnode *) slab_alloc(&(mm->slabs));
     if (!ret) {
         DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED, "Failed to allocate new slab\n");
         return NULL;
     }
-    ret->type = NodeType_Free;
+    ret->type = NodeType_Handout;
     ret->cap = cap;
     ret->base = base;
     ret->size = size;
@@ -335,13 +471,15 @@ struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base,
  * Insert the given node into the node list
  *
  * The node will be inserted in sorted order provided the start node is larger
- * than the given node or start points to the head of the node list.
+ * than the given node or start points to the head->prev of the node list.
  *
  * \param       mm        The memory manager
  * \param       new_node  The node to insert
  * \param       start     The starting point for finding the insertion
  */
-void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start) {
+void mm_insert_node(struct mm *mm, struct mmnode *new_node,
+                    struct mmnode *start)
+{
     struct mmnode *current = start;
     while (current->size > new_node->size && current != mm->head) {
         current = current -> prev;
@@ -364,84 +502,150 @@ void mm_insert_node(struct mm *mm, struct mmnode *new_node, struct mmnode *start
 }
 
 /**
- * Delete the given node from the node list.
+ * \brief Remove the given node from the node list and reclaim its slab space
  *
- * \param       mm        The memory manager
- * \param       node      The node to delete
+ * \param       mm              The memory manager
+ * \param       node            The node to delete
+ * \param       destroy_cap     Whether to destroy the underlying cap
  */
-void mm_delete_node(struct mm *mm, struct mmnode *node) {
+errval_t mm_delete_node(struct mm *mm, struct mmnode *node, bool destroy_cap)
+{
+    mm_extract_node(mm, node);
+
+    slab_free(&(mm->slabs), node);
+
+    if (destroy_cap) {
+        return cap_destroy(node->cap);
+    } else {
+        return SYS_ERR_OK;
+    }
+}
+
+void mm_extract_node(struct mm *mm, struct mmnode *node)
+{
     assert(node != mm->head || node->prev != mm->head);
-    // TODO: what if delete the only element from the list?
+
     node->next->prev = node->prev;
     node->prev->next = node->next;
     if (mm->head == node) {
         mm->head = node->next;
     }
-    slab_free(&(mm->slabs), node);
 }
 
-errval_t split_cap(struct mm *mm, struct capref source, size_t left_size,
-        size_t right_size, struct capref *left_slot, struct capref *right_slot) {
+/**
+ * Splits the given node onto two non-overlapping mmnodes and throws away the
+ * original cap. These two caps can't be merged anymore!
+ *
+ * Should only be called once per mm.
+ */
+errval_t split_mmnode_final(struct mm *mm, struct mmnode *current,
+                            size_t right_offset)
+{
+    errval_t err;
+    struct capref left_cap, right_cap;
+    split_cap(mm, current, right_offset, &left_cap, &right_cap);
+
+    struct mmnode *left_node = mm_create_node(mm, left_cap, current->base,
+                                              right_offset);
+    if (!left_node) {
+        return MM_ERR_NEW_NODE;
+    }
+    mm_insert_node(mm, left_node, current);
+
+    struct mmnode *right_node = mm_create_node(mm, right_cap,
+                                               current->base + right_offset,
+                                               current->size - right_offset);
+    if (!right_node) {
+        return MM_ERR_NEW_NODE;
+    }
+    mm_insert_node(mm, right_node, current);
+
+    err = mm_delete_node(mm, current, true);
+    if (err_is_fail(err)) {
+        debug_printf("Error destroying the original capability\n");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
+/**
+ * Get two nonoverlapping child capabilities from the given source cap at
+ * the given offset.
+ *
+ * \param       mm              The memory manager
+ * \param       source          The parent capability
+ * \param       offset          The offset of the right cap in the parent
+ * \param[out]  left_cap        The left child capability
+ * \param[out]  rigth_cap       The right child capability
+ */
+errval_t split_cap(struct mm *mm, struct mmnode *source, size_t offset,
+                   struct capref *left_cap, struct capref *right_cap)
+{
     // Init left part
-    errval_t err = slot_alloc_prealloc(mm->slot_alloc_inst, 1, left_slot);
+    errval_t err = slot_alloc_prealloc(mm->slot_alloc_inst, 1, left_cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed allocating left slot");
         return err;
     }
-    err = cap_retype(*left_slot, source, 0, mm->objtype, left_size, 1);
+    err = cap_retype(*left_cap, source->cap, 0, mm->objtype, offset, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "left cap retype error: %s\n", err_getstring(err));
         return err;
     }
     // Init right part
-    err = slot_alloc_prealloc(mm->slot_alloc_inst, 1, right_slot);
+    err = slot_alloc_prealloc(mm->slot_alloc_inst, 1, right_cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed allocating left slot");
         return err;
     }
-    err = cap_retype(*right_slot, source, left_size, mm->objtype, right_size, 1);
+    size_t r_size = source->size - offset;
+    err = cap_retype(*right_cap, source->cap, offset, mm->objtype, r_size, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "right cap retype error: %s\n", err_getstring(err));
         return err;
     }
     return SYS_ERR_OK;
-
 }
 
-bool can_split_with_alignment(struct mmnode *node, size_t alignment,
-        size_t *left_size, size_t *right_size) {
-    // Done like this to avoid int overflows.
-    uint64_t cap_size = node->size;
-    uint64_t base = node->base;
-    uint64_t split_point = ROUND_UP(base, alignment);
-    if (split_point < base + cap_size) {
-        *left_size = (size_t) split_point - base;
-        *right_size = (size_t) cap_size - *left_size;
-        return true;
+/**
+ * \brief Break off a capability of size from the beginning of the node.
+ *
+ * \param       mm              The memory manager
+ * \param       current         The parent capability
+ * \param       left_size       The size of the capability to break off
+ * \param[out]  left_cap        The capability that is broken off
+ */
+errval_t break_off_cap(struct mm *mm, struct mmnode *current,
+                       size_t left_size, struct capref *left_cap)
+{
+    errval_t err;
+
+    err = slot_alloc_prealloc(mm->slot_alloc_inst, 1, left_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to allocate slot for break off\n");
+        return err;
     }
-    return false;
-}
 
-errval_t split_mmnode(struct mm *mm, struct mmnode *current,
-        struct mmnode **left_node, struct mmnode **right_node,
-        size_t left_size, size_t right_size) {
-    struct capref left_slot, right_slot;
-    split_cap(mm, current->cap, left_size, right_size, &left_slot,
-            &right_slot);
-
-    *left_node = mm_create_node(mm, left_slot, current->base, left_size);
-    if (!left_node) {
-        return MM_ERR_NEW_NODE;
+    struct frame_identity parent_ident;
+    err = frame_identify(current->cap, &parent_ident);
+    size_t parent_offset = current->base - parent_ident.base;
+    if (err_is_fail(err)) {
+        debug_printf("Failed to identify the case\n");
+        parent_offset = 0;
     }
-    mm_insert_node(mm, *left_node, current);
 
-    *right_node = mm_create_node(mm, right_slot,
-            current->base + left_size, right_size);
-    if (!right_node) {
-        return MM_ERR_NEW_NODE;
+    err = cap_retype(*left_cap, current->cap, parent_offset, mm->objtype, left_size, 1);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to retype the cap for break off\n");
+        return err;
     }
-    mm_insert_node(mm, *right_node, current);
 
-    mm_delete_node(mm, current);
+    current->type = NodeType_Keep;
+    current->base += left_size;
+    current->size -= left_size;
+
+    mm_extract_node(mm, current);
+    mm_insert_node(mm, current, current->prev);
+
     return SYS_ERR_OK;
 }
