@@ -420,6 +420,7 @@ errval_t boot_cpu1(void) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc core data frame");
         return err;
     }
+    debug_printf("Ret is %i\n", ret);
     err = invoke_kcb_clone(kcb, core_data_f);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke kcb clone");
@@ -427,7 +428,7 @@ errval_t boot_cpu1(void) {
     }
 
     struct arm_core_data* core_data;
-    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, sizeof(struct arm_core_data), core_data_f, NULL, NULL);
+    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, ret, core_data_f, NULL, NULL);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map frame core data to core_data_f");
         return err;
@@ -437,6 +438,8 @@ errval_t boot_cpu1(void) {
     core_data->memory_bytes = 3u*BASE_PAGE_SIZE*ARM_CORE_DATA_PAGES;
     core_data->memory_base_start = (uint32_t) malloc(core_data->memory_bytes);
     core_data->cmdline = (lvaddr_t) core_data->cmdline_buf;
+    debug_printf("Command line arg: %p (buf: %p) %s\n", core_data->cmdline, core_data->cmdline_buf, core_data->cmdline);
+    debug_printf("kcb is %p!\n", core_data->kcb);
 
     // fill rest of core_data
     struct mem_region* module = multiboot_find_module(bi, "init");
@@ -588,6 +591,16 @@ int main(int argc, char *argv[])
     }
 
     //test_multi_spawn(1);
+
+    /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
+    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
+    /* if (err_is_fail(err)) { */
+    /*     debug_printf("Failed spawning process memeater\n"); */
+    /*     return false; */
+    /* } */
+
+    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
+
     if (my_core_id == 0) {
         err = boot_cpu1();
         if (err_is_fail(err)) {
@@ -596,15 +609,6 @@ int main(int argc, char *argv[])
         }
     }
 
-
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
-    if (err_is_fail(err)) {
-        debug_printf("Failed spawning process memeater\n");
-        return false;
-    }
-
-    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
     debug_printf("Message handler loop\n");
     // Hang around
     struct waitset *default_ws = get_default_waitset();

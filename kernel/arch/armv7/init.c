@@ -251,9 +251,9 @@ arch_init(struct arm_core_data *boot_core_data,
     kcb_current= (struct kcb *)(lpaddr_t)core_data->kcb;
     MSG("KCB at %p\n", kcb_current);
 
-    MSG("Parsing command line\n");
+    MSG("Parsing command line %p (buf = %p)\n", core_data->cmdline, core_data->cmdline_buf);
     init_cmdargs();
-    parse_commandline((const char *)core_data->cmdline, cmdargs);
+    parse_commandline((const char *)core_data->cmdline_buf, cmdargs);
     config_timeslice = min(max(config_timeslice, 1), 20);
 
     errval = serial_debug_init();
