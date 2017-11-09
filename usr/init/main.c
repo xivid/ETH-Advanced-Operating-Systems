@@ -36,13 +36,16 @@
 #define max(a,b) ((a) > (b) ? (a) : (b))
 #endif
 
+/* rpc declarations */
 struct client {
-    struct EndPoint end;
+    struct EndPoint end;  // TODO: store the capref directly? (can avoid ugly comparison in whois())
     struct client* prev;
     struct client* next;
 
     struct lmp_chan lmp;
 } *client_list = NULL;
+
+errval_t init_rpc(void);
 errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
 void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
@@ -54,48 +57,49 @@ void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
 errval_t send_process(void* args);
-errval_t init_rpc(void);
 
-coreid_t my_core_id;
-struct bootinfo *bi;
+/* multi-core declarations */
+errval_t boot_cpu1(void);
 
-
+/* testing declarations */
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
 bool test_multi_spawn(int spawns);
 bool test_huge_malloc(void);
 bool test_dynamic_slots(int count);
-errval_t boot_cpu1(void);
 
-// ****************************** RPC *************************************
+/* init declarations */
+coreid_t my_core_id;
+struct bootinfo *bi;
 
+/* RPC implementations */
 errval_t init_rpc(void)
 {
     errval_t err;
     err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: cap retype of dispatcher to selfep failed");
+        DEBUG_ERR(err, "usr/init/main.c: cap retype of dispatcher to selfep failed");
         return EXIT_FAILURE;
     }
     struct lmp_chan* lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
     err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp chan accept failed");
+        DEBUG_ERR(err, "usr/init/main.c: lmp chan accept failed");
         return EXIT_FAILURE;
     }
     err = lmp_chan_alloc_recv_slot(lmp);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp chan alloc recv slot failed");
+        DEBUG_ERR(err, "usr/init/main.c: lmp chan alloc recv slot failed");
         return EXIT_FAILURE;
     }
     err = cap_copy(cap_initep, lmp->local_cap);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp cap copy of lmp->local_cap to cap_initep failed");
+        DEBUG_ERR(err, "usr/init/main.c: lmp cap copy of lmp->local_cap to cap_initep failed");
         return EXIT_FAILURE;
     }
     err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, lmp));
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c: lmp chan register recv failed");
+        DEBUG_ERR(err, "usr/init/main.c: lmp chan register recv failed");
         return EXIT_FAILURE;
     }
     return SYS_ERR_OK;
@@ -113,7 +117,7 @@ errval_t recv_handler(void* arg)
             err = lmp_chan_recv(lmp, &msg, &cap);
         }
         else {
-            DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan recv, non transient error");
+            DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan recv, non transient error");
             return err;
         }
     }
@@ -121,12 +125,12 @@ errval_t recv_handler(void* arg)
     // register again for receiving
     err = lmp_chan_alloc_recv_slot(lmp);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan alloc recv slot failed");
+        DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan alloc recv slot failed");
         return err;
     }
     err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, arg));
     if (err_is_fail(err)) {
-            DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan register recv failed");
+            DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan register recv failed");
             return err;
     }
 
@@ -166,7 +170,7 @@ errval_t recv_handler(void* arg)
     struct lmp_chan* ret_chan = (struct lmp_chan*) answer_args;
     err = lmp_chan_register_send(ret_chan, get_default_waitset(), MKCLOSURE(answer, answer_args));
     if (err_is_fail(err)) {
-            DEBUG_ERR(err, "usr/main.c recv_handler: lmp chan register send failed");
+            DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan register send failed");
             return err;
     }
     return SYS_ERR_OK;
@@ -177,7 +181,7 @@ errval_t whois(struct capref cap, struct client **he_is) {
     struct capability return_cap;
     errval_t err = debug_cap_identify(cap, &return_cap);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c whois: debug identify cap failed");
+        DEBUG_ERR(err, "usr/init/main.c whois: debug identify cap failed");
         return err;
     }
     while (cur != NULL) {
@@ -198,7 +202,7 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
     struct client* he_is = NULL;
     errval_t err = whois(*cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
-        DEBUG_ERR(err, "usr/main.c answer number: could not identify client");
+        DEBUG_ERR(err, "usr/init/main.c answer number: could not identify client");
         return NULL;
     }
 
@@ -210,7 +214,7 @@ void* answer_char(struct capref* cap, struct lmp_recv_msg* msg)
 {
     errval_t err = sys_print((const char *)&msg->words[1], 1);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c answer char: could not sys_print");
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not sys_print");
         return NULL;
     }
 
@@ -218,7 +222,7 @@ void* answer_char(struct capref* cap, struct lmp_recv_msg* msg)
     struct client* he_is = NULL;
     err = whois(*cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
-        DEBUG_ERR(err, "usr/main.c answer char: could not identify client");
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
         return NULL;
     }
 
@@ -232,7 +236,7 @@ void* answer_str(struct capref* cap, struct lmp_recv_msg* msg)
     //debug_printf("Got packet len(%i) %lx!\n", len, &msg->words[3]);
     errval_t err = sys_print((const char *)&msg->words[1], len);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c answer char: could not sys_print");
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not sys_print");
         return NULL;
     }
 
@@ -240,7 +244,7 @@ void* answer_str(struct capref* cap, struct lmp_recv_msg* msg)
     struct client* he_is = NULL;
     err = whois(*cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
-        DEBUG_ERR(err, "usr/main.c answer char: could not identify client");
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
         return NULL;
     }
 
@@ -263,7 +267,7 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
     struct client* he_is = NULL;
     err = whois(*cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
-        DEBUG_ERR(err, "usr/main.c answer char: could not identify client");
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
         return NULL;
     }
 
@@ -287,12 +291,13 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
 
     return (void*) args_ptr;
 }
+
 // sets up the client struct for new processes
 void* answer_init(struct capref* cap) {
     struct client *potential = NULL;
     errval_t err = whois(*cap, &potential);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c answer init: could not identify client");
+        DEBUG_ERR(err, "usr/init/main.c answer init: could not identify client");
         return NULL;
     }
     if (potential != NULL) {
@@ -315,7 +320,7 @@ void* answer_init(struct capref* cap) {
 
     err = lmp_chan_accept(&potential->lmp, DEFAULT_LMP_BUF_WORDS, *cap);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c answer init: could not do lmp chan accept");
+        DEBUG_ERR(err, "usr/init/main.c answer init: could not do lmp chan accept");
         return NULL;
     }
     return (void*) &(potential->lmp);
@@ -325,7 +330,7 @@ void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
     struct client *sender = NULL;
     errval_t err = whois(*cap, &sender);
     if (err_is_fail(err) || sender == NULL) {
-        DEBUG_ERR(err, "usr/main.c answer init: could not identify client");
+        DEBUG_ERR(err, "usr/init/main.c answer init: could not identify client");
         return NULL;
     }
     struct capref return_cap;
@@ -362,7 +367,7 @@ errval_t send_received(void* arg) {
     struct lmp_chan* lmp = (struct lmp_chan*) arg;
     errval_t err = lmp_chan_send1(lmp, LMP_FLAG_SYNC, NULL_CAP, 1); // send a 1 to signal that the message arrived
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c send received: could not do lmp chan send1");
+        DEBUG_ERR(err, "usr/init/main.c send received: could not do lmp chan send1");
         return err;
     }
     return SYS_ERR_OK;
@@ -385,145 +390,10 @@ errval_t send_ram(void* args) {
 
     errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), *allocated_size, (uintptr_t) *err);
     if (err_is_fail(err_send)) {
-        DEBUG_ERR(err_send, "usr/main.c send ram: could not do lmp chan send3");
+        DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
         return err_send;
     }
 
-    return SYS_ERR_OK;
-}
-
-errval_t boot_cpu1(void) {
-    errval_t err;
-    struct capref kcb_ram;
-    err = ram_alloc(&kcb_ram, OBJSIZE_KCB);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not ram alloc kcb_ram");
-        return err;
-    }
-
-    struct capref kcb;
-    err = slot_alloc(&kcb);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not slot alloc kcb_ram");
-        return err;
-    }
-    err = cap_retype(kcb, kcb_ram, 0, ObjType_KernelControlBlock, OBJSIZE_KCB, 1);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not cap retype kcb");
-        return err;
-    }
-
-    struct capref core_data_f;
-    size_t ret;
-    err = frame_alloc(&core_data_f, OBJSIZE_KCB, &ret);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc core data frame");
-        return err;
-    }
-    err = invoke_kcb_clone(kcb, core_data_f);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke kcb clone");
-        return err;
-    }
-
-    struct arm_core_data* core_data;
-    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, BASE_PAGE_SIZE, core_data_f, NULL, NULL);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map frame core data to core_data_f");
-        return err;
-    }
-
-    // allocate memory for the new core
-    core_data->memory_bytes = 3u*BASE_PAGE_SIZE*ARM_CORE_DATA_PAGES;
-    core_data->memory_base_start = (uint32_t) malloc(core_data->memory_bytes);
-    core_data->cmdline = (lvaddr_t) core_data->cmdline_buf;
-
-    // fill rest of core_data
-    struct mem_region* module = multiboot_find_module(bi, "init");
-    if (module == NULL) {
-        debug_printf("usr/main.c boot cpu1: init module not found");
-        return SPAWN_ERR_FIND_MODULE;
-    }
-    struct multiboot_modinfo monitor_modinfo = {
-        .mod_start = module->mr_base,
-        .mod_end = module->mrmod_size + module->mr_base,
-        .string = module->mrmod_data,
-        .reserved = 0
-    };
-    core_data->monitor_module = monitor_modinfo;
-
-    // load and relocate cpu driver
-    struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
-    if (module == NULL) {
-        debug_printf("usr/main.c boot cpu1: cpu driver module not found");
-        return SPAWN_ERR_FIND_MODULE;
-    }
-    struct capref cpu_frame = {
-        .cnode = cnode_module,
-        .slot = cpu_module->mrmod_slot
-    };
-
-    struct frame_identity cpu_frame_id;
-    err = frame_identify(cpu_frame, &cpu_frame_id);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify");
-        return err;
-    }
-
-    // memory for relocatable segment
-    struct capref relocatable_segment;
-    err = frame_alloc(&relocatable_segment, cpu_frame_id.bytes, &ret);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc relocatable_segment");
-        return err;
-    }
-    void* segment_addr;
-    err = paging_map_frame(get_current_paging_state(), &segment_addr, ret, relocatable_segment, NULL, NULL);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map relocatable segment memory");
-        return err;
-    }
-
-    struct frame_identity segment_id;
-    err = frame_identify(relocatable_segment, &segment_id);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify the relocatable_segment");
-        return err;
-    }
-
-    // elf text segment
-    void* elfdata;
-    err = paging_map_frame(get_current_paging_state(), &elfdata, cpu_frame_id.bytes, cpu_frame, NULL, NULL);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map elf frame");
-        return err;
-    }
-
-    //TODO: is this the correct upper limit of the heap?
-    lvaddr_t heap_upper_limit = VADDR_OFFSET;
-    err = load_cpu_relocatable_segment(elfdata, segment_addr, segment_id.base + heap_upper_limit, core_data->kernel_load_base, &core_data->got_base);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not load cpu relocatable segment");
-        return err;
-    }
-    err = sys_debug_flush_cache();
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not flush cache");
-        return err;
-    }
-    sys_armv7_cache_invalidate(core_data, core_data + sizeof(core_data));
-    sys_armv7_cache_clean_poc(core_data, core_data + sizeof(core_data));
-    sys_armv7_cache_clean_pou(core_data, core_data + sizeof(core_data));
-    // Do we really want to clear the cache for physical addresses?
-    sys_armv7_cache_invalidate((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
-    sys_armv7_cache_clean_poc((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
-    sys_armv7_cache_clean_pou((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
-
-    err = invoke_monitor_spawn_core(1, CPU_ARM7, (forvaddr_t) core_data->entry_point);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke cpu1");
-        return err;
-    }
     return SYS_ERR_OK;
 }
 
@@ -540,78 +410,151 @@ errval_t send_process(void *args) {
 
     errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, NULL_CAP, (size_t)(err_is_fail(*err)? 0:1), *domain_id, (uintptr_t) *err);
     if (err_is_fail(err_send)) {
-        DEBUG_ERR(err_send, "usr/main.c send ram: could not do lmp chan send3");
+        DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
         return err_send;
     }
 
     return SYS_ERR_OK;
 }
 
-int main(int argc, char *argv[])
-{
+
+/* Multi-core implementations */
+errval_t boot_cpu1(void) {
     errval_t err;
-    client_list = NULL;
-    /* Set the core id in the disp_priv struct */
-    err = invoke_kernel_get_core_id(cap_kernel, &my_core_id);
-    assert(err_is_ok(err));
-    disp_set_core_id(my_core_id);
-
-    debug_printf("init: on core %" PRIuCOREID " invoked as:", my_core_id);
-    for (int i = 0; i < argc; i++) {
-       printf(" %s", argv[i]);
-    }
-    printf("\n");
-
-    /* First argument contains the bootinfo location, if it's not set */
-    bi = (struct bootinfo*)strtol(argv[1], NULL, 10);
-    if (!bi) {
-        assert(my_core_id > 0);
-    }
-
-    err = initialize_ram_alloc();
-    if(err_is_fail(err)){
-        DEBUG_ERR(err, "initialize_ram_alloc");
-        return EXIT_FAILURE;
-    }
-
-    err = init_rpc();
-    if(err_is_fail(err)){
-        DEBUG_ERR(err, "init_rpc");
-        return EXIT_FAILURE;
-    }
-
-    //test_multi_spawn(1);
-    if (my_core_id == 0) {
-        err = boot_cpu1();
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "usr/main.c: boot_cpu1 failed");
-            return EXIT_FAILURE;
-        }
-    }
-
-
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
+    struct capref kcb_ram;
+    err = ram_alloc(&kcb_ram, OBJSIZE_KCB);
     if (err_is_fail(err)) {
-        debug_printf("Failed spawning process memeater\n");
-        return false;
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not ram alloc kcb_ram");
+        return err;
     }
 
-    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
-    debug_printf("Message handler loop\n");
-    // Hang around
-    struct waitset *default_ws = get_default_waitset();
-    while (true) {
-        err = event_dispatch(default_ws);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "in event_dispatch");
-            abort();
-        }
+    struct capref kcb;
+    err = slot_alloc(&kcb);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not slot alloc kcb_ram");
+        return err;
+    }
+    err = cap_retype(kcb, kcb_ram, 0, ObjType_KernelControlBlock, OBJSIZE_KCB, 1);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not cap retype kcb");
+        return err;
     }
 
-    return EXIT_SUCCESS;
+    struct capref core_data_f;
+    size_t ret;
+    err = frame_alloc(&core_data_f, OBJSIZE_KCB, &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame alloc core data frame");
+        return err;
+    }
+    err = invoke_kcb_clone(kcb, core_data_f);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not invoke kcb clone");
+        return err;
+    }
+
+    struct arm_core_data* core_data;
+    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, BASE_PAGE_SIZE, core_data_f, NULL, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not paging map frame core data to core_data_f");
+        return err;
+    }
+
+    // allocate memory for the new core
+    core_data->memory_bytes = 3u*BASE_PAGE_SIZE*ARM_CORE_DATA_PAGES;
+    core_data->memory_base_start = (uint32_t) malloc(core_data->memory_bytes);
+    core_data->cmdline = (lvaddr_t) core_data->cmdline_buf;
+
+    // fill rest of core_data
+    struct mem_region* module = multiboot_find_module(bi, "init");
+    if (module == NULL) {
+        debug_printf("usr/init/main.c boot cpu1: init module not found");
+        return SPAWN_ERR_FIND_MODULE;
+    }
+    struct multiboot_modinfo monitor_modinfo = {
+        .mod_start = module->mr_base,
+        .mod_end = module->mrmod_size + module->mr_base,
+        .string = module->mrmod_data,
+        .reserved = 0
+    };
+    core_data->monitor_module = monitor_modinfo;
+
+    // load and relocate cpu driver
+    struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
+    if (module == NULL) {
+        debug_printf("usr/init/main.c boot cpu1: cpu driver module not found");
+        return SPAWN_ERR_FIND_MODULE;
+    }
+    struct capref cpu_frame = {
+        .cnode = cnode_module,
+        .slot = cpu_module->mrmod_slot
+    };
+
+    struct frame_identity cpu_frame_id;
+    err = frame_identify(cpu_frame, &cpu_frame_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame identify");
+        return err;
+    }
+
+    // memory for relocatable segment
+    struct capref relocatable_segment;
+    err = frame_alloc(&relocatable_segment, cpu_frame_id.bytes, &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame alloc relocatable_segment");
+        return err;
+    }
+    void* segment_addr;
+    err = paging_map_frame(get_current_paging_state(), &segment_addr, ret, relocatable_segment, NULL, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not paging map relocatable segment memory");
+        return err;
+    }
+
+    struct frame_identity segment_id;
+    err = frame_identify(relocatable_segment, &segment_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame identify the relocatable_segment");
+        return err;
+    }
+
+    // elf text segment
+    void* elfdata;
+    err = paging_map_frame(get_current_paging_state(), &elfdata, cpu_frame_id.bytes, cpu_frame, NULL, NULL);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not paging map elf frame");
+        return err;
+    }
+
+    //TODO: is this the correct upper limit of the heap?
+    lvaddr_t heap_upper_limit = VADDR_OFFSET;
+    err = load_cpu_relocatable_segment(elfdata, segment_addr, segment_id.base + heap_upper_limit, core_data->kernel_load_base, &core_data->got_base);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not load cpu relocatable segment");
+        return err;
+    }
+    err = sys_debug_flush_cache();
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not flush cache");
+        return err;
+    }
+    sys_armv7_cache_invalidate(core_data, core_data + sizeof(core_data));
+    sys_armv7_cache_clean_poc(core_data, core_data + sizeof(core_data));
+    sys_armv7_cache_clean_pou(core_data, core_data + sizeof(core_data));
+    // Do we really want to clear the cache for physical addresses?
+    sys_armv7_cache_invalidate((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
+    sys_armv7_cache_clean_poc((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
+    sys_armv7_cache_clean_pou((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
+
+    err = invoke_monitor_spawn_core(1, CPU_ARM7, (forvaddr_t) core_data->entry_point);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not invoke cpu1");
+        return err;
+    }
+    return SYS_ERR_OK;
 }
 
+/* tests implementations */
 __attribute__((unused))
 bool test_alloc_free(int allocations) {
     struct capref capabilities[allocations];
@@ -704,4 +647,70 @@ bool test_dynamic_slots(int count) {
     }
     debug_printf("testing dynamic slots done\n");
     return true;
+}
+
+/* main */
+int main(int argc, char *argv[])
+{
+    errval_t err;
+    client_list = NULL;
+    /* Set the core id in the disp_priv struct */
+    err = invoke_kernel_get_core_id(cap_kernel, &my_core_id);
+    assert(err_is_ok(err));
+    disp_set_core_id(my_core_id);
+
+    debug_printf("init: on core %" PRIuCOREID " invoked as:", my_core_id);
+    for (int i = 0; i < argc; i++) {
+       printf(" %s", argv[i]);
+    }
+    printf("\n");
+
+    /* First argument contains the bootinfo location, if it's not set */
+    bi = (struct bootinfo*)strtol(argv[1], NULL, 10);
+    if (!bi) {
+        assert(my_core_id > 0);
+    }
+
+    err = initialize_ram_alloc();
+    if(err_is_fail(err)){
+        DEBUG_ERR(err, "initialize_ram_alloc");
+        return EXIT_FAILURE;
+    }
+
+    err = init_rpc();
+    if(err_is_fail(err)){
+        DEBUG_ERR(err, "init_rpc");
+        return EXIT_FAILURE;
+    }
+
+    //test_multi_spawn(1);
+    if (my_core_id == 0) {
+        err = boot_cpu1();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "usr/init/main.c: boot_cpu1 failed");
+            return EXIT_FAILURE;
+        }
+    }
+
+
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+    err = spawn_load_by_name("/armv7/sbin/hello", si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawning process hello\n");
+        return false;
+    }
+
+    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
+    debug_printf("Message handler loop\n");
+    // Hang around
+    struct waitset *default_ws = get_default_waitset();
+    while (true) {
+        err = event_dispatch(default_ws);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "in event_dispatch");
+            abort();
+        }
+    }
+
+    return EXIT_SUCCESS;
 }
