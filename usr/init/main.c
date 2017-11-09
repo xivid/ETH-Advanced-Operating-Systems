@@ -442,7 +442,7 @@ errval_t boot_cpu1(void) {
 
     struct capref core_data_f;
     size_t ret;
-    err = frame_alloc(&core_data_f, OBJSIZE_KCB, &ret);
+    err = frame_alloc(&core_data_f, sizeof(struct arm_core_data), &ret);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame alloc core data frame");
         return err;
@@ -454,7 +454,7 @@ errval_t boot_cpu1(void) {
     }
 
     struct arm_core_data* core_data;
-    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, BASE_PAGE_SIZE, core_data_f, NULL, NULL);
+    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, sizeof(struct arm_core_data), core_data_f, NULL, NULL);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not paging map frame core data to core_data_f");
         return err;
@@ -481,7 +481,7 @@ errval_t boot_cpu1(void) {
 
     // load and relocate cpu driver
     struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
-    if (module == NULL) {
+    if (cpu_module == NULL) {
         debug_printf("usr/init/main.c boot cpu1: cpu driver module not found");
         return SPAWN_ERR_FIND_MODULE;
     }
@@ -531,20 +531,30 @@ errval_t boot_cpu1(void) {
         DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not load cpu relocatable segment");
         return err;
     }
+
+    sys_armv7_cache_clean_pou(core_data, core_data + sizeof(core_data));
+    sys_armv7_cache_clean_poc(core_data, core_data + sizeof(core_data));
+    sys_armv7_cache_invalidate(core_data, core_data + sizeof(core_data));
+
+    // Do we really want to clear the cache for physical addresses?
+    sys_armv7_cache_clean_pou((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
+    sys_armv7_cache_clean_poc((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
+    sys_armv7_cache_invalidate((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
+
     err = sys_debug_flush_cache();
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not flush cache");
         return err;
     }
-    sys_armv7_cache_invalidate(core_data, core_data + sizeof(core_data));
-    sys_armv7_cache_clean_poc(core_data, core_data + sizeof(core_data));
-    sys_armv7_cache_clean_pou(core_data, core_data + sizeof(core_data));
-    // Do we really want to clear the cache for physical addresses?
-    sys_armv7_cache_invalidate((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
-    sys_armv7_cache_clean_poc((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
-    sys_armv7_cache_clean_pou((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
 
-    err = invoke_monitor_spawn_core(1, CPU_ARM7, segment_id.base);
+    struct frame_identity core_data_id;
+    err = frame_identify(core_data_f, &core_data_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify core data");
+        return err;
+    }
+    err = invoke_monitor_spawn_core(1, CPU_ARM7, core_data_id.base);
+
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not invoke cpu1");
         return err;
