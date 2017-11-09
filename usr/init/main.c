@@ -526,9 +526,7 @@ errval_t boot_cpu1(void) {
         return err;
     }
 
-    //TODO: is this the correct upper limit of the heap?
-    lvaddr_t heap_upper_limit = VADDR_OFFSET;
-    err = load_cpu_relocatable_segment(elfdata, segment_addr, segment_id.base + heap_upper_limit, core_data->kernel_load_base, &core_data->got_base);
+    err = load_cpu_relocatable_segment(elfdata, segment_addr, segment_id.base, core_data->kernel_load_base, &core_data->got_base);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not load cpu relocatable segment");
         return err;
@@ -546,7 +544,7 @@ errval_t boot_cpu1(void) {
     sys_armv7_cache_clean_poc((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
     sys_armv7_cache_clean_pou((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
 
-    err = invoke_monitor_spawn_core(1, CPU_ARM7, (forvaddr_t) core_data->entry_point);
+    err = invoke_monitor_spawn_core(1, CPU_ARM7, segment_id.base);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not invoke cpu1");
         return err;
