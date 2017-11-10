@@ -468,14 +468,8 @@ errval_t boot_cpu1(void) {
     core_data->cmdline = core_data_id.base + (size_t)((lvaddr_t)&(core_data->cmdline_buf) - (lvaddr_t)core_data);
     core_data->kcb = kcb_id.base;
 
-    struct capref urpc_cap;
-    err = frame_alloc(&urpc_cap, BASE_PAGE_SIZE, &ret);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc urpc");
-        return err;
-    }
     struct frame_identity urpc_id;
-    err = frame_identify(urpc_cap, &urpc_id);
+    err = frame_identify(cap_urpc, &urpc_id);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify urpc cap");
         return err;
