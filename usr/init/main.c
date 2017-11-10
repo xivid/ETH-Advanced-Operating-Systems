@@ -413,6 +413,13 @@ errval_t boot_cpu1(void) {
         return err;
     }
 
+    struct frame_identity kcb_id;
+    err = frame_identify(kcb, &kcb_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify kcb frame");
+        return err;
+    }
+
     struct capref core_data_f;
     size_t ret;
     err = frame_alloc(&core_data_f, sizeof(struct arm_core_data), &ret);
@@ -420,6 +427,15 @@ errval_t boot_cpu1(void) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc core data frame");
         return err;
     }
+
+    struct frame_identity core_data_id;
+    err = frame_identify(core_data_f, &core_data_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify core data");
+        return err;
+    }
+
+
     err = invoke_kcb_clone(kcb, core_data_f);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke kcb clone");
@@ -427,16 +443,31 @@ errval_t boot_cpu1(void) {
     }
 
     struct arm_core_data* core_data;
-    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, sizeof(struct arm_core_data), core_data_f, NULL, NULL);
+    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, ret, core_data_f, NULL, NULL);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not paging map frame core data to core_data_f");
         return err;
     }
 
+    struct capref init_space;
+    err = frame_alloc(&init_space, ARM_CORE_DATA_PAGES*BASE_PAGE_SIZE, &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc init_space");
+        return err;
+    }
+
+    struct frame_identity init_frame_id;
+    err = frame_identify(init_space, &init_frame_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify init frame");
+        return err;
+    }
+
     // allocate memory for the new core
-    core_data->memory_bytes = 3u*BASE_PAGE_SIZE*ARM_CORE_DATA_PAGES;
-    core_data->memory_base_start = (uint32_t) malloc(core_data->memory_bytes);
-    core_data->cmdline = (lvaddr_t) core_data->cmdline_buf;
+    core_data->memory_bytes = ret;
+    core_data->memory_base_start = init_frame_id.base;
+    core_data->cmdline = core_data_id.base + (size_t)((lvaddr_t)&(core_data->cmdline_buf) - (lvaddr_t)core_data);
+    core_data->kcb = kcb_id.base;
 
     // fill rest of core_data
     struct mem_region* module = multiboot_find_module(bi, "init");
@@ -477,6 +508,7 @@ errval_t boot_cpu1(void) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc relocatable_segment");
         return err;
     }
+
     void* segment_addr;
     err = paging_map_frame(get_current_paging_state(), &segment_addr, ret, relocatable_segment, NULL, NULL);
     if (err_is_fail(err)) {
@@ -520,12 +552,6 @@ errval_t boot_cpu1(void) {
         return err;
     }
 
-    struct frame_identity core_data_id;
-    err = frame_identify(core_data_f, &core_data_id);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify core data");
-        return err;
-    }
     err = invoke_monitor_spawn_core(1, CPU_ARM7, core_data_id.base);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke cpu1");
@@ -655,6 +681,16 @@ int main(int argc, char *argv[])
     }
 
     //test_multi_spawn(1);
+
+    /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
+    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
+    /* if (err_is_fail(err)) { */
+    /*     debug_printf("Failed spawning process memeater\n"); */
+    /*     return false; */
+    /* } */
+
+    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
+
     if (my_core_id == 0) {
         err = boot_cpu1();
         if (err_is_fail(err)) {
@@ -663,15 +699,6 @@ int main(int argc, char *argv[])
         }
     }
 
-
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
-    if (err_is_fail(err)) {
-        debug_printf("Failed spawning process memeater\n");
-        return false;
-    }
-
-    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
     debug_printf("Message handler loop\n");
     // Hang around
     struct waitset *default_ws = get_default_waitset();
