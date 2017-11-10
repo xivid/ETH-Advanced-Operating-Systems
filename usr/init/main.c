@@ -575,11 +575,78 @@ int main(int argc, char *argv[])
         assert(my_core_id > 0);
     }
 
-    err = initialize_ram_alloc();
+    // TODO: we initialize ram for first core here and should return to this method what part of memory is assigned to the core (fill mem_left and mem_base)
+    gensize_t mem_left = 0;
+    genpaddr_t mem_base = 0;
+    if (my_core_id == 0) {
+        err = initialize_ram_alloc();
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "initialize_ram_alloc");
+            return EXIT_FAILURE;
+        }
+    }
+    
+    void* shared_buf;
+    size_t shared_frame_size;
+    if (my_core_id == 0) {
+        // alloc frame for shared memory between cores
+        frame_alloc(&cap_urpc, BASE_PAGE_SIZE*3, &shared_frame_size);
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "main.c: cap_urpc frame alloc");
+            return EXIT_FAILURE;
+        }
+    }
+    else {
+        shared_frame_size = BASE_PAGE_SIZE*3;
+    }
+    // map the frame for both cores
+    err = paging_map_frame(get_current_paging_state(), &shared_buf, shared_frame_size, cap_urpc, NULL, NULL);
     if(err_is_fail(err)){
-        DEBUG_ERR(err, "initialize_ram_alloc");
+        DEBUG_ERR(err, "main.c: cap_urpc paging map frame");
         return EXIT_FAILURE;
     }
+    // write information for second core into shared buf
+    if (my_core_id == 0) {
+        // write bootinfo to shared mem
+        *((struct bootinfo*) shared_buf) = *bi;
+        shared_buf += sizeof(struct bootinfo);
+        *((genpaddr_t*) shared_buf) = mem_base;
+        shared_buf += sizeof(genpaddr_t);
+        *((gensize_t*) shared_buf) = mem_left;
+        shared_buf += sizeof(gensize_t);
+        
+        //TODO: do we need to write more stuff and/or does passing over bootinfo like this work?
+    }
+    
+    else {
+        bi = (struct bootinfo*) shared_buf;
+        shared_buf += sizeof(struct bootinfo);
+        mem_base = *((genpaddr_t*) shared_buf);
+        shared_buf += sizeof(genpaddr_t);
+        mem_left = *((gensize_t*) shared_buf);
+        shared_buf += sizeof(gensize_t);
+        struct capref mem_cap = {
+            .cnode = cnode_super,
+            .slot = 0,
+        };
+        err = ram_forge(mem_cap, mem_base, mem_left, my_core_id);
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "main.c: ram_forge failed");
+            return EXIT_FAILURE;
+        }
+        
+        // TODO: read more stuff from shared_buf in case that we wrote there more stuff to get
+    }
+    
+    if (my_core_id == 1) {
+        // TODO: adjust ram_alloc initialization, such that we can hand over where the ram for the core starts and how much the ram should get
+        err = initialize_ram_alloc(); // use mem_base and mem_left
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "initialize_ram_alloc of core 1");
+            return EXIT_FAILURE;
+        }
+    }
+    
 
     err = init_rpc();
     if(err_is_fail(err)){
