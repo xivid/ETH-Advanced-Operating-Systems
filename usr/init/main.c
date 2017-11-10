@@ -443,6 +443,13 @@ errval_t boot_core(coreid_t core_id) {
     }
 
     /* initialize core_data by cloning the running kernel */
+    struct frame_identity kcb_id;
+    err = frame_identify(kcb, &kcb_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify kcb frame");
+        return err;
+    }
+
     struct capref core_data_f;
     size_t ret;
     err = frame_alloc(&core_data_f, sizeof(struct arm_core_data), &ret);
@@ -450,7 +457,16 @@ errval_t boot_core(coreid_t core_id) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame alloc core data frame");
         return err;
     }
-    err = invoke_kcb_clone(kcb, core_data_f);  // should we pass in this kcb instead of bsp_kcb?
+
+    struct frame_identity core_data_id;
+    err = frame_identify(core_data_f, &core_data_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify core data");
+        return err;
+    }
+
+    err = invoke_kcb_clone(kcb, core_data_f);
+
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not invoke kcb clone");
         return err;
@@ -458,16 +474,42 @@ errval_t boot_core(coreid_t core_id) {
 
     // map into our address space so that we can access it
     struct arm_core_data* core_data;
-    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, sizeof(struct arm_core_data), core_data_f, NULL, NULL);
+    err = paging_map_frame(get_current_paging_state(), (void**) &core_data, ret, core_data_f, NULL, NULL);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not paging map frame core data to core_data_f");
         return err;
     }
 
+    struct capref init_space;
+    err = frame_alloc(&init_space, ARM_CORE_DATA_PAGES*BASE_PAGE_SIZE, &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc init_space");
+        return err;
+    }
+
+    struct frame_identity init_frame_id;
+    err = frame_identify(init_space, &init_frame_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify init frame");
+        return err;
+    }
+
     // allocate memory for the new core
-    core_data->memory_bytes = 3u*BASE_PAGE_SIZE*ARM_CORE_DATA_PAGES;
-    core_data->memory_base_start = (uint32_t) malloc(core_data->memory_bytes);
-    core_data->cmdline = (lvaddr_t) core_data->cmdline_buf;
+    core_data->memory_bytes = ret;
+    core_data->memory_base_start = init_frame_id.base;
+    core_data->cmdline = core_data_id.base + (size_t)((lvaddr_t)&(core_data->cmdline_buf) - (lvaddr_t)core_data);
+    core_data->kcb = kcb_id.base;
+
+    struct frame_identity urpc_id;
+    err = frame_identify(cap_urpc, &urpc_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify urpc cap");
+        return err;
+    }
+
+    core_data->urpc_frame_base = urpc_id.base;
+    core_data->urpc_frame_size = urpc_id.bytes;
+    core_data->chan_id = 1; // TODO: what should it be?
 
     // fill rest of core_data
     struct mem_region* module = multiboot_find_module(bi, "init");
@@ -524,6 +566,7 @@ errval_t boot_core(coreid_t core_id) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame alloc relocatable_segment");
         return err;
     }
+
     void* segment_addr;
     err = paging_map_frame(get_current_paging_state(), &segment_addr, ret, relocatable_segment, NULL, NULL);
     if (err_is_fail(err)) {
@@ -567,12 +610,6 @@ errval_t boot_core(coreid_t core_id) {
         return err;
     }
 
-    struct frame_identity core_data_id;
-    err = frame_identify(core_data_f, &core_data_id);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot_core: could not frame identify core data");
-        return err;
-    }
     err = invoke_monitor_spawn_core(core_id, CPU_ARM7, core_data_id.base);
 
     if (err_is_fail(err)) {
@@ -689,7 +726,7 @@ int main(int argc, char *argv[])
 
     debug_printf("init: on core %" PRIuCOREID " invoked as:", my_core_id);
     for (int i = 0; i < argc; i++) {
-       printf(" %s", argv[i]);
+        printf(" %s", argv[i]);
     }
     printf("\n");
 
@@ -699,11 +736,78 @@ int main(int argc, char *argv[])
         assert(my_core_id > 0);
     }
 
-    err = initialize_ram_alloc();
+    // TODO: we initialize ram for first core here and should return to this method what part of memory is assigned to the core (fill mem_left and mem_base)
+    gensize_t mem_left = 0;
+    genpaddr_t mem_base = 0;
+    if (my_core_id == 0) {
+        err = initialize_ram_alloc();
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "initialize_ram_alloc");
+            return EXIT_FAILURE;
+        }
+    }
+
+    void* shared_buf;
+    size_t shared_frame_size;
+    if (my_core_id == 0) {
+        // alloc frame for shared memory between cores
+        frame_alloc(&cap_urpc, BASE_PAGE_SIZE*3, &shared_frame_size);
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "main.c: cap_urpc frame alloc");
+            return EXIT_FAILURE;
+        }
+    }
+    else {
+        shared_frame_size = BASE_PAGE_SIZE*3;
+    }
+    // map the frame for both cores
+    err = paging_map_frame(get_current_paging_state(), &shared_buf, shared_frame_size, cap_urpc, NULL, NULL);
     if(err_is_fail(err)){
-        DEBUG_ERR(err, "initialize_ram_alloc");
+        DEBUG_ERR(err, "main.c: cap_urpc paging map frame");
         return EXIT_FAILURE;
     }
+    // write information for second core into shared buf
+    if (my_core_id == 0) {
+        // write bootinfo to shared mem
+        *((struct bootinfo*) shared_buf) = *bi;
+        shared_buf += sizeof(struct bootinfo);
+        *((genpaddr_t*) shared_buf) = mem_base;
+        shared_buf += sizeof(genpaddr_t);
+        *((gensize_t*) shared_buf) = mem_left;
+        shared_buf += sizeof(gensize_t);
+
+        //TODO: do we need to write more stuff and/or does passing over bootinfo like this work?
+    }
+
+    else {
+        bi = (struct bootinfo*) shared_buf;
+        shared_buf += sizeof(struct bootinfo);
+        mem_base = *((genpaddr_t*) shared_buf);
+        shared_buf += sizeof(genpaddr_t);
+        mem_left = *((gensize_t*) shared_buf);
+        shared_buf += sizeof(gensize_t);
+        struct capref mem_cap = {
+                .cnode = cnode_super,
+                .slot = 0,
+        };
+        err = ram_forge(mem_cap, mem_base, mem_left, my_core_id);
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "main.c: ram_forge failed");
+            return EXIT_FAILURE;
+        }
+
+        // TODO: read more stuff from shared_buf in case that we wrote there more stuff to get
+    }
+
+    if (my_core_id == 1) {
+        // TODO: adjust ram_alloc initialization, such that we can hand over where the ram for the core starts and how much the ram should get
+        err = initialize_ram_alloc(); // use mem_base and mem_left
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "initialize_ram_alloc of core 1");
+            return EXIT_FAILURE;
+        }
+    }
+
 
     err = init_rpc();
     if(err_is_fail(err)){
@@ -712,6 +816,16 @@ int main(int argc, char *argv[])
     }
 
     //test_multi_spawn(1);
+
+    /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
+    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
+    /* if (err_is_fail(err)) { */
+    /*     debug_printf("Failed spawning process memeater\n"); */
+    /*     return false; */
+    /* } */
+
+    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
+
     if (my_core_id == 0) {
         err = boot_core(1);
         if (err_is_fail(err)) {
@@ -720,15 +834,6 @@ int main(int argc, char *argv[])
         }
     }
 
-
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
-    if (err_is_fail(err)) {
-        debug_printf("Failed spawning process hello\n");
-        return false;
-    }
-
-    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
     debug_printf("Message handler loop\n");
     // Hang around
     struct waitset *default_ws = get_default_waitset();
