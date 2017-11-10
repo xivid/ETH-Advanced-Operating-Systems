@@ -500,17 +500,6 @@ errval_t boot_core(coreid_t core_id) {
     core_data->cmdline = core_data_id.base + (size_t)((lvaddr_t)&(core_data->cmdline_buf) - (lvaddr_t)core_data);
     core_data->kcb = kcb_id.base;
 
-    struct frame_identity urpc_id;
-    err = frame_identify(cap_urpc, &urpc_id);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify urpc cap");
-        return err;
-    }
-
-    core_data->urpc_frame_base = urpc_id.base;
-    core_data->urpc_frame_size = urpc_id.bytes;
-    core_data->chan_id = 1; // TODO: what should it be?
-
     // fill rest of core_data
     struct mem_region* module = multiboot_find_module(bi, "init");
     if (module == NULL) {
@@ -526,20 +515,21 @@ errval_t boot_core(coreid_t core_id) {
     core_data->monitor_module = monitor_modinfo;
 
     /* allocate memory for URPC frame */
-    struct capref urpc_frame;
+    /*struct capref urpc_frame;
     err = frame_alloc(&urpc_frame, sizeof(MON_URPC_SIZE), &ret);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame alloc urpc_frame");
         return err;
-    }
+    }*/
     struct frame_identity urpc_frame_id;
-    err = frame_identify(urpc_frame, &urpc_frame_id);
+    err = frame_identify(cap_urpc, &urpc_frame_id);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame identify urpc_frame");
         return err;
     }
     core_data->urpc_frame_base = urpc_frame_id.base;
     core_data->urpc_frame_size = urpc_frame_id.bytes;
+    core_data->chan_id = 1; // TODO: what should it be?
 
     /* load and relocate cpu driver */
     struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
