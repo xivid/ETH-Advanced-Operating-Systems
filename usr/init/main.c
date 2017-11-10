@@ -435,7 +435,6 @@ errval_t boot_cpu1(void) {
         return err;
     }
 
-
     err = invoke_kcb_clone(kcb, core_data_f);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/main.c boot cpu1: could not invoke kcb clone");
@@ -468,6 +467,23 @@ errval_t boot_cpu1(void) {
     core_data->memory_base_start = init_frame_id.base;
     core_data->cmdline = core_data_id.base + (size_t)((lvaddr_t)&(core_data->cmdline_buf) - (lvaddr_t)core_data);
     core_data->kcb = kcb_id.base;
+
+    struct capref urpc_cap;
+    err = frame_alloc(&urpc_cap, BASE_PAGE_SIZE, &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame alloc urpc");
+        return err;
+    }
+    struct frame_identity urpc_id;
+    err = frame_identify(urpc_cap, &urpc_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/main.c boot cpu1: could not identify urpc cap");
+        return err;
+    }
+
+    core_data->urpc_frame_base = urpc_id.base;
+    core_data->urpc_frame_size = urpc_id.bytes;
+    core_data->chan_id = 1; // TODO: what should it be?
 
     // fill rest of core_data
     struct mem_region* module = multiboot_find_module(bi, "init");
@@ -611,7 +627,7 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
     }
-    
+
     void* shared_buf;
     size_t shared_frame_size;
     if (my_core_id == 0) {
@@ -640,10 +656,10 @@ int main(int argc, char *argv[])
         shared_buf += sizeof(genpaddr_t);
         *((gensize_t*) shared_buf) = mem_left;
         shared_buf += sizeof(gensize_t);
-        
+
         //TODO: do we need to write more stuff and/or does passing over bootinfo like this work?
     }
-    
+
     else {
         bi = (struct bootinfo*) shared_buf;
         shared_buf += sizeof(struct bootinfo);
@@ -660,10 +676,10 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "main.c: ram_forge failed");
             return EXIT_FAILURE;
         }
-        
+
         // TODO: read more stuff from shared_buf in case that we wrote there more stuff to get
     }
-    
+
     if (my_core_id == 1) {
         // TODO: adjust ram_alloc initialization, such that we can hand over where the ram for the core starts and how much the ram should get
         err = initialize_ram_alloc(); // use mem_base and mem_left
@@ -672,7 +688,7 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
     }
-    
+
 
     err = init_rpc();
     if(err_is_fail(err)){
