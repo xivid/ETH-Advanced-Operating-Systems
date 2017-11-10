@@ -59,7 +59,7 @@ errval_t send_ram(void* args);
 errval_t send_process(void* args);
 
 /* multi-core declarations */
-errval_t boot_cpu1(void);
+errval_t boot_core(coreid_t core_id);
 
 /* testing declarations */
 bool test_alloc_free(int count);
@@ -419,44 +419,48 @@ errval_t send_process(void *args) {
 
 
 /* Multi-core implementations */
-errval_t boot_cpu1(void) {
+errval_t boot_core(coreid_t core_id) {
+
+    /* allocate memory and obtain a new KCB */
     errval_t err;
     struct capref kcb_ram;
     err = ram_alloc(&kcb_ram, OBJSIZE_KCB);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not ram alloc kcb_ram");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not ram alloc kcb_ram");
         return err;
     }
 
     struct capref kcb;
     err = slot_alloc(&kcb);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not slot alloc kcb_ram");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not slot alloc kcb_ram");
         return err;
     }
     err = cap_retype(kcb, kcb_ram, 0, ObjType_KernelControlBlock, OBJSIZE_KCB, 1);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not cap retype kcb");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not cap retype kcb");
         return err;
     }
 
+    /* initialize core_data by cloning the running kernel */
     struct capref core_data_f;
     size_t ret;
     err = frame_alloc(&core_data_f, sizeof(struct arm_core_data), &ret);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame alloc core data frame");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame alloc core data frame");
         return err;
     }
-    err = invoke_kcb_clone(kcb, core_data_f);
+    err = invoke_kcb_clone(kcb, core_data_f);  // should we pass in this kcb instead of bsp_kcb?
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not invoke kcb clone");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not invoke kcb clone");
         return err;
     }
 
+    // map into our address space so that we can access it
     struct arm_core_data* core_data;
     err = paging_map_frame(get_current_paging_state(), (void**) &core_data, sizeof(struct arm_core_data), core_data_f, NULL, NULL);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not paging map frame core data to core_data_f");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not paging map frame core data to core_data_f");
         return err;
     }
 
@@ -468,7 +472,7 @@ errval_t boot_cpu1(void) {
     // fill rest of core_data
     struct mem_region* module = multiboot_find_module(bi, "init");
     if (module == NULL) {
-        debug_printf("usr/init/main.c boot cpu1: init module not found");
+        debug_printf("usr/init/main.c boot_core: init module not found");
         return SPAWN_ERR_FIND_MODULE;
     }
     struct multiboot_modinfo monitor_modinfo = {
@@ -479,10 +483,26 @@ errval_t boot_cpu1(void) {
     };
     core_data->monitor_module = monitor_modinfo;
 
-    // load and relocate cpu driver
+    /* allocate memory for URPC frame */
+    struct capref urpc_frame;
+    err = frame_alloc(&urpc_frame, sizeof(MON_URPC_SIZE), &ret);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame alloc urpc_frame");
+        return err;
+    }
+    struct frame_identity urpc_frame_id;
+    err = frame_identify(urpc_frame, &urpc_frame_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame identify urpc_frame");
+        return err;
+    }
+    core_data->urpc_frame_base = urpc_frame_id.base;
+    core_data->urpc_frame_size = urpc_frame_id.bytes;
+
+    /* load and relocate cpu driver */
     struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
     if (cpu_module == NULL) {
-        debug_printf("usr/init/main.c boot cpu1: cpu driver module not found");
+        debug_printf("usr/init/main.c boot_core: cpu driver module not found");
         return SPAWN_ERR_FIND_MODULE;
     }
     struct capref cpu_frame = {
@@ -493,7 +513,7 @@ errval_t boot_cpu1(void) {
     struct frame_identity cpu_frame_id;
     err = frame_identify(cpu_frame, &cpu_frame_id);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame identify");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame identify");
         return err;
     }
 
@@ -501,20 +521,20 @@ errval_t boot_cpu1(void) {
     struct capref relocatable_segment;
     err = frame_alloc(&relocatable_segment, cpu_frame_id.bytes, &ret);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame alloc relocatable_segment");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame alloc relocatable_segment");
         return err;
     }
     void* segment_addr;
     err = paging_map_frame(get_current_paging_state(), &segment_addr, ret, relocatable_segment, NULL, NULL);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not paging map relocatable segment memory");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not paging map relocatable segment memory");
         return err;
     }
 
     struct frame_identity segment_id;
     err = frame_identify(relocatable_segment, &segment_id);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not frame identify the relocatable_segment");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not frame identify the relocatable_segment");
         return err;
     }
 
@@ -522,13 +542,13 @@ errval_t boot_cpu1(void) {
     void* elfdata;
     err = paging_map_frame(get_current_paging_state(), &elfdata, cpu_frame_id.bytes, cpu_frame, NULL, NULL);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not paging map elf frame");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not paging map elf frame");
         return err;
     }
 
     err = load_cpu_relocatable_segment(elfdata, segment_addr, segment_id.base, core_data->kernel_load_base, &core_data->got_base);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not load cpu relocatable segment");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not load cpu relocatable segment");
         return err;
     }
 
@@ -543,20 +563,20 @@ errval_t boot_cpu1(void) {
 
     err = sys_debug_flush_cache();
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not flush cache");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not flush cache");
         return err;
     }
 
     struct frame_identity core_data_id;
     err = frame_identify(core_data_f, &core_data_id);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/main.c boot cpu1: could not frame identify core data");
+        DEBUG_ERR(err, "usr/main.c boot_core: could not frame identify core data");
         return err;
     }
-    err = invoke_monitor_spawn_core(1, CPU_ARM7, core_data_id.base);
+    err = invoke_monitor_spawn_core(core_id, CPU_ARM7, core_data_id.base);
 
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot cpu1: could not invoke cpu1");
+        DEBUG_ERR(err, "usr/init/main.c boot_core: could not invoke cpu1");
         return err;
     }
     return SYS_ERR_OK;
@@ -693,9 +713,9 @@ int main(int argc, char *argv[])
 
     //test_multi_spawn(1);
     if (my_core_id == 0) {
-        err = boot_cpu1();
+        err = boot_core(1);
         if (err_is_fail(err)) {
-            DEBUG_ERR(err, "usr/init/main.c: boot_cpu1 failed");
+            DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed");
             return EXIT_FAILURE;
         }
     }
