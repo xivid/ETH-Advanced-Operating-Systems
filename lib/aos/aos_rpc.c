@@ -14,8 +14,10 @@
 
 #include <aos/aos_rpc.h>
 
-static void add_new_process(struct aos_rpc *rpc, char *name, domainid_t id);
+static void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id);
 static void print_process_table(struct aos_rpc *rpc);
+
+// TODO: we can put in args[0] the lmp_chan* instead of aos_rpc*
 
 errval_t aos_rpc_send_handler_for_init (void* v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
@@ -29,7 +31,7 @@ errval_t aos_rpc_send_handler_for_init (void* v_args) {
             return SYS_ERR_OK;
         count++;
     }
-    debug_printf("aos_rpc_send_handler_for_num: too many failed attempts\n");
+    debug_printf("aos_rpc_send_handler_for_init: too many failed attempts\n");
     return err;
 }
 
@@ -177,11 +179,12 @@ errval_t aos_rpc_rcv_handler_for_ram (void* v_args) {
     return (errval_t) lmp_msg.words[2];
 }
 
-errval_t aos_rpc_handler_for_process(void* v_args) {
+errval_t aos_rpc_rcv_handler_for_process(void *v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
-    domainid_t *new_pid = (size_t*) args[1];
-    char *name = (char *) &args[2];
+    coreid_t core = *(coreid_t *) args[1];
+    domainid_t *new_pid = (size_t*) args[2];
+    char *name = (char *) &args[3];
 
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
@@ -190,7 +193,7 @@ errval_t aos_rpc_handler_for_process(void* v_args) {
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
         err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                MKCLOSURE((void*) aos_rpc_rcv_handler_for_ram, args));
+                                     MKCLOSURE((void *) aos_rpc_rcv_handler_for_process, args));
         count++;
     }
     if (err_is_fail(err)) {
@@ -200,7 +203,7 @@ errval_t aos_rpc_handler_for_process(void* v_args) {
     // check that message was received
     if (lmp_msg.buf.msglen == 3 && lmp_msg.words[0]) {
         *new_pid = (domainid_t) lmp_msg.words[1];
-        add_new_process(rpc, name, lmp_msg.words[1]);
+        add_new_process(rpc, name, core, lmp_msg.words[1]);
         print_process_table(rpc);
     }
 
@@ -241,7 +244,7 @@ errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintpt
 
 errval_t aos_rpc_send_number(struct aos_rpc *chan, uintptr_t val)
 {
-    // implement functionality to send a number ofer the channel
+    // implement functionality to send a number over the channel
     // given channel and wait until the ack gets returned.
     uintptr_t args[2];
     args[0] = (uintptr_t) chan;
@@ -338,7 +341,8 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_send_char failed\n");
         return err;
-    }    return SYS_ERR_OK;
+    }
+    return SYS_ERR_OK;
 }
 
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
@@ -349,14 +353,16 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
     uintptr_t args[9];
     // order: 0-chan, 1-newpid, 2..8-the name
     args[0] = (uintptr_t) chan;
-    args[1] = (uintptr_t) newpid;
+    args[1] = (uintptr_t) core;
+    args[2] = (uintptr_t) newpid;
     int str_size = strlen(name) + 1;
-    for (int j = 0; j < (str_size / 4) + 1 ; j++) {
-        args[j+2] = ((uintptr_t *) name)[j];
+    int blocks = str_size / 4 + (str_size % 4 != 0);
+    for (int j = 0; j < blocks; j++) {
+        args[j+3] = ((uintptr_t *) name)[j];
     }
-    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_process, aos_rpc_handler_for_process, args);
+    errval_t err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_process, aos_rpc_rcv_handler_for_process, args);
     if (err_is_fail(err)) {
-        debug_printf("aos_rpc_send_string last failed\n");
+        debug_printf("aos_rpc_process_spawn failed\n");
         return err;
     }
 
@@ -458,9 +464,10 @@ struct aos_rpc *aos_rpc_get_serial_channel(void)
 }
 
 
-static void add_new_process(struct aos_rpc *rpc, char *name, domainid_t id) {
+static void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id) {
     struct domaininfo *new_domain = malloc(sizeof(struct domaininfo));
     new_domain->domain_name = name;
+    new_domain->core_id = core;
     new_domain->pid = id;
     new_domain->next = NULL;
     if (rpc->head == NULL) {
@@ -478,11 +485,13 @@ static void add_new_process(struct aos_rpc *rpc, char *name, domainid_t id) {
 
 static void print_process_table(struct aos_rpc *rpc) {
     struct domaininfo *cur = rpc->head;
-    debug_printf("printing process table\n");
-    debug_printf("pid | name\n");
+    debug_printf("------------------------------------------\n");
+    debug_printf("              process  table              \n");
+    debug_printf("------------------------------------------\n");
+    debug_printf("%4s\n%5s\tname\n", "core", "pid");
     while (cur) {
-        debug_printf(" %d  | %s\n", cur->pid, cur->domain_name);
+        debug_printf("%4d\t%5d\t%s\n", (int)cur->core_id, cur->pid, cur->domain_name);
         cur = cur->next;
     }
-    debug_printf("--------------------------------------------\n");
+    debug_printf("------------------------------------------\n");
 }

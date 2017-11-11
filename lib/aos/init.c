@@ -183,7 +183,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
         return SYS_ERR_OK;
     }
 
-
+    // for non-init domain: initialize rpc
     struct aos_rpc rpc;
     err = aos_rpc_init(default_ws, &rpc);
     if (err_is_fail(err)) {
@@ -200,6 +200,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     }
     set_init_rpc(rpc_on_heap);
 
+    debug_printf("barrelfish_init_onthread(): initialized rpc\n");
     _libc_terminal_write_func = lmp_terminal_write;
     st->refilling_slab = true;
 

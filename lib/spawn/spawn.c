@@ -272,7 +272,6 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
 }
 
 
-// TODO(M4): Build and pass a messaging channel to your child process
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     printf("spawn start_child: starting: %s\n", binary_name);
     errval_t err;
