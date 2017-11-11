@@ -36,6 +36,12 @@
 #define max(a,b) ((a) > (b) ? (a) : (b))
 #endif
 
+// macros copied from kernel/include/arch/arm/startup_arm.h
+#define INIT_BOOTINFO_VBASE     ((lvaddr_t) 0x200000)
+#define INIT_ARGS_VBASE         (INIT_BOOTINFO_VBASE + BOOTINFO_SIZE)
+#define INIT_DISPATCHER_VBASE   (INIT_ARGS_VBASE + ARGS_SIZE)
+#define MON_URPC_VBASE          (INIT_DISPATCHER_VBASE + DISPATCHER_SIZE)
+
 /* rpc declarations */
 struct client {
     struct EndPoint end;  // TODO: store the capref directly? (can avoid ugly comparison in whois())
@@ -48,12 +54,12 @@ struct client {
 errval_t init_rpc(void);
 errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
-void* answer_number(struct capref* cap, struct lmp_recv_msg* msg);
-void* answer_char(struct capref* cap, struct lmp_recv_msg* msg);
-void* answer_str(struct capref* cap, struct lmp_recv_msg* msg);
-void* answer_process(struct capref* cap, struct lmp_recv_msg* msg);
-void* answer_init(struct capref* cap);
-void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg);
+void* answer_number(struct capref cap, struct lmp_recv_msg *msg);
+void* answer_char(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_str(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_process(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_init(struct capref cap);
+void* answer_ram(struct capref cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
 errval_t send_process(void* args);
@@ -73,6 +79,12 @@ coreid_t my_core_id;
 struct bootinfo *bi;
 
 /* RPC implementations */
+/* Message format:
+ * There are at most 9 uintptr_t-length words in msg, namely msg[0] ... msg[8]
+ *
+ * msg[0] is used to indicate the type of message (see enum_rpc_msgtype)
+ * msg[1] ... msg[8] is the actual message
+ */
 errval_t init_rpc(void)
 {
     errval_t err;
@@ -81,7 +93,9 @@ errval_t init_rpc(void)
         DEBUG_ERR(err, "usr/init/main.c: cap retype of dispatcher to selfep failed");
         return EXIT_FAILURE;
     }
+    // TODO: make lmp a global variable, give it a more meaningful name (lmp_serv/open_lmp?)
     struct lmp_chan* lmp = (struct lmp_chan*) malloc(sizeof(struct lmp_chan));
+    // by setting NULL_CAP as endpoint, we make this lmp an "open-receive" channel
     err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c: lmp chan accept failed");
@@ -97,6 +111,7 @@ errval_t init_rpc(void)
         DEBUG_ERR(err, "usr/init/main.c: lmp cap copy of lmp->local_cap to cap_initep failed");
         return EXIT_FAILURE;
     }
+    // the "reply-wait" operation
     err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) recv_handler, lmp));
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c: lmp chan register recv failed");
@@ -116,7 +131,7 @@ errval_t recv_handler(void* arg)
         if (lmp_err_is_transient(err)) {
             err = lmp_chan_recv(lmp, &msg, &cap);
         }
-        else {
+        if (err_is_fail(err)) {  // non-transient error, or transient but still fail after retry
             DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan recv, non transient error");
             return err;
         }
@@ -141,27 +156,27 @@ errval_t recv_handler(void* arg)
     void* answer_args;
     switch (msg.words[0]) {
         case AOS_RPC_ID_NUM:
-            answer_args = answer_number(&cap, &msg);
+            answer_args = answer_number(cap, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_INIT:
-            answer_args = answer_init(&cap);
+            answer_args = answer_init(cap);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_RAM:
-            answer_args = answer_ram(&cap, &msg);
+            answer_args = answer_ram(cap, &msg);
             answer = (void*) send_ram;
             break;
         case AOS_RPC_ID_CHAR:
-            answer_args = answer_char(&cap, &msg);
+            answer_args = answer_char(cap, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_STR:
-            answer_args = answer_str(&cap, &msg);
+            answer_args = answer_str(cap, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_PROCESS:
-            answer_args = answer_process(&cap, &msg);
+            answer_args = answer_process(cap, &msg);
             answer = (void*) send_process;
             break;
         default:
@@ -176,6 +191,7 @@ errval_t recv_handler(void* arg)
     return SYS_ERR_OK;
 }
 
+// TODO: rewrite this with cap_compare()
 errval_t whois(struct capref cap, struct client **he_is) {
     struct client *cur = client_list;
     struct capability return_cap;
@@ -195,12 +211,13 @@ errval_t whois(struct capref cap, struct client **he_is) {
     return err;
 }
 
-void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
+
+void* answer_number(struct capref cap, struct lmp_recv_msg *msg) {
     debug_printf("server received number: %u\n", (uint32_t) msg->words[1]);
 
     // create answer
     struct client* he_is = NULL;
-    errval_t err = whois(*cap, &he_is);
+    errval_t err = whois(cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
         DEBUG_ERR(err, "usr/init/main.c answer number: could not identify client");
         return NULL;
@@ -210,7 +227,7 @@ void* answer_number(struct capref* cap, struct lmp_recv_msg* msg) {
     return (void*) &(he_is->lmp);
 }
 
-void* answer_char(struct capref* cap, struct lmp_recv_msg* msg)
+void* answer_char(struct capref cap, struct lmp_recv_msg* msg)
 {
     errval_t err = sys_print((const char *)&msg->words[1], 1);
     if (err_is_fail(err)) {
@@ -220,7 +237,7 @@ void* answer_char(struct capref* cap, struct lmp_recv_msg* msg)
 
     // create answer
     struct client* he_is = NULL;
-    err = whois(*cap, &he_is);
+    err = whois(cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
         DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
         return NULL;
@@ -230,7 +247,7 @@ void* answer_char(struct capref* cap, struct lmp_recv_msg* msg)
     return (void*) &(he_is->lmp);
 }
 
-void* answer_str(struct capref* cap, struct lmp_recv_msg* msg)
+void* answer_str(struct capref cap, struct lmp_recv_msg* msg)
 {
     int len = strnlen((const char*) &msg->words[1], 32);
     //debug_printf("Got packet len(%i) %lx!\n", len, &msg->words[3]);
@@ -242,7 +259,7 @@ void* answer_str(struct capref* cap, struct lmp_recv_msg* msg)
 
     // create answer
     struct client* he_is = NULL;
-    err = whois(*cap, &he_is);
+    err = whois(cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
         DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
         return NULL;
@@ -252,12 +269,18 @@ void* answer_str(struct capref* cap, struct lmp_recv_msg* msg)
     return (void*) &(he_is->lmp);
 }
 
-void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
+void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
 {
     errval_t err;
-    debug_printf("got process name: %s\n", &msg->words[2]);
+    debug_printf("got coreid: %d, process name: %s\n", (int)msg->words[1], (char *)&msg->words[3]);
+    coreid_t target_core_id = *(coreid_t *) &msg->words[1];
+    if (target_core_id != my_core_id) {
+        // aos_rpc_remote_spawn();
+        // TODO: implement this
+        return NULL;
+    }
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name(&msg->words[2], si);
+    err = spawn_load_by_name(&msg->words[3], si);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c could not start a process\n");
         return NULL;
@@ -265,7 +288,7 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
     debug_printf("domain id is %d\n", si->domain_id);
     // create answer
     struct client* he_is = NULL;
-    err = whois(*cap, &he_is);
+    err = whois(cap, &he_is);
     if (err_is_fail(err) || he_is == NULL) {
         DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
         return NULL;
@@ -293,20 +316,23 @@ void* answer_process(struct capref* cap, struct lmp_recv_msg* msg)
 }
 
 // sets up the client struct for new processes
-void* answer_init(struct capref* cap) {
+void* answer_init(struct capref cap) {
     struct client *potential = NULL;
-    errval_t err = whois(*cap, &potential);
+    errval_t err = whois(cap, &potential);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c answer init: could not identify client");
         return NULL;
     }
+    // already have a channel to this client
     if (potential != NULL) {
         return (void*) &(potential->lmp);
     }
+
+    // new client, allocate a channel (it's only used for sending, receiving is always done by open-receiving)
     potential = (struct client*) malloc(sizeof(struct client));
 
     struct capability return_cap;
-    debug_cap_identify(*cap, &return_cap);
+    debug_cap_identify(cap, &return_cap);
     potential->end = return_cap.u.endpoint;
     potential->prev = NULL;
     if (client_list == NULL) {
@@ -318,7 +344,7 @@ void* answer_init(struct capref* cap) {
     }
     client_list = potential;
 
-    err = lmp_chan_accept(&potential->lmp, DEFAULT_LMP_BUF_WORDS, *cap);
+    err = lmp_chan_accept(&potential->lmp, DEFAULT_LMP_BUF_WORDS, cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c answer init: could not do lmp chan accept");
         return NULL;
@@ -326,9 +352,9 @@ void* answer_init(struct capref* cap) {
     return (void*) &(potential->lmp);
 }
 
-void* answer_ram(struct capref* cap, struct lmp_recv_msg* msg) {
+void* answer_ram(struct capref cap, struct lmp_recv_msg* msg) {
     struct client *sender = NULL;
-    errval_t err = whois(*cap, &sender);
+    errval_t err = whois(cap, &sender);
     if (err_is_fail(err) || sender == NULL) {
         DEBUG_ERR(err, "usr/init/main.c answer init: could not identify client");
         return NULL;
@@ -529,7 +555,8 @@ errval_t boot_core(coreid_t core_id) {
     }
     core_data->urpc_frame_base = urpc_frame_id.base;
     core_data->urpc_frame_size = urpc_frame_id.bytes;
-    core_data->chan_id = 1; // TODO: what should it be?
+    debug_printf("core_data->urpc base 0x%llx size 0x%llx\n", urpc_frame_id.base, urpc_frame_id.bytes);
+    // core_data->chan_id = 1; // TODO: what should it be?
 
     /* load and relocate cpu driver */
     struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
@@ -726,7 +753,8 @@ int main(int argc, char *argv[])
         assert(my_core_id > 0);
     }
 
-    // TODO: we initialize ram for first core here and should return to this method what part of memory is assigned to the core (fill mem_left and mem_base)
+    // TODO: we initialize ram for first core here
+    // and should return to this method what part of memory is assigned to the core (fill mem_left and mem_base)
     gensize_t mem_left = 0;
     genpaddr_t mem_base = 0;
     if (my_core_id == 0) {
@@ -738,40 +766,51 @@ int main(int argc, char *argv[])
     }
 
     void* shared_buf;
-    size_t shared_frame_size;
     if (my_core_id == 0) {
+        size_t ret;
         // alloc frame for shared memory between cores
-        frame_alloc(&cap_urpc, BASE_PAGE_SIZE*3, &shared_frame_size);
+        frame_alloc(&cap_urpc, MON_URPC_SIZE, &ret);
         if(err_is_fail(err)){
             DEBUG_ERR(err, "main.c: cap_urpc frame alloc");
             return EXIT_FAILURE;
         }
+        // map the urpc frame for bsp core
+        err = paging_map_frame(get_current_paging_state(), &shared_buf, MON_URPC_SIZE, cap_urpc, NULL, NULL);
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "main.c: cap_urpc paging map frame");
+            return EXIT_FAILURE;
+        }
+    } else {
+        shared_buf = (void *)MON_URPC_VBASE;
     }
-    else {
-        shared_frame_size = BASE_PAGE_SIZE*3;
-    }
-    // map the frame for both cores
-    err = paging_map_frame(get_current_paging_state(), &shared_buf, shared_frame_size, cap_urpc, NULL, NULL);
-    if(err_is_fail(err)){
-        DEBUG_ERR(err, "main.c: cap_urpc paging map frame");
-        return EXIT_FAILURE;
-    }
+
+    char buf[256];
+    debug_print_cap_at_capref(buf, 256, cap_urpc);
+    debug_printf("core %d cap_urpc: %s, mapped at %p\n", my_core_id, buf, shared_buf);
+
     // write information for second core into shared buf
     if (my_core_id == 0) {
         // write bootinfo to shared mem
         *((struct bootinfo*) shared_buf) = *bi;
         shared_buf += sizeof(struct bootinfo);
+        for (int i = 0; i < bi->regions_length; ++i) {
+            *((struct mem_region*) shared_buf) = bi->regions[i];
+            shared_buf += sizeof(struct mem_region);
+        }
+
+        // write shared memory information
         *((genpaddr_t*) shared_buf) = mem_base;
         shared_buf += sizeof(genpaddr_t);
         *((gensize_t*) shared_buf) = mem_left;
         shared_buf += sizeof(gensize_t);
-
         //TODO: do we need to write more stuff and/or does passing over bootinfo like this work?
-    }
-
-    else {
+    } else {
+        // read in app core
         bi = (struct bootinfo*) shared_buf;
         shared_buf += sizeof(struct bootinfo);
+        // *(struct mem_region*)bi->regions = shared_buf;
+        shared_buf += sizeof(struct mem_region) * bi->regions_length;
+
         mem_base = *((genpaddr_t*) shared_buf);
         shared_buf += sizeof(genpaddr_t);
         mem_left = *((gensize_t*) shared_buf);
@@ -785,11 +824,19 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "main.c: ram_forge failed");
             return EXIT_FAILURE;
         }
-
         // TODO: read more stuff from shared_buf in case that we wrote there more stuff to get
     }
 
+
+    debug_printf("core %d mem_base 0x%llx, mem_left 0x%llx, bootinfo: regions_length %u, mem_spawn_core %u, regions (base:bytes:type):", my_core_id, mem_base, mem_left, bi->regions_length, bi->mem_spawn_core);
+    for (int i = 0; i < bi->regions_length; ++i) {
+        printf(" (0x%llx:0x%llx:%d)", bi->regions[i].mr_base, bi->regions[i].mr_bytes, bi->regions[i].mr_type);
+    }
+    printf("\n");
+
     if (my_core_id == 1) {
+        debug_printf("core 1 ram init not implemented\n");
+        while (1);
         // TODO: adjust ram_alloc initialization, such that we can hand over where the ram for the core starts and how much the ram should get
         err = initialize_ram_alloc(); // use mem_base and mem_left
         if(err_is_fail(err)){
@@ -817,6 +864,7 @@ int main(int argc, char *argv[])
     /* test_virtual_memory(10, BASE_PAGE_SIZE); */
 
     if (my_core_id == 0) {
+        debug_printf("booting core 1\n");
         err = boot_core(1);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed");

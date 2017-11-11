@@ -21,7 +21,7 @@
 
 // IDs for different transmission types
 // 1 << 0 is reserved for acknowleding that the message arrived successfully
-enum {
+enum enum_rpc_msgtype {
     AOS_RPC_ID_INIT = 2,
     AOS_RPC_ID_RAM,
     AOS_RPC_ID_NUM,
@@ -32,6 +32,7 @@ enum {
 
 struct domaininfo {
     char *domain_name;
+    coreid_t core_id;
     domainid_t pid;
     struct domaininfo *next;
 };
@@ -49,12 +50,12 @@ errval_t aos_rpc_send_handler_for_init (void* v_args);
 errval_t aos_rpc_send_handler_for_num (void* v_args);
 errval_t aos_rpc_send_handler_for_char (void* v_args);
 errval_t aos_rpc_send_handler_for_string (void* v_args);
-errval_t aos_rpc_send_handler_for_process(void* v_args);
-errval_t aos_rpc_rcv_handler_general (void* v_args);
-
 errval_t aos_rpc_send_handler_for_ram (void* v_args);
+errval_t aos_rpc_send_handler_for_process(void* v_args);
+
+errval_t aos_rpc_rcv_handler_general (void* v_args);
 errval_t aos_rpc_rcv_handler_for_ram (void* v_args);
-errval_t aos_rpc_handler_for_process(void* v_args);
+errval_t aos_rpc_rcv_handler_for_process(void *v_args);
 
 errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintptr_t* args);
 
