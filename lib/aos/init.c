@@ -157,19 +157,23 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_VSPACE_INIT);
     }
+
+    // Here we do the following trick:
+    // Since the RPC has not been setup yet we can't ask the memory server
+    // for new memory. As malloc() requires some to work we can't use malloc
+    // until we setup RPC. This is why we first allocate the aos_rpc struct
+    // on stack, then allocate a new one on heap and then copy data from stack
+    // to heap.
+    // For same reasons (we can't get new memory) we tell the current paging
+    // state that it can't use new slab. After RPC has been setup we return it
+    // to normal state.
     struct paging_state *st = get_current_paging_state();
-    st->refilling_slab = true;
+    st->can_use_slab = true;
 
     err = slot_alloc_init();
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_SLOT_ALLOC_INIT);
     }
-
-    /* static char slab_space[BASE_PAGE_SIZE]; */
-    /* struct slot_alloc_state *sa_state = get_slot_alloc_state(); */
-    /* struct multi_slot_allocator *def = &sa_state->defca; */
-    /* slab_grow(&def->slab, slab_space, BASE_PAGE_SIZE); */
-
 
     err = morecore_init();
     if (err_is_fail(err)) {
@@ -184,24 +188,21 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     }
 
 
-    struct aos_rpc rpc;
-    err = aos_rpc_init(default_ws, &rpc);
+    struct aos_rpc rpc_on_stack;
+    err = aos_rpc_init(default_ws, &rpc_on_stack);
     if (err_is_fail(err)) {
         debug_printf("lib aos init.c: first aos_rpc_init failed\n");
         return err;
     }
-    set_init_rpc(&rpc);
+    set_init_rpc(&rpc_on_stack);
 
+    // Copy the RPC channel data from stack to heap and swap the pointers.
     struct aos_rpc *rpc_on_heap = malloc(sizeof(struct aos_rpc));
-    err = aos_rpc_init(default_ws, rpc_on_heap);
-    if (err_is_fail(err)) {
-        debug_printf("lib aos init.c: second aos_rpc_init failed\n");
-        return err;
-    }
+    *rpc_on_heap = rpc_on_stack;
     set_init_rpc(rpc_on_heap);
 
     _libc_terminal_write_func = lmp_terminal_write;
-    st->refilling_slab = true;
+    st->can_use_slab = true;
 
 
     return SYS_ERR_OK;
