@@ -115,8 +115,29 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
 {
     struct frame_identity ident;
     frame_identify(cap, &ident);
-    assert(ident.base == base && ident.bytes == size);
-    struct mmnode *new_memnode = mm_create_node(mm, cap, base, size);
+    assert(ident.base <= base && ident.bytes >= size);
+
+    struct mmnode *new_memnode;
+    if (ident.base != base || ident.bytes != size) {
+        // as we have given half of the memory region to app core but did not change the cap,
+        // we need to create a new cap conforming to the new size and base here
+        struct capref new_cap;
+        errval_t err = slot_alloc_prealloc(mm->slot_alloc_inst, 1, &new_cap);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "failed allocating new_cap slot in mm_add");
+            return err;
+        }
+        err = cap_retype(new_cap, cap, base - ident.base, mm->objtype, size, 1);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "original cap retype error: %s\n", err_getstring(err));
+            return err;
+        }
+        new_memnode = mm_create_node(mm, new_cap, base, size);
+    }
+    else {
+        new_memnode = mm_create_node(mm, cap, base, size);
+    }
+
     if (new_memnode == NULL) {
         debug_printf("Not possible to create new mmnode\n");
         return MM_ERR_NEW_NODE;
