@@ -555,7 +555,6 @@ errval_t boot_core(coreid_t core_id) {
     }
     core_data->urpc_frame_base = urpc_frame_id.base;
     core_data->urpc_frame_size = urpc_frame_id.bytes;
-    debug_printf("core_data->urpc base 0x%llx size 0x%llx\n", urpc_frame_id.base, urpc_frame_id.bytes);
     // core_data->chan_id = 1; // TODO: what should it be?
 
     /* load and relocate cpu driver */
@@ -755,9 +754,19 @@ int main(int argc, char *argv[])
 
     // TODO: we initialize ram for first core here
     // and should return to this method what part of memory is assigned to the core (fill mem_left and mem_base)
-    gensize_t mem_left = 0;
-    genpaddr_t mem_base = 0;
+    struct bootinfo *app_bi = malloc(sizeof(struct bootinfo) + bi->regions_length * sizeof(struct mem_region));
+    *app_bi = *bi;
     if (my_core_id == 0) {
+        // split every empty memory region into two, and let app core have the second half
+        for (int i = 0; i < bi->regions_length; i++) {
+            app_bi->regions[i] = bi->regions[i];
+            if (bi->regions[i].mr_type == RegionType_Empty) {
+                gensize_t halfsize = bi->regions[i].mr_bytes >> 1;
+                app_bi->regions[i].mr_base = bi->regions[i].mr_base + halfsize;
+                app_bi->regions[i].mr_bytes = bi->regions[i].mr_bytes - halfsize;
+                bi->regions[i].mr_bytes = halfsize;
+            }
+        }
         err = initialize_ram_alloc();
         if(err_is_fail(err)){
             DEBUG_ERR(err, "initialize_ram_alloc");
@@ -791,60 +800,49 @@ int main(int argc, char *argv[])
     // write information for second core into shared buf
     if (my_core_id == 0) {
         // write bootinfo to shared mem
-        *((struct bootinfo*) shared_buf) = *bi;
+        *((struct bootinfo*) shared_buf) = *app_bi;
         shared_buf += sizeof(struct bootinfo);
-        for (int i = 0; i < bi->regions_length; ++i) {
-            *((struct mem_region*) shared_buf) = bi->regions[i];
+        for (int i = 0; i < app_bi->regions_length; ++i) {
+            *((struct mem_region*) shared_buf) = app_bi->regions[i];
             shared_buf += sizeof(struct mem_region);
         }
-
-        // write shared memory information
-        *((genpaddr_t*) shared_buf) = mem_base;
-        shared_buf += sizeof(genpaddr_t);
-        *((gensize_t*) shared_buf) = mem_left;
-        shared_buf += sizeof(gensize_t);
-        //TODO: do we need to write more stuff and/or does passing over bootinfo like this work?
     } else {
         // read in app core
         bi = (struct bootinfo*) shared_buf;
-        shared_buf += sizeof(struct bootinfo);
-        // *(struct mem_region*)bi->regions = shared_buf;
-        shared_buf += sizeof(struct mem_region) * bi->regions_length;
+        // shared_buf += sizeof(struct bootinfo) + sizeof(struct mem_region) * bi->regions_length;
 
-        mem_base = *((genpaddr_t*) shared_buf);
-        shared_buf += sizeof(genpaddr_t);
-        mem_left = *((gensize_t*) shared_buf);
-        shared_buf += sizeof(gensize_t);
         struct capref mem_cap = {
                 .cnode = cnode_super,
                 .slot = 0,
         };
-        err = ram_forge(mem_cap, mem_base, mem_left, my_core_id);
-        if(err_is_fail(err)){
-            DEBUG_ERR(err, "main.c: ram_forge failed");
-            return EXIT_FAILURE;
+        for (int i = 0; i < bi->regions_length; i++) {
+            if (bi->regions[i].mr_type == RegionType_Empty) {
+                err = ram_forge(mem_cap, bi->regions[i].mr_base, bi->regions[i].mr_bytes, my_core_id);
+                if (err_is_fail(err)) {
+                    DEBUG_ERR(err, "main.c: ram_forge failed");
+                    return EXIT_FAILURE;
+                }
+                ++mem_cap.slot;
+            }
         }
-        // TODO: read more stuff from shared_buf in case that we wrote there more stuff to get
     }
 
-
-    debug_printf("core %d mem_base 0x%llx, mem_left 0x%llx, bootinfo: regions_length %u, mem_spawn_core %u, regions (base:bytes:type):", my_core_id, mem_base, mem_left, bi->regions_length, bi->mem_spawn_core);
+    debug_printf("core %d bootinfo: regions_length %u, mem_spawn_core %u, regions (base:bytes:type/modname):\n", my_core_id, bi->regions_length, bi->mem_spawn_core);
     for (int i = 0; i < bi->regions_length; ++i) {
-        printf(" (0x%llx:0x%llx:%d)", bi->regions[i].mr_base, bi->regions[i].mr_bytes, bi->regions[i].mr_type);
+        if (bi->regions[i].mr_type == RegionType_Module)
+            debug_printf("\t(0x%llx:0x%lx:[%s])\n", bi->regions[i].mr_base, bi->regions[i].mrmod_size, my_core_id ? "" : multiboot_module_name(&bi->regions[i]));
+        else
+            debug_printf("\t(0x%llx:0x%llx:%d)\n", bi->regions[i].mr_base, bi->regions[i].mr_bytes, bi->regions[i].mr_type);
     }
     printf("\n");
 
     if (my_core_id == 1) {
-        debug_printf("core 1 ram init not implemented\n");
-        while (1);
-        // TODO: adjust ram_alloc initialization, such that we can hand over where the ram for the core starts and how much the ram should get
         err = initialize_ram_alloc(); // use mem_base and mem_left
         if(err_is_fail(err)){
             DEBUG_ERR(err, "initialize_ram_alloc of core 1");
             return EXIT_FAILURE;
         }
     }
-
 
     err = init_rpc();
     if(err_is_fail(err)){
@@ -861,7 +859,7 @@ int main(int argc, char *argv[])
     /*     return false; */
     /* } */
 
-    /* test_virtual_memory(10, BASE_PAGE_SIZE); */
+    test_virtual_memory(10, BASE_PAGE_SIZE);
 
     if (my_core_id == 0) {
         debug_printf("booting core 1\n");
