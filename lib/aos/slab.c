@@ -97,7 +97,8 @@ void *slab_alloc(struct slab_allocator *slabs)
         } else {
             err = slabs->refill_func(slabs);
             if (err_is_fail(err)) {
-                DEBUG_ERR(err, "slab refill_func failed");
+                debug_printf("slab refill_func failed: %s\n",
+                        err_getstring(err));
                 return NULL;
             }
             for (sh = slabs->slabs; sh != NULL && sh->free == 0; sh = sh->next);
@@ -179,10 +180,28 @@ size_t slab_freecount(struct slab_allocator *slabs)
 static errval_t slab_refill_pages(struct slab_allocator *slabs, size_t bytes)
 {
     void *buf;
-    struct paging_state *st = get_current_paging_state();
-    errval_t err = paging_alloc(st, &buf, BASE_PAGE_SIZE);
+    size_t real_bytes = BASE_PAGE_SIZE;
+    struct capref frame;
+    errval_t err;
+
+    err = frame_alloc(&frame, real_bytes, &real_bytes);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "error at mapping in slab_refill_pages");
+        debug_printf("error in slab_refill_pages: can't allocate frame\n");
+        debug_printf("%s\n", err_getstring(err));
+        return err;
+    }
+    struct paging_state *st = get_current_paging_state();
+    err = paging_alloc(st, &buf, real_bytes);
+    if (err_is_fail(err)) {
+        debug_printf("error in slab_refill_pages: can't allocate page\n");
+        debug_printf("%s\n", err_getstring(err));
+        return err;
+    }
+    err = paging_map_fixed_attr(st, (lvaddr_t) buf, frame, real_bytes,
+            VREGION_FLAGS_READ_WRITE);
+    if (err_is_fail(err)) {
+        debug_printf("error in slab_refill_pages: can't map page\n");
+        debug_printf("%s\n", err_getstring(err));
         return err;
     }
     slab_grow(slabs, buf, bytes);
