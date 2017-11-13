@@ -852,14 +852,15 @@ int main(int argc, char *argv[])
 
     //test_multi_spawn(1);
 
-    /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
-    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
-    /* if (err_is_fail(err)) { */
-    /*     debug_printf("Failed spawning process memeater\n"); */
-    /*     return false; */
-    /* } */
 
-    test_virtual_memory(10, BASE_PAGE_SIZE);
+//    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+//    err = spawn_load_by_name("/armv7/sbin/hello", si);
+//    if (err_is_fail(err)) {
+//        debug_printf("Failed spawning process hello\n");
+//        return false;
+//    }
+
+    test_alloc_free(400);
 
     if (my_core_id == 0) {
         debug_printf("booting core 1\n");
@@ -869,6 +870,10 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
     }
+
+    /*test_virtual_memory(10, BASE_PAGE_SIZE);
+    test_huge_malloc();
+    test_dynamic_slots(3000);*/
 
     debug_printf("Message handler loop\n");
     // Hang around
