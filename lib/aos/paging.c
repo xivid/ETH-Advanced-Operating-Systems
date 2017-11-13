@@ -91,7 +91,7 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
 
     // Init slab and give it some memory region.
     slab_init(&st->slabs, sizeof(struct paging_region), paging_slab_refill);
-    st->refilling_slab = false;
+    st->can_use_slab = false;
     // We can't just invoke paging_region_init here, because it invokes
     // paging_alloc, which requires some slab space.
     st->slab_region.base_addr = start_vaddr;
@@ -250,7 +250,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     }
     *buf = (void *) node->base_addr;
     free_list_node_dec_size(st, node, round_size);
-    if (st->refilling_slab) {
+    if (st->can_use_slab) {
         // Slab regions are not unmapped, so we don't track them.
         return SYS_ERR_OK;
     }
@@ -545,12 +545,12 @@ errval_t paging_slab_refill(struct slab_allocator *slabs)
     }
     slab_grow(slabs, buf, ret_size);
     // So we need to allocate a new one.
-    st->refilling_slab = true;
+    st->can_use_slab = true;
     err = paging_region_init(st, slab_region, SLAB_REGION_SIZE);
     if (err_is_fail(err)) {
         debug_printf("failed to create a new slab region\n");
         return err;
     }
-    st->refilling_slab = false;
+    st->can_use_slab = false;
     return SYS_ERR_OK;
 }

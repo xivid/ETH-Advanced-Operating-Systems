@@ -52,7 +52,3 @@ bin/
 *.aux
 *.log
 *.out
-
-# CLion IDE files
-/cmake-build-debug
-/.idea

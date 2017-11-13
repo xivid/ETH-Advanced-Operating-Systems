@@ -852,13 +852,12 @@ int main(int argc, char *argv[])
 
     //test_multi_spawn(1);
 
-
-//    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-//    err = spawn_load_by_name("/armv7/sbin/hello", si);
-//    if (err_is_fail(err)) {
-//        debug_printf("Failed spawning process hello\n");
-//        return false;
-//    }
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+    err = spawn_load_by_name("/armv7/sbin/hello", si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawning process hello\n");
+        return false;
+    }
 
     test_alloc_free(400);
 

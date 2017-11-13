@@ -71,7 +71,7 @@ struct paging_state {
     // size.
     struct paging_region *taken_list_head;
     struct paging_region first_region;
-    int refilling_slab;
+    bool can_use_slab;
     struct paging_region slab_region;
 };
 
