@@ -321,7 +321,7 @@ errval_t mm_find_smallest_node(struct mm *mm, size_t size, size_t alignment, str
 struct mmnode *mm_create_node(struct mm *mm, struct capref cap, genpaddr_t base, size_t size) {
     struct mmnode *ret = (struct mmnode *) slab_alloc(&(mm->slabs));
     if (!ret) {
-        DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED, "Failed to allocate new slab\n");
+        debug_printf("error in mm_create_node: failed to allocate new slab\n");
         return NULL;
     }
     ret->type = NodeType_Free;

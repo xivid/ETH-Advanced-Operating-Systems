@@ -92,13 +92,6 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     // Init slab and give it some memory region.
     slab_init(&st->slabs, sizeof(struct paging_region), paging_slab_refill);
     st->can_use_slab = false;
-    // We can't just invoke paging_region_init here, because it invokes
-    // paging_alloc, which requires some slab space.
-    st->slab_region.base_addr = start_vaddr;
-    st->slab_region.current_addr = start_vaddr;
-    st->slab_region.region_size = SLAB_REGION_SIZE;
-    start_vaddr += SLAB_REGION_SIZE;
-
     paging_list_init_node(&st->first_region, start_vaddr, start_vaddr,
             (size_t) VIRTUAL_SPACE_SIZE - start_vaddr, NULL, NULL);
     st->free_list_head = &st->first_region;
@@ -250,7 +243,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     }
     *buf = (void *) node->base_addr;
     free_list_node_dec_size(st, node, round_size);
-    if (st->can_use_slab) {
+    if (!st->can_use_slab) {
         // Slab regions are not unmapped, so we don't track them.
         return SYS_ERR_OK;
     }
@@ -530,27 +523,32 @@ errval_t paging_set_handler(void)
 
 errval_t paging_slab_refill(struct slab_allocator *slabs)
 {
-    void *buf;
-    size_t ret_size;
-    errval_t err;
-
     struct paging_state *st = get_current_paging_state();
-    struct paging_region *slab_region = &st->slab_region;
-
-    // After this call we deplete the region.
-    err = paging_region_map(slab_region, SLAB_REGION_SIZE, &buf, &ret_size);
-    if (err_is_fail(err)) {
-        debug_printf("failed to get memory from slab region\n");
-        return err;
-    }
-    slab_grow(slabs, buf, ret_size);
-    // So we need to allocate a new one.
-    st->can_use_slab = true;
-    err = paging_region_init(st, slab_region, SLAB_REGION_SIZE);
-    if (err_is_fail(err)) {
-        debug_printf("failed to create a new slab region\n");
-        return err;
-    }
     st->can_use_slab = false;
+    /* errval_t err = slab_refill_pages(slabs, SLAB_REGION_SIZE); */
+    errval_t err = slab_default_refill(slabs);
+    if (err_is_fail(err)) {
+        debug_printf("paging_slab_refill failed\n");
+        return err;
+    }
+    st->can_use_slab = true;
+
+    /* // After this call we deplete the region. */
+    /* err = paging_region_map(&st->slab_region, SLAB_REGION_SIZE, &buf, &ret_size); */
+    /* if (err_is_fail(err)) { */
+    /*     debug_printf("failed to get memory from slab region\n"); */
+    /*     return err; */
+    /* } */
+    /* debug_printf("slab grow called with buf = %p\n", buf); */
+    /* slab_grow(slabs, buf, ret_size); */
+    /* debug_printf("slab grow exited\n"); */
+    /* // So we need to allocate a new one. */
+    /* st->can_use_slab = false; */
+    /* err = paging_region_init(st, &st->slab_region, SLAB_REGION_SIZE); */
+    /* if (err_is_fail(err)) { */
+    /*     debug_printf("failed to create a new slab region\n"); */
+    /*     return err; */
+    /* } */
+    /* st->can_use_slab = true; */
     return SYS_ERR_OK;
 }
