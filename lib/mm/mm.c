@@ -478,7 +478,7 @@ struct mmnode *mm_create_node(struct mm *mm, struct capref cap,
 {
     struct mmnode *ret = (struct mmnode *) slab_alloc(&(mm->slabs));
     if (!ret) {
-        DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED, "Failed to allocate new slab\n");
+        debug_printf("error in mm_create_node: failed to allocate new slab\n");
         return NULL;
     }
     ret->type = NodeType_Handout;

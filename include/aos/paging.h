@@ -72,7 +72,6 @@ struct paging_state {
     struct paging_region *taken_list_head;
     struct paging_region first_region;
     bool can_use_slab;
-    struct paging_region slab_region;
 };
 
 /// A wrapper around paging_map_frame_attr
