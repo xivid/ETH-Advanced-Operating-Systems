@@ -72,7 +72,6 @@ struct paging_state {
     struct paging_region *taken_list_head;
     struct paging_region first_region;
     bool can_use_slab;
-    struct paging_region slab_region;
 };
 
 /// A wrapper around paging_map_frame_attr
@@ -135,6 +134,8 @@ errval_t slab_refill_no_pagefault(struct slab_allocator *slabs,
  */
 errval_t paging_unmap(struct paging_state *st, const void *region);
 
+void paging_list_dump(struct paging_region *head, bool indent);
+void paging_state_dump(struct paging_state *st);
 
 /// Map user provided frame while allocating VA space for it
 static inline errval_t paging_map_frame(struct paging_state *st, void **buf,

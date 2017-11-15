@@ -38,21 +38,23 @@ static errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
                                 struct capref l1_cap, lvaddr_t index_l1,
                                 int flags);
 
-static void paging_list_dump(struct paging_region *head);
 static void paging_list_init_node(struct paging_region *node,
         lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
         struct paging_region *prev);
 static struct paging_region *paging_list_create_node(struct paging_state *st,
         lvaddr_t base, lvaddr_t cur, size_t size, struct paging_region *next,
         struct paging_region *prev);
+static void paging_list_delete_node(struct paging_region **head,
+        struct paging_region *node);
 
 
 static struct paging_region *free_list_find_node(struct paging_region *head,
         size_t size);
 static void free_list_node_dec_size(struct paging_state *st,
         struct paging_region *node, size_t decrement);
-static void free_list_node_insert(struct paging_state *st,
+static void free_list_node_insert(struct paging_region **head,
         struct paging_region *node);
+static void free_list_defragment(struct paging_state *st);
 
 static void taken_list_node_insert(struct paging_state *st,
         struct paging_region *node);
@@ -92,13 +94,6 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     // Init slab and give it some memory region.
     slab_init(&st->slabs, sizeof(struct paging_region), paging_slab_refill);
     st->can_use_slab = false;
-    // We can't just invoke paging_region_init here, because it invokes
-    // paging_alloc, which requires some slab space.
-    st->slab_region.base_addr = start_vaddr;
-    st->slab_region.current_addr = start_vaddr;
-    st->slab_region.region_size = SLAB_REGION_SIZE;
-    start_vaddr += SLAB_REGION_SIZE;
-
     paging_list_init_node(&st->first_region, start_vaddr, start_vaddr,
             (size_t) VIRTUAL_SPACE_SIZE - start_vaddr, NULL, NULL);
     st->free_list_head = &st->first_region;
@@ -250,7 +245,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     }
     *buf = (void *) node->base_addr;
     free_list_node_dec_size(st, node, round_size);
-    if (st->can_use_slab) {
+    if (!st->can_use_slab) {
         // Slab regions are not unmapped, so we don't track them.
         return SYS_ERR_OK;
     }
@@ -258,10 +253,6 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
             (lvaddr_t) *buf, (lvaddr_t) *buf, round_size, NULL, NULL);
     taken_list_node_insert(st, taken_node);
 
-    /* debug_printf("printing free list slab=%d:\n", slab_freecount(&st->slabs)); */
-    /* paging_list_dump(st->free_list_head); */
-    /* debug_printf("printing taken list:\n"); */
-    /* paging_list_dump(st->taken_list_head); */
     return SYS_ERR_OK;
 }
 
@@ -385,23 +376,24 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
  */
 errval_t paging_unmap(struct paging_state *st, const void *region)
 {
-    // 1. Create a new paging_region.
-    // 2. Insert it into the free list.
-    // 3. Do the defragmentation.
-    // 4. Change the arm page tables.
-    return SYS_ERR_OK;
-}
+    // 1. Find the address in the taken list.
+    struct paging_region *cur = taken_list_find_node(st->taken_list_head,
+            (lvaddr_t) region);
+    // If a node with given offset is not found, then panic.
+    assert(cur != NULL);
 
-__attribute__((unused))
-void paging_list_dump(struct paging_region *head)
-{
-    struct paging_region *cur = head;
-    debug_printf("dumping list:\n");
-    while (cur) {
-        debug_printf("b=0x%x s=0x%x\n", cur->current_addr, cur->region_size);
-        cur = cur->next;
-    }
-    debug_printf("------------------------------------------\n");
+    // 2. Delete the paging_region from the taken list.
+    paging_list_delete_node(&st->taken_list_head, cur);
+
+    // 3. Insert it into the free list.
+    free_list_node_insert(&st->free_list_head, cur);
+
+    // 4. Do the defragmentation.
+    free_list_defragment(st);
+
+    // 5. Change the arm page tables.
+    // TODO - should we modify the arm page table?
+    return SYS_ERR_OK;
 }
 
 __attribute__((unused))
@@ -426,18 +418,17 @@ void paging_list_init_node(struct paging_region *node, lvaddr_t base,
 }
 
 __attribute__((unused))
-void free_list_node_insert(struct paging_state *st,
+void free_list_node_insert(struct paging_region **head,
         struct paging_region *node)
 {
     // This list is sorted by base.
-    if (st->free_list_head == NULL) {
-        st->free_list_head = node;
+    if (*head == NULL) {
+        *head = node;
         node->next = NULL;
         node->prev = NULL;
         return;
     }
-    struct paging_region *next, *prev;
-    next = st->free_list_head;
+    struct paging_region *next = *head, *prev = NULL;
     while (next && next->base_addr < node->base_addr) {
         prev = next;
         next = next->next;
@@ -446,6 +437,9 @@ void free_list_node_insert(struct paging_state *st,
     if (next) next->prev = node;
     node->next = next;
     node->prev = prev;
+    if (next == *head) {
+        *head = node;
+    }
 }
 
 __attribute__((unused))
@@ -460,6 +454,22 @@ void taken_list_node_insert(struct paging_state *st,
     }
     node->next = st->taken_list_head;
     st->taken_list_head = node;
+}
+
+void paging_list_delete_node(struct paging_region **head,
+        struct paging_region *node) {
+    assert(node != NULL);
+    struct paging_region *next = node->next;
+    struct paging_region *prev = node->prev;
+    if (next) {
+        next->prev = prev;
+    }
+    if (prev) {
+        prev->next = next;
+    }
+    if (node == *head) {
+        *head = next;
+    }
 }
 
 __attribute__((unused))
@@ -500,17 +510,23 @@ void free_list_node_dec_size(struct paging_state *st,
         node->current_addr += decrement;
     } else {
         // Delete the node.
-        assert(st->free_list_head != node);
-        struct paging_region *next = node->next;
-        struct paging_region *prev = node->prev;
-        if (next) {
-            next->prev = prev;
-        }
-        if (prev) {
-            prev->next = next;
-        }
+        assert(st->free_list_head != &st->first_region);
+        paging_list_delete_node(&st->free_list_head, node);
     }
+}
 
+void free_list_defragment(struct paging_state *st) {
+    struct paging_region *cur = st->free_list_head;
+    while (cur && cur->next) {
+        struct paging_region *next = cur->next;
+        if (cur->base_addr + cur->region_size == next->base_addr) {
+            next->region_size += cur->region_size;
+            next->base_addr = cur->base_addr;
+            paging_list_delete_node(&st->free_list_head, cur);
+            slab_free(&st->slabs, cur);
+        }
+        cur = next;
+    }
 }
 
 errval_t paging_set_handler(void)
@@ -530,27 +546,36 @@ errval_t paging_set_handler(void)
 
 errval_t paging_slab_refill(struct slab_allocator *slabs)
 {
-    void *buf;
-    size_t ret_size;
-    errval_t err;
-
     struct paging_state *st = get_current_paging_state();
-    struct paging_region *slab_region = &st->slab_region;
-
-    // After this call we deplete the region.
-    err = paging_region_map(slab_region, SLAB_REGION_SIZE, &buf, &ret_size);
-    if (err_is_fail(err)) {
-        debug_printf("failed to get memory from slab region\n");
-        return err;
-    }
-    slab_grow(slabs, buf, ret_size);
-    // So we need to allocate a new one.
-    st->can_use_slab = true;
-    err = paging_region_init(st, slab_region, SLAB_REGION_SIZE);
-    if (err_is_fail(err)) {
-        debug_printf("failed to create a new slab region\n");
-        return err;
-    }
     st->can_use_slab = false;
+    errval_t err = slab_default_refill(slabs);
+    if (err_is_fail(err)) {
+        debug_printf("paging_slab_refill failed\n");
+        return err;
+    }
+    st->can_use_slab = true;
     return SYS_ERR_OK;
+}
+
+__attribute__((unused))
+void paging_list_dump(struct paging_region *head, bool indent)
+{
+    struct paging_region *cur = head;
+    char first_symbol = (indent ? '\t' : '\r');
+    while (cur) {
+        debug_printf("%cb=0x%x s=0x%x\n", first_symbol,
+                cur->base_addr, cur->region_size);
+        cur = cur->next;
+    }
+}
+
+__attribute__((unused))
+void paging_state_dump(struct paging_state *st)
+{
+    debug_printf("dumping paging state:\n");
+    debug_printf("dumping free list:\n");
+    paging_list_dump(st->free_list_head, true);
+    debug_printf("dumping taken list:\n");
+    paging_list_dump(st->taken_list_head, true);
+    debug_printf("-----------------------------------------------------\n");
 }

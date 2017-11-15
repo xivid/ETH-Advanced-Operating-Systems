@@ -168,7 +168,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     // state that it can't use new slab. After RPC has been setup we return it
     // to normal state.
     struct paging_state *st = get_current_paging_state();
-    st->can_use_slab = true;
+    st->can_use_slab = false;
 
     err = slot_alloc_init();
     if (err_is_fail(err)) {

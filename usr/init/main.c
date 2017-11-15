@@ -42,6 +42,8 @@
 #define INIT_DISPATCHER_VBASE   (INIT_ARGS_VBASE + ARGS_SIZE)
 #define MON_URPC_VBASE          (INIT_DISPATCHER_VBASE + DISPATCHER_SIZE)
 
+#define SPLIT_ALIGNMENT         (1024*1024)
+
 /* rpc declarations */
 struct client {
     struct EndPoint end;  // TODO: store the capref directly? (can avoid ugly comparison in whois())
@@ -761,8 +763,10 @@ int main(int argc, char *argv[])
         /*for (int i = 0; i < bi->regions_length; i++) {
             app_bi->regions[i] = bi->regions[i];
             if (bi->regions[i].mr_type == RegionType_Empty) {
-                gensize_t halfsize = bi->regions[i].mr_bytes >> 1;
-                app_bi->regions[i].mr_base = bi->regions[i].mr_base + halfsize;
+                gensize_t base = bi->regions[i].mr_base;
+                gensize_t middle_base = base + (bi->regions[i].mr_bytes >> 1);
+                gensize_t halfsize = (middle_base & (~(SPLIT_ALIGNMENT-1))) - base;
+                app_bi->regions[i].mr_base = base + halfsize;
                 app_bi->regions[i].mr_bytes = bi->regions[i].mr_bytes - halfsize;
                 bi->regions[i].mr_bytes = halfsize;
             }

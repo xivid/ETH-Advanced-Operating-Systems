@@ -162,6 +162,8 @@ errval_t mm_add(struct mm *mm, struct capref cap, genpaddr_t base, size_t size)
         return err;
     }
 
+    assert(mm->head != NULL);
+
     return SYS_ERR_OK;
 }
 
@@ -181,7 +183,7 @@ errval_t mm_do_initial_split(struct mm *mm)
         return MM_ERR_NEW_NODE;
     }
 
-    debug_printf("Doing initial split with size %i and size %i \n", right_offset, mm->head->size - right_offset);
+    debug_printf("Doing initial split with size %i and size %i (base=%llx)\n", right_offset, mm->head->size - right_offset, mm->head->base);
 
     if (right_offset > 0) {
         errval_t err = split_mmnode_final(mm, mm->head, right_offset);
@@ -478,7 +480,7 @@ struct mmnode *mm_create_node(struct mm *mm, struct capref cap,
 {
     struct mmnode *ret = (struct mmnode *) slab_alloc(&(mm->slabs));
     if (!ret) {
-        DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED, "Failed to allocate new slab\n");
+        debug_printf("error in mm_create_node: failed to allocate new slab\n");
         return NULL;
     }
     ret->type = NodeType_Handout;
@@ -501,6 +503,12 @@ struct mmnode *mm_create_node(struct mm *mm, struct capref cap,
 void mm_insert_node(struct mm *mm, struct mmnode *new_node,
                     struct mmnode *start)
 {
+    if (mm->head == NULL) {
+        mm->head = new_node;
+        new_node->next = new_node;
+        new_node->prev = new_node;
+        return;
+    }
     struct mmnode *current = start;
     while (current->size > new_node->size && current != mm->head) {
         current = current -> prev;
@@ -544,7 +552,10 @@ errval_t mm_delete_node(struct mm *mm, struct mmnode *node, bool destroy_cap)
 
 void mm_extract_node(struct mm *mm, struct mmnode *node)
 {
-    assert(node != mm->head || node->prev != mm->head);
+    if (node == mm->head && node->prev == mm->head) {
+        mm->head = NULL;
+        return;
+    }
 
     node->next->prev = node->prev;
     node->prev->next = node->next;
