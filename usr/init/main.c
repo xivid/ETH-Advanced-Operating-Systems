@@ -754,11 +754,11 @@ int main(int argc, char *argv[])
 
     // TODO: we initialize ram for first core here
     // and should return to this method what part of memory is assigned to the core (fill mem_left and mem_base)
-    struct bootinfo *app_bi = malloc(sizeof(struct bootinfo) + bi->regions_length * sizeof(struct mem_region));
-    *app_bi = *bi;
+    // struct bootinfo *app_bi = malloc(sizeof(struct bootinfo) + bi->regions_length * sizeof(struct mem_region));
+    // *app_bi = *bi;
     if (my_core_id == 0) {
         // split every empty memory region into two, and let app core have the second half
-        for (int i = 0; i < bi->regions_length; i++) {
+        /*for (int i = 0; i < bi->regions_length; i++) {
             app_bi->regions[i] = bi->regions[i];
             if (bi->regions[i].mr_type == RegionType_Empty) {
                 gensize_t halfsize = bi->regions[i].mr_bytes >> 1;
@@ -766,7 +766,7 @@ int main(int argc, char *argv[])
                 app_bi->regions[i].mr_bytes = bi->regions[i].mr_bytes - halfsize;
                 bi->regions[i].mr_bytes = halfsize;
             }
-        }
+        }*/
         err = initialize_ram_alloc();
         if(err_is_fail(err)){
             DEBUG_ERR(err, "initialize_ram_alloc");
@@ -793,24 +793,89 @@ int main(int argc, char *argv[])
         shared_buf = (void *)MON_URPC_VBASE;
     }
 
+    /* print some debug info */
     char buf[256];
     debug_print_cap_at_capref(buf, 256, cap_urpc);
     debug_printf("core %d cap_urpc: %s, mapped at %p\n", my_core_id, buf, shared_buf);
+    debug_print_cap_at_capref(buf, 256, cap_bootinfo);
+    debug_printf("core %d bootinfo_cap: %s\n", my_core_id, buf);
+    for (struct capref module_cap = {.cnode = cnode_module, .slot = 0};
+         module_cap.slot < 10;
+         ++module_cap.slot) {
+        debug_print_cap_at_capref(buf, 256, module_cap);
+        debug_printf("core %d module_cap: %s\n", my_core_id, buf);
+    }
+    debug_print_cnoderef(buf, 256, cnode_task);
+    debug_printf("core %d cnode_task: %s\n", my_core_id, buf);
+    debug_print_cnoderef(buf, 256, cnode_module);
+    debug_printf("core %d cnode_module: %s\n", my_core_id, buf);
 
     // write information for second core into shared buf
     if (my_core_id == 0) {
         // write bootinfo to shared mem
+        /*
         *((struct bootinfo*) shared_buf) = *app_bi;
         shared_buf += sizeof(struct bootinfo);
         for (int i = 0; i < app_bi->regions_length; ++i) {
             *((struct mem_region*) shared_buf) = app_bi->regions[i];
             shared_buf += sizeof(struct mem_region);
         }
-    } else {
-        // read in app core
-        bi = (struct bootinfo*) shared_buf;
-        // shared_buf += sizeof(struct bootinfo) + sizeof(struct mem_region) * bi->regions_length;
+        */
+        struct frame_identity id;
+        frame_identify(cap_bootinfo, &id);
+        *((genpaddr_t *) shared_buf) = id.base;
+        shared_buf += sizeof(genpaddr_t);
+        *((gensize_t*) shared_buf) = id.bytes;
+        shared_buf += sizeof(gensize_t);
 
+        // write mmstrings info to shared mem
+        struct capref mmstrings_cap = {
+                .cnode = cnode_module,
+                .slot = 0
+        };
+        frame_identify(mmstrings_cap, &id);
+        *((genpaddr_t *) shared_buf) = id.base;
+        shared_buf += sizeof(genpaddr_t);
+        *((gensize_t*) shared_buf) = id.bytes;
+        shared_buf += sizeof(gensize_t);
+    } else {
+        debug_printf("app core original bi: %p\n", bi);
+        // read in app core
+        genpaddr_t bootinfo_base = *(genpaddr_t *)shared_buf;
+        shared_buf += sizeof(genpaddr_t);
+        gensize_t bootinfo_bytes = *(gensize_t *)shared_buf;
+        shared_buf += sizeof(gensize_t);
+        genpaddr_t mmstrings_base = *(genpaddr_t *)shared_buf;
+        shared_buf += sizeof(genpaddr_t);
+        gensize_t mmstrings_bytes = *(gensize_t *)shared_buf;
+        shared_buf += sizeof(gensize_t);
+
+        // forge the bootinfo cap
+        err = devframe_forge(cap_bootinfo, bootinfo_base, bootinfo_bytes, my_core_id);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "main.c: devframe_forge bootinfo(0x%llx:0x%llx) failed", bootinfo_base, bootinfo_bytes);
+            return EXIT_FAILURE;
+        }
+        err = paging_map_frame(get_current_paging_state(), (void **) &bi, bootinfo_bytes, cap_bootinfo, NULL, NULL);
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "main.c: mapping bootinfo failed");
+            return EXIT_FAILURE;
+        }
+        debug_printf("bi->regions_length == %zu\n", bi->regions_length);
+
+
+        // forge frame caps for mmstrings_cap
+        struct capref module_cap = {
+                .cnode = cnode_module,
+                .slot = 0
+        };
+        err = frame_forge(module_cap, mmstrings_base, mmstrings_bytes, my_core_id);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "main.c: frame_forge mmstrings(0x%llx:0x%llx) failed", mmstrings_base, mmstrings_bytes);
+            // return EXIT_FAILURE;
+        }
+
+        // forge the caps for ram and modules
         struct capref mem_cap = {
                 .cnode = cnode_super,
                 .slot = 0,
@@ -823,18 +888,26 @@ int main(int argc, char *argv[])
                     return EXIT_FAILURE;
                 }
                 ++mem_cap.slot;
+            } else if (bi->regions[i].mr_type == RegionType_Module) {
+                module_cap.slot = (cslot_t) bi->regions[i].mrmod_slot;
+                err = devframe_forge(module_cap, bi->regions[i].mr_base, bi->regions[i].mrmod_size, my_core_id);
+                if (err_is_fail(err)) {
+                    DEBUG_ERR(err, "main.c: devframe_forge failed");
+                    // return EXIT_FAILURE;
+                }
             }
         }
+
     }
 
-    debug_printf("core %d bootinfo: regions_length %u, mem_spawn_core %u, regions (base:bytes:type/modname):\n", my_core_id, bi->regions_length, bi->mem_spawn_core);
+    debug_printf("core %d bootinfo (%p): regions_length %u, mem_spawn_core %u, regions (base:bytes:type/[slot:modname]):\n",
+                 my_core_id, bi, bi->regions_length, bi->mem_spawn_core);
     for (int i = 0; i < bi->regions_length; ++i) {
         if (bi->regions[i].mr_type == RegionType_Module)
-            debug_printf("\t(0x%llx:0x%lx:[%s])\n", bi->regions[i].mr_base, bi->regions[i].mrmod_size, my_core_id ? "" : multiboot_module_name(&bi->regions[i]));
+            debug_printf("\t(0x%llx:0x%lx:%d:[%s])\n", bi->regions[i].mr_base, bi->regions[i].mrmod_size, bi->regions[i].mrmod_slot, my_core_id ? "" : multiboot_module_name(&bi->regions[i]));
         else
             debug_printf("\t(0x%llx:0x%llx:%d)\n", bi->regions[i].mr_base, bi->regions[i].mr_bytes, bi->regions[i].mr_type);
     }
-    printf("\n");
 
     if (my_core_id == 1) {
         err = initialize_ram_alloc(); // use mem_base and mem_left
@@ -859,7 +932,7 @@ int main(int argc, char *argv[])
         return false;
     }
 
-    test_alloc_free(400);
+    // test_alloc_free(400);  // FIXME: this still doesn't work
 
     if (my_core_id == 0) {
         debug_printf("booting core 1\n");

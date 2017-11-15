@@ -768,6 +768,37 @@ errval_t frame_forge(struct capref dest, genpaddr_t base, gensize_t bytes,
             .bytes = bytes
         }
     };
+    debug_printf("In frame_forge: caddr %d, level %d, slot %d\n", get_cnode_addr(dest), get_cnode_level(dest), dest.slot);
+    return invoke_monitor_create_cap((uint64_t *)&frame_cap,
+                                     get_cnode_addr(dest),
+                                     get_cnode_level(dest),
+                                     dest.slot, coreid);
+}
+
+/**
+ * \brief Create a DevFrame cap ab initio, by invoking the kernel cap.
+ *
+ * \param dest   Location to place new Frame cap
+ * \param base   Base address of the region
+ * \param bytes  Size of region to create
+ * \param coreid Which core should own the capability
+ *
+ * As for ram_forge, but for frames.  Same warnings apply!
+ *
+ * !!! This function is added by @zhiyang !!!
+ *
+ */
+errval_t devframe_forge(struct capref dest, genpaddr_t base, gensize_t bytes,
+                     coreid_t coreid) {
+    struct capability frame_cap = {
+            .type = ObjType_DevFrame,
+            .rights = CAPRIGHTS_READ,
+            .u.frame = {
+                    .base  = base,
+                    .bytes = bytes
+            }
+    };
+    debug_printf("In devframe_forge: caddr %d, level %d, slot %d\n", get_cnode_addr(dest), get_cnode_level(dest), dest.slot);
 
     return invoke_monitor_create_cap((uint64_t *)&frame_cap,
                                      get_cnode_addr(dest),
