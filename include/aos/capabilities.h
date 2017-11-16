@@ -57,6 +57,8 @@ errval_t ram_forge(struct capref dest, genpaddr_t base, gensize_t bytes,
                    coreid_t coreid);
 errval_t frame_forge(struct capref dest, genpaddr_t base, gensize_t bytes,
                      coreid_t coreid);
+errval_t devframe_forge(struct capref dest, genpaddr_t base, gensize_t bytes,
+                     coreid_t coreid);
 errval_t frame_alloc(struct capref *dest, size_t bytes, size_t *retbytes);
 errval_t devframe_type(struct capref *dest, struct capref src, uint8_t bits);
 errval_t dispatcher_create(struct capref dest);

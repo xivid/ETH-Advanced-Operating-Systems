@@ -68,11 +68,14 @@ errval_t send_process(void* args);
 
 /* multi-core declarations */
 errval_t boot_core(coreid_t core_id);
+errval_t urpc_spawn_on_app_core(void *name, domainid_t *domain_id);
+errval_t urpc_core1_listen(void);
+static inline void dmb(void) { __asm volatile ("dmb"); }
 
 /* testing declarations */
 bool test_alloc_free(int count);
 bool test_virtual_memory(int count, int size);
-bool test_multi_spawn(int spawns);
+bool test_multi_spawn(int spawns, char *name);
 bool test_huge_malloc(void);
 bool test_dynamic_slots(int count);
 
@@ -273,21 +276,27 @@ void* answer_str(struct capref cap, struct lmp_recv_msg* msg)
 
 void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
 {
-    errval_t err;
+    errval_t err, spawn_err;
+    domainid_t domainid;
+
     debug_printf("got coreid: %d, process name: %s\n", (int)msg->words[1], (char *)&msg->words[3]);
     coreid_t target_core_id = *(coreid_t *) &msg->words[1];
-    if (target_core_id != my_core_id) {
-        // aos_rpc_remote_spawn();
-        // TODO: implement this
-        return NULL;
+
+    if (disp_get_core_id() == 0 && target_core_id == 1) {
+        spawn_err = urpc_spawn_on_app_core(&msg->words[3], &domainid);
     }
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name(&msg->words[3], si);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c could not start a process\n");
-        return NULL;
+    else {
+        struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        spawn_err = spawn_load_by_name(&msg->words[3], si);
+        if (err_is_fail(spawn_err)) {
+            DEBUG_ERR(spawn_err, "usr/init/main.c could not start a process\n");
+            return NULL;
+        }
+        domainid = si->domain_id;
     }
-    debug_printf("domain id is %d\n", si->domain_id);
+
+    debug_printf("domain id is %d\n", domainid);
+
     // create answer
     struct client* he_is = NULL;
     err = whois(cap, &he_is);
@@ -309,10 +318,10 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
     // cast to void* and move pointer to after the lmp channel
     args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
     // add error to args
-    *((errval_t*) args) = err;
+    *((errval_t*) args) = spawn_err;
     // cast to void* and move pointer to after the error
     args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
-    *((domainid_t*) args) = si->domain_id;
+    *((domainid_t*) args) = domainid;
 
     return (void*) args_ptr;
 }
@@ -464,6 +473,7 @@ errval_t boot_core(coreid_t core_id) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not slot alloc kcb_ram");
         return err;
     }
+
     err = cap_retype(kcb, kcb_ram, 0, ObjType_KernelControlBlock, OBJSIZE_KCB, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c boot_core: could not cap retype kcb");
@@ -637,6 +647,65 @@ errval_t boot_core(coreid_t core_id) {
     return SYS_ERR_OK;
 }
 
+/* urpc implementations */
+void *urpc_shared_base;
+/*__attribute__((aligned(4))) enum URPC_CHANNEL_STATUS {
+    URPC_CHANNEL_READY_FOR_CORE0 = 0,
+    URPC_CHANNEL_READY_FOR_CORE1
+};*/
+#define URPC_CHANNEL_READY_FOR_CORE0 0
+#define URPC_CHANNEL_READY_FOR_CORE1 1
+#define URPC_CHANNEL_TRANSFERING_RESOURCES 2
+errval_t urpc_spawn_on_app_core(void *name, domainid_t *domain_id) {
+    errval_t err;
+    // enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
+    uint32_t volatile *status = (uint32_t volatile *) urpc_shared_base;
+    debug_printf("urpc_core1_listen: status = %d\n", *status);
+    while (*status != URPC_CHANNEL_READY_FOR_CORE0);
+    dmb();
+
+    debug_printf("urpc_core1_listen: writing name to shared buf\n");
+    void *buf = urpc_shared_base + sizeof(uint32_t); //sizeof(enum URPC_CHANNEL_STATUS);
+    strcpy(buf, name);
+    dmb();
+    *status = URPC_CHANNEL_READY_FOR_CORE1;
+
+    debug_printf("urpc_spawn_on_app_core: status = %d\n", *status);
+    while (*status != URPC_CHANNEL_READY_FOR_CORE0);
+    debug_printf("urpc_spawn_on_app_core: reading domain_id and err from shared buf\n");
+    dmb();
+    *domain_id = *(domainid_t *) buf;
+    buf += sizeof(domainid_t);
+    err = *(errval_t *) buf;
+
+    return err;
+}
+
+errval_t urpc_core1_listen(void) {
+    errval_t err;
+
+    // enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
+    uint32_t volatile *status = (uint32_t volatile *) urpc_shared_base;
+
+    debug_printf("urpc_core1_listen: status = %d\n", *status);
+    while (*status != URPC_CHANNEL_READY_FOR_CORE1);
+    dmb();
+    void *buf = urpc_shared_base + sizeof(uint32_t); //sizeof(enum URPC_CHANNEL_STATUS);
+    debug_printf("urpc_core1_listen: read name [%s] from shared buf and spawning process\n", (char *) buf);
+
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+    err = spawn_load_by_name(buf, si);
+
+    debug_printf("urpc_core1_listen: writing domain_id and err to shared buf\n");
+    *(domainid_t *) buf = si->domain_id;
+    buf += sizeof(domainid_t);
+    *(errval_t*) buf = err;
+    dmb();
+    *status = URPC_CHANNEL_READY_FOR_CORE0;
+
+    return SYS_ERR_OK;
+}
+
 /* tests implementations */
 __attribute__((unused))
 bool test_alloc_free(int allocations) {
@@ -690,12 +759,13 @@ bool test_virtual_memory(int count, int size) {
 }
 
 __attribute__((unused))
-bool test_multi_spawn(int spawns) {
+bool test_multi_spawn(int spawns, char *name) {
     errval_t err;
 
+    debug_printf("test_multi_spawn(%d, %s)...\n", spawns, name);
     for (int i = 0; i < spawns; i++) {
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
-        err = spawn_load_by_name("/armv7/sbin/hello", si);
+        err = spawn_load_by_name(name, si);
         if (err_is_fail(err)) {
             debug_printf("Failed spawning process %i\n", i);
             return false;
@@ -754,32 +824,13 @@ int main(int argc, char *argv[])
         assert(my_core_id > 0);
     }
 
-    // TODO: we initialize ram for first core here
-    // and should return to this method what part of memory is assigned to the core (fill mem_left and mem_base)
-    struct bootinfo *app_bi = malloc(sizeof(struct bootinfo) + bi->regions_length * sizeof(struct mem_region));
-    *app_bi = *bi;
     if (my_core_id == 0) {
-        // split every empty memory region into two, and let app core have the second half
-        for (int i = 0; i < bi->regions_length; i++) {
-            app_bi->regions[i] = bi->regions[i];
-            if (bi->regions[i].mr_type == RegionType_Empty) {
-                gensize_t base = bi->regions[i].mr_base;
-                gensize_t middle_base = base + (bi->regions[i].mr_bytes >> 1);
-                gensize_t halfsize = (middle_base & (~(SPLIT_ALIGNMENT-1))) - base;
-                app_bi->regions[i].mr_base = base + halfsize;
-                app_bi->regions[i].mr_bytes = bi->regions[i].mr_bytes - halfsize;
-                bi->regions[i].mr_bytes = halfsize;
-            }
-        }
         err = initialize_ram_alloc();
         if(err_is_fail(err)){
             DEBUG_ERR(err, "initialize_ram_alloc");
             return EXIT_FAILURE;
         }
-    }
 
-    void* shared_buf;
-    if (my_core_id == 0) {
         size_t ret;
         // alloc frame for shared memory between cores
         frame_alloc(&cap_urpc, MON_URPC_SIZE, &ret);
@@ -788,33 +839,66 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
         // map the urpc frame for bsp core
-        err = paging_map_frame(get_current_paging_state(), &shared_buf, MON_URPC_SIZE, cap_urpc, NULL, NULL);
+        err = paging_map_frame(get_current_paging_state(), &urpc_shared_base, MON_URPC_SIZE, cap_urpc, NULL, NULL);
         if(err_is_fail(err)){
             DEBUG_ERR(err, "main.c: cap_urpc paging map frame");
             return EXIT_FAILURE;
         }
-    } else {
-        shared_buf = (void *)MON_URPC_VBASE;
-    }
+        void *shared_buf_urpc = urpc_shared_base;
 
-    char buf[256];
-    debug_print_cap_at_capref(buf, 256, cap_urpc);
-    debug_printf("core %d cap_urpc: %s, mapped at %p\n", my_core_id, buf, shared_buf);
+        // set the status
+        *(uint32_t *) shared_buf_urpc = URPC_CHANNEL_TRANSFERING_RESOURCES;
+        shared_buf_urpc += sizeof(uint32_t);
 
-    // write information for second core into shared buf
-    if (my_core_id == 0) {
         // write bootinfo to shared mem
-        *((struct bootinfo*) shared_buf) = *app_bi;
-        shared_buf += sizeof(struct bootinfo);
-        for (int i = 0; i < app_bi->regions_length; ++i) {
-            *((struct mem_region*) shared_buf) = app_bi->regions[i];
-            shared_buf += sizeof(struct mem_region);
-        }
-    } else {
-        // read in app core
-        bi = (struct bootinfo*) shared_buf;
-        // shared_buf += sizeof(struct bootinfo) + sizeof(struct mem_region) * bi->regions_length;
+        struct frame_identity id;
+        frame_identify(cap_bootinfo, &id);
+        *((genpaddr_t *) shared_buf_urpc) = id.base;
+        shared_buf_urpc += sizeof(genpaddr_t);
+        *((gensize_t*) shared_buf_urpc) = id.bytes;
+        shared_buf_urpc += sizeof(gensize_t);
 
+        // write mmstrings info to shared mem
+        struct capref mmstrings_cap = {
+                .cnode = cnode_module,
+                .slot = 0
+        };
+        frame_identify(mmstrings_cap, &id);
+        *((genpaddr_t *) shared_buf_urpc) = id.base;
+        shared_buf_urpc += sizeof(genpaddr_t);
+        *((gensize_t*) shared_buf_urpc) = id.bytes;
+        shared_buf_urpc += sizeof(gensize_t);
+
+        debug_printf("written shared information\n");
+    } else {
+        urpc_shared_base = (void *)MON_URPC_VBASE;
+
+        void *shared_buf_urpc = urpc_shared_base;
+        assert(*(uint32_t *) shared_buf_urpc == URPC_CHANNEL_TRANSFERING_RESOURCES);
+        shared_buf_urpc += sizeof(uint32_t);
+
+        // read in app core
+        genpaddr_t bootinfo_base = *(genpaddr_t *)shared_buf_urpc;
+        shared_buf_urpc += sizeof(genpaddr_t);
+        gensize_t bootinfo_bytes = *(gensize_t *)shared_buf_urpc;
+        shared_buf_urpc += sizeof(gensize_t);
+        genpaddr_t mmstrings_base = *(genpaddr_t *)shared_buf_urpc;
+        shared_buf_urpc += sizeof(genpaddr_t);
+        gensize_t mmstrings_bytes = *(gensize_t *)shared_buf_urpc;
+
+        // forge the bootinfo cap
+        err = devframe_forge(cap_bootinfo, bootinfo_base, bootinfo_bytes, my_core_id);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "main.c: devframe_forge bootinfo(0x%llx:0x%llx) failed", bootinfo_base, bootinfo_bytes);
+            return EXIT_FAILURE;
+        }
+        err = paging_map_frame(get_current_paging_state(), (void **) &bi, bootinfo_bytes, cap_bootinfo, NULL, NULL);
+        if(err_is_fail(err)){
+            DEBUG_ERR(err, "main.c: mapping bootinfo failed");
+            return EXIT_FAILURE;
+        }
+
+        // forge the cap for available regions
         struct capref mem_cap = {
                 .cnode = cnode_super,
                 .slot = 0,
@@ -829,41 +913,58 @@ int main(int argc, char *argv[])
                 ++mem_cap.slot;
             }
         }
-    }
 
-    debug_printf("core %d bootinfo: regions_length %u, mem_spawn_core %u, regions (base:bytes:type/modname):\n", my_core_id, bi->regions_length, bi->mem_spawn_core);
-    for (int i = 0; i < bi->regions_length; ++i) {
-        if (bi->regions[i].mr_type == RegionType_Module)
-            debug_printf("\t(0x%llx:0x%lx:[%s])\n", bi->regions[i].mr_base, bi->regions[i].mrmod_size, my_core_id ? "" : multiboot_module_name(&bi->regions[i]));
-        else
-            debug_printf("\t(0x%llx:0x%llx:%d)\n", bi->regions[i].mr_base, bi->regions[i].mr_bytes, bi->regions[i].mr_type);
-    }
-    printf("\n");
-
-    if (my_core_id == 1) {
-        err = initialize_ram_alloc(); // use mem_base and mem_left
+        // initialize ram for app core
+        err = initialize_ram_alloc();
         if(err_is_fail(err)){
             DEBUG_ERR(err, "initialize_ram_alloc of core 1");
             return EXIT_FAILURE;
         }
+
+        // create l2 cnode: cnode_module
+        struct capref cap_cnode_root = {
+                .cnode = cnode_task,
+                .slot = TASKCN_SLOT_ROOTCN
+        };
+        err = cnode_create_foreign_l2(cap_cnode_root, ROOTCN_SLOT_MODULECN, &cnode_module);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "main.c: create Module CNode failed");
+            return EXIT_FAILURE;
+        }
+
+        // forge frame caps for mmstrings_cap
+        struct capref module_cap = {
+                .cnode = cnode_module,
+                .slot = 0
+        };
+        err = frame_forge(module_cap, mmstrings_base, mmstrings_bytes, my_core_id);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "main.c: frame_forge mmstrings(0x%llx:0x%llx) failed", mmstrings_base, mmstrings_bytes);
+            return EXIT_FAILURE;
+        }
+
+        // forge the caps for modules
+        for (int i = 0; i < bi->regions_length; i++) {
+            if (bi->regions[i].mr_type == RegionType_Module) {
+                module_cap.slot = (cslot_t) bi->regions[i].mrmod_slot;
+                err = devframe_forge(module_cap, bi->regions[i].mr_base, bi->regions[i].mrmod_size, my_core_id);
+                if (err_is_fail(err)) {
+                    DEBUG_ERR(err, "main.c: devframe_forge failed");
+                    return EXIT_FAILURE;
+                }
+            }
+        }
     }
 
+    debug_printf("init rpc\n");
     err = init_rpc();
     if(err_is_fail(err)){
         DEBUG_ERR(err, "init_rpc");
         return EXIT_FAILURE;
     }
 
-    //test_multi_spawn(1);
-
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
-    if (err_is_fail(err)) {
-        debug_printf("Failed spawning process hello\n");
-        return false;
-    }
-
-    test_virtual_memory(10, BASE_PAGE_SIZE);
+    // test_multi_spawn(1, "/armv7/sbin/hello");  // FIXME: aos_rpc_send_handler_for_init fails when spawning multiple "hello"s
+    // test_alloc_free(400);  // FIXME: this still doesn't work
 
     if (my_core_id == 0) {
         debug_printf("booting core 1\n");
@@ -874,7 +975,35 @@ int main(int argc, char *argv[])
         }
     }
 
+    // test remote spawn hello.1 from memeater.0
+    if (my_core_id == 0) {
+        struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/memeater", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed spawning process memeater\n");
+            return false;
+        }
+    }
+    /* test_virtual_memory(10, BASE_PAGE_SIZE);
+    test_huge_malloc();
+    test_dynamic_slots(3000); */
+
     debug_printf("Message handler loop\n");
+
+    if (my_core_id == 1) {
+        // clear the frame as a communication channel
+        debug_printf("updating status to %d\n", URPC_CHANNEL_READY_FOR_CORE0);
+        // *(enum URPC_CHANNEL_STATUS *)shared_buf_urpc = URPC_CHANNEL_READY_FOR_CORE0;
+        *(uint32_t volatile *)urpc_shared_base = URPC_CHANNEL_READY_FOR_CORE0;
+        dmb();
+
+        err = urpc_core1_listen();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "in urpc_core1_listen");
+            abort();
+        }
+    }
+
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {

@@ -48,6 +48,7 @@ const char *multiboot_module_rawstring(struct mem_region *region)
             DEBUG_ERR(err, "vspace_map failed");
 	        return NULL;
         }
+
 #if 0
         printf("Mapped multiboot_strings at %p\n", multiboot_strings);
         for (int i = 0; i < 256; i++) {
@@ -70,7 +71,7 @@ const char *multiboot_module_name(struct mem_region *region)
 {
     const char *str = multiboot_module_rawstring(region);
     if (str == NULL) {
-	return NULL;
+	    return NULL;
     }
 
     // copy module data to local buffer so we can mess with it
@@ -89,7 +90,6 @@ const char *multiboot_module_name(struct mem_region *region)
 
 struct mem_region *multiboot_find_module(struct bootinfo *bi, const char *name)
 {
-
     for(size_t i = 0; i < bi->regions_length; i++) {
         struct mem_region *region = &bi->regions[i];
         const char *modname = multiboot_module_name(region);

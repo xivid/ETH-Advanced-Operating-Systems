@@ -273,7 +273,7 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
 
 
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
-    printf("spawn start_child: starting: %s\n", binary_name);
+    debug_printf("spawn start_child: starting: %s\n", binary_name);
     errval_t err;
     // - Get the binary from multiboot image
     struct mem_region *module = multiboot_find_module(bi, binary_name);
@@ -293,11 +293,11 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     si->binary_name = binary_name;
 
     // - Map multiboot module in your address space
-    struct frame_identity id_child_frame;
-    frame_identify(child_frame, &id_child_frame);
+    // struct frame_identity id_child_frame;
+    // frame_identify(child_frame, &id_child_frame);
 
     lvaddr_t map_elf;
-    err = paging_map_frame(get_current_paging_state(), (void**)&map_elf, id_child_frame.bytes, child_frame, NULL, NULL);
+    err = paging_map_frame(get_current_paging_state(), (void**)&map_elf, module->mrmod_size /*id_child_frame.bytes*/, child_frame, NULL, NULL);
     if (err_is_fail(err)) {
         debug_printf("Error during paging_map_frame: %s\n", err_getstring(err));
         return err;
@@ -322,13 +322,13 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     }
 
     genvaddr_t child_entry;
-    err = elf_load(EM_ARM, elf_allocate, &si->process_paging_state, map_elf, id_child_frame.bytes, &child_entry);
+    err = elf_load(EM_ARM, elf_allocate, &si->process_paging_state, map_elf, module->mrmod_size /*id_child_frame.bytes*/, &child_entry);
     if (err_is_fail(err)) {
         debug_printf("Error: unable to load elf\n");
         return err;
     }
 
-    err = create_dispatcher(si, map_elf, id_child_frame.bytes, (const char *)binary_name);
+    err = create_dispatcher(si, map_elf, module->mrmod_size /*id_child_frame.bytes*/, (const char *)binary_name);
     if (err_is_fail(err)) {
         debug_printf("Error during dispatcher creation\n");
         return err;

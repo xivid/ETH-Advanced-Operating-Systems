@@ -30,8 +30,8 @@ void test_arm_map_unmap(void);
 int main(int argc, char *argv[])
 {
     debug_printf("hello started testing\n");
-    /* test_huge_malloc(); */
-    /* test_dynamic_slots(2000); */
+    test_huge_malloc();
+    test_dynamic_slots(2000);
     test_paging();
     test_arm_map_unmap();
     return 0;
@@ -72,7 +72,7 @@ void test_huge_malloc(void) {
 __attribute__((unused))
 void test_dynamic_slots(int count) {
     debug_printf("testing dynamic slots\n");
-    for (int i = 0 ; i < count ; ++i) {
+    for (int i = 1 ; i <= count ; ++i) {
         struct capref slot;
         errval_t err = frame_alloc(&slot, BASE_PAGE_SIZE, NULL);
         if (err_is_fail(err)) {

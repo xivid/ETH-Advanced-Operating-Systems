@@ -7,6 +7,8 @@
 #include <mm/mm.h>
 #include <aos/paging.h>
 
+#define SPLIT_ALIGNMENT         (1024*1024)
+
 /// MM allocator instance data
 struct mm aos_mm;
 
@@ -68,25 +70,61 @@ errval_t initialize_ram_alloc(void)
         .slot = 0,
     };
 
-    for (int i = 0; i < bi->regions_length; i++) {
-        if (bi->regions[i].mr_type == RegionType_Empty) {
-            err = mm_add(&aos_mm, mem_cap, bi->regions[i].mr_base, bi->regions[i].mr_bytes);
-            if (err_is_ok(err)) {
-                mem_avail += bi->regions[i].mr_bytes;
-            } else {
-                DEBUG_ERR(err, "Warning: adding RAM region %d (%p/%zu) FAILED", i, bi->regions[i].mr_base, bi->regions[i].mr_bytes);
-            }
+    coreid_t my_core_id = disp_get_core_id();
+    if (my_core_id == 0) {
+        for (int i = 0; i < bi->regions_length; i++) {
+            if (bi->regions[i].mr_type == RegionType_Empty) {
+                genpaddr_t middle_base = bi->regions[i].mr_base + (bi->regions[i].mr_bytes >> 1);
+                gensize_t bytes = (middle_base & (~(SPLIT_ALIGNMENT-1))) - bi->regions[i].mr_base;
+                err = mm_add(&aos_mm, mem_cap, bi->regions[i].mr_base, bytes);
+                if (err_is_ok(err)) {
+                    mem_avail += bytes;
+                } else {
+                    DEBUG_ERR(err, "Warning: adding RAM region %d (%p/%zu) FAILED", i, bi->regions[i].mr_base, bytes);
+                }
 
-            err = slot_prealloc_refill(aos_mm.slot_alloc_inst);
-            if (err_is_fail(err) && err_no(err) != MM_ERR_SLOT_MM_ALLOC) {
-                DEBUG_ERR(err, "in slot_prealloc_refill() while initialising"
-                        " memory allocator");
-                abort();
-            }
+                err = slot_prealloc_refill(aos_mm.slot_alloc_inst);
+                if (err_is_fail(err) && err_no(err) != MM_ERR_SLOT_MM_ALLOC) {
+                    DEBUG_ERR(err, "in slot_prealloc_refill() while initialising"
+                            " memory allocator");
+                    abort();
+                }
 
-            mem_cap.slot++;
+                mem_cap.slot++;
+            }
         }
+    } else if (my_core_id == 1) {
+        for (int i = 0; i < bi->regions_length; i++) {
+            if (bi->regions[i].mr_type == RegionType_Empty) {
+                genpaddr_t base = bi->regions[i].mr_base;
+                gensize_t middle_base = base + (bi->regions[i].mr_bytes >> 1);
+                gensize_t halfsize = (middle_base & (~(SPLIT_ALIGNMENT-1))) - base;
+
+                base += halfsize;
+                gensize_t bytes = bi->regions[i].mr_bytes - halfsize;
+
+                err = mm_add(&aos_mm, mem_cap, base, bytes);
+                if (err_is_ok(err)) {
+                    mem_avail += bytes;
+                } else {
+                    DEBUG_ERR(err, "Warning: adding RAM region %d (%p/%zu) FAILED", i, base, bytes);
+                }
+
+                err = slot_prealloc_refill(aos_mm.slot_alloc_inst);
+                if (err_is_fail(err) && err_no(err) != MM_ERR_SLOT_MM_ALLOC) {
+                    DEBUG_ERR(err, "in slot_prealloc_refill() while initialising"
+                            " memory allocator");
+                    abort();
+                }
+
+                mem_cap.slot++;
+            }
+        }
+    } else {
+        debug_printf("core id == %d > 1", my_core_id);
+        return SYS_ERR_CORE_NOT_FOUND;
     }
+
     debug_printf("Added %"PRIu64" MB of physical memory.\n", mem_avail / 1024 / 1024);
 
     // Finally, we can initialize the generic RAM allocator to use our local allocator
