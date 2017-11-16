@@ -627,16 +627,9 @@ errval_t boot_core(coreid_t core_id) {
     sys_armv7_cache_clean_poc(core_data, core_data + sizeof(core_data));
     sys_armv7_cache_invalidate(core_data, core_data + sizeof(core_data));
 
-    // Do we really want to clear the cache for physical addresses?
     sys_armv7_cache_clean_pou((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
     sys_armv7_cache_clean_poc((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
     sys_armv7_cache_invalidate((void *)(uintptr_t)segment_id.base, (void *)(uintptr_t)segment_id.base + segment_id.bytes);
-
-    err = sys_debug_flush_cache();
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "usr/init/main.c boot_core: could not flush cache");
-        return err;
-    }
 
     err = invoke_monitor_spawn_core(core_id, CPU_ARM7, core_data_id.base);
 
