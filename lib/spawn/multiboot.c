@@ -40,10 +40,6 @@ const char *multiboot_module_rawstring(struct mem_region *region)
             .slot = 0
         };
 
-//        char buf[256];
-//        debug_print_cap_at_capref(buf, 256, mmstrings_cap);
-//        debug_printf("mmstrings_cap: %s\n", buf);
-
         err = paging_map_frame_attr(get_current_paging_state(),
             (void **)&multiboot_strings, BASE_PAGE_SIZE, mmstrings_cap,
             VREGION_FLAGS_READ, NULL, NULL);
@@ -52,8 +48,6 @@ const char *multiboot_module_rawstring(struct mem_region *region)
             DEBUG_ERR(err, "vspace_map failed");
 	        return NULL;
         }
-
-//        debug_printf("multiboot_strings mapped at %p\n", multiboot_strings);
 
 #if 0
         printf("Mapped multiboot_strings at %p\n", multiboot_strings);
@@ -77,7 +71,7 @@ const char *multiboot_module_name(struct mem_region *region)
 {
     const char *str = multiboot_module_rawstring(region);
     if (str == NULL) {
-	return NULL;
+	    return NULL;
     }
 
     // copy module data to local buffer so we can mess with it
@@ -96,7 +90,6 @@ const char *multiboot_module_name(struct mem_region *region)
 
 struct mem_region *multiboot_find_module(struct bootinfo *bi, const char *name)
 {
-    debug_printf("multiboot_find_module looking up, bi = %p...\n", bi);
     for(size_t i = 0; i < bi->regions_length; i++) {
         struct mem_region *region = &bi->regions[i];
         const char *modname = multiboot_module_name(region);
@@ -106,7 +99,6 @@ struct mem_region *multiboot_find_module(struct bootinfo *bi, const char *name)
             return region;
         }
     }
-    debug_printf("multiboot_find_module not found!!!\n");
 
     return NULL;
 }

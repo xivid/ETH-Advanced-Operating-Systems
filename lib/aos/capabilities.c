@@ -768,7 +768,7 @@ errval_t frame_forge(struct capref dest, genpaddr_t base, gensize_t bytes,
             .bytes = bytes
         }
     };
-    debug_printf("In frame_forge: caddr %d, level %d, slot %d\n", get_cnode_addr(dest), get_cnode_level(dest), dest.slot);
+
     return invoke_monitor_create_cap((uint64_t *)&frame_cap,
                                      get_cnode_addr(dest),
                                      get_cnode_level(dest),
@@ -798,7 +798,6 @@ errval_t devframe_forge(struct capref dest, genpaddr_t base, gensize_t bytes,
                     .bytes = bytes
             }
     };
-    debug_printf("In devframe_forge: caddr %d, level %d, slot %d\n", get_cnode_addr(dest), get_cnode_level(dest), dest.slot);
 
     return invoke_monitor_create_cap((uint64_t *)&frame_cap,
                                      get_cnode_addr(dest),

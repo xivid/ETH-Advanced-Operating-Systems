@@ -108,6 +108,7 @@ static errval_t request_and_map_memory(void)
 
 }
 
+__attribute__((unused))
 static errval_t test_basic_rpc(void)
 {
     errval_t err;
@@ -129,7 +130,7 @@ static errval_t test_basic_rpc(void)
     }
 
     debug_printf("RPC: sending large string...\n");
-    err =  aos_rpc_send_string(&init_rpc, str);
+    err = aos_rpc_send_string(&init_rpc, str);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not send a string\n");
         return err;
@@ -140,6 +141,7 @@ static errval_t test_basic_rpc(void)
     return SYS_ERR_OK;
 }
 
+__attribute__((unused))
 static errval_t test_spawn_process(void)
 {
     errval_t err;
@@ -156,6 +158,23 @@ static errval_t test_spawn_process(void)
     return SYS_ERR_OK;
 }
 
+__attribute__((unused))
+static errval_t test_remote_spawn_process(void)
+{
+    errval_t err;
+    debug_printf("RPC: testing process spawn\n");
+    domainid_t new_pid;
+    err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 1, &new_pid);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "could not spawn a remote process using RPC\n");
+        return err;
+    }
+    debug_printf("new pid=%d\n", new_pid);
+
+    debug_printf("RPC: testing process spawn. SUCCESS\n");
+    return SYS_ERR_OK;
+}
+
 int main(int argc, char *argv[])
 {
     errval_t err;
@@ -163,6 +182,7 @@ int main(int argc, char *argv[])
     debug_printf("memeater started....\n");
 
     init_rpc = *get_init_rpc();
+    /*print_process_table(&init_rpc);
 
     err = test_basic_rpc();
     if (err_is_fail(err)) {
@@ -177,12 +197,17 @@ int main(int argc, char *argv[])
     err = test_spawn_process();
     if (err_is_fail(err)) {
         USER_PANIC_ERR(err, "could not spawn a process\n");
+    }*/
+
+    err = test_remote_spawn_process();
+    if (err_is_fail(err)) {
+        USER_PANIC_ERR(err, "could not spawn a remote process\n");
     }
 
     /* test printf functionality */
-    debug_printf("testing terminal printf function...\n");
+    /*debug_printf("testing terminal printf function...\n");
 
-    printf("Hello world using terminal service\n");
+    printf("Hello world using terminal service\n");*/
 
     debug_printf("memeater terminated....\n");
 

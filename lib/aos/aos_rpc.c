@@ -14,8 +14,6 @@
 
 #include <aos/aos_rpc.h>
 
-static void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id);
-static void print_process_table(struct aos_rpc *rpc);
 
 // TODO: we can put in args[0] the lmp_chan* instead of aos_rpc*
 
@@ -182,8 +180,8 @@ errval_t aos_rpc_rcv_handler_for_ram (void* v_args) {
 errval_t aos_rpc_rcv_handler_for_process(void *v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
-    coreid_t core = *(coreid_t *) args[1];
-    domainid_t *new_pid = (size_t*) args[2];
+    coreid_t core = (coreid_t) args[1];
+    domainid_t *new_pid = (domainid_t *) args[2];
     char *name = (char *) &args[3];
 
     struct capref cap;
@@ -348,7 +346,6 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
                                coreid_t core, domainid_t *newpid)
 {
-    // TODO: don't ignore core?
     // TODO: what if string is bigger than 28 chars?
     uintptr_t args[9];
     // order: 0-chan, 1-newpid, 2..8-the name
@@ -365,7 +362,6 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
         debug_printf("aos_rpc_process_spawn failed\n");
         return err;
     }
-
     return SYS_ERR_OK;
 }
 
@@ -415,6 +411,7 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
 {
     rpc->ws = ws;
+    rpc->head = NULL;
 
     errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_initep);
     if (err_is_fail(err)) {
@@ -464,33 +461,24 @@ struct aos_rpc *aos_rpc_get_serial_channel(void)
 }
 
 
-static void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id) {
+void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id) {
     struct domaininfo *new_domain = malloc(sizeof(struct domaininfo));
     new_domain->domain_name = name;
     new_domain->core_id = core;
     new_domain->pid = id;
-    new_domain->next = NULL;
-    if (rpc->head == NULL) {
-        rpc->head = new_domain;
-        return;
-    }
-
-    struct domaininfo *cur = rpc->head, *prev = NULL;
-    while (cur != NULL) {
-        prev = cur;
-        cur = cur->next;
-    }
-    prev->next = new_domain;
+    new_domain->next = rpc->head;
+    rpc->head = new_domain;
 }
 
-static void print_process_table(struct aos_rpc *rpc) {
+void print_process_table(struct aos_rpc *rpc) {
     struct domaininfo *cur = rpc->head;
     debug_printf("------------------------------------------\n");
     debug_printf("              process  table              \n");
     debug_printf("------------------------------------------\n");
-    debug_printf("%4s\n%5s\tname\n", "core", "pid");
+    debug_printf("%8s\t%5s\tname\n", "core", "pid");
+    debug_printf("------------------------------------------\n");
     while (cur) {
-        debug_printf("%4d\t%5d\t%s\n", (int)cur->core_id, cur->pid, cur->domain_name);
+        debug_printf("%8d\t%5d\t%s\n", (int)cur->core_id, cur->pid, cur->domain_name);
         cur = cur->next;
     }
     debug_printf("------------------------------------------\n");

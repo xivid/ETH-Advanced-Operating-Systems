@@ -152,4 +152,7 @@ struct aos_rpc *aos_rpc_get_process_channel(void);
  */
 struct aos_rpc *aos_rpc_get_serial_channel(void);
 
+void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id);
+
+void print_process_table(struct aos_rpc *rpc);
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H

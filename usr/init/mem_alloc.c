@@ -7,6 +7,8 @@
 #include <mm/mm.h>
 #include <aos/paging.h>
 
+#define SPLIT_ALIGNMENT         (1024*1024)
+
 /// MM allocator instance data
 struct mm aos_mm;
 
@@ -72,7 +74,8 @@ errval_t initialize_ram_alloc(void)
     if (my_core_id == 0) {
         for (int i = 0; i < bi->regions_length; i++) {
             if (bi->regions[i].mr_type == RegionType_Empty) {
-                gensize_t bytes = bi->regions[i].mr_bytes >> 1;
+                genpaddr_t middle_base = bi->regions[i].mr_base + (bi->regions[i].mr_bytes >> 1);
+                gensize_t bytes = (middle_base & (~(SPLIT_ALIGNMENT-1))) - bi->regions[i].mr_base;
                 err = mm_add(&aos_mm, mem_cap, bi->regions[i].mr_base, bytes);
                 if (err_is_ok(err)) {
                     mem_avail += bytes;
@@ -93,9 +96,13 @@ errval_t initialize_ram_alloc(void)
     } else if (my_core_id == 1) {
         for (int i = 0; i < bi->regions_length; i++) {
             if (bi->regions[i].mr_type == RegionType_Empty) {
-                gensize_t bytes0 = bi->regions[i].mr_bytes >> 1;
-                gensize_t bytes = bi->regions[i].mr_bytes - bytes0;
-                genpaddr_t base = bi->regions[i].mr_base + bytes0;
+                genpaddr_t base = bi->regions[i].mr_base;
+                gensize_t middle_base = base + (bi->regions[i].mr_bytes >> 1);
+                gensize_t halfsize = (middle_base & (~(SPLIT_ALIGNMENT-1))) - base;
+
+                base += halfsize;
+                gensize_t bytes = bi->regions[i].mr_bytes - halfsize;
+
                 err = mm_add(&aos_mm, mem_cap, base, bytes);
                 if (err_is_ok(err)) {
                     mem_avail += bytes;
