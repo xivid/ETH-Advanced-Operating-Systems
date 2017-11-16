@@ -162,7 +162,7 @@ __attribute__((unused))
 static errval_t test_remote_spawn_process(void)
 {
     errval_t err;
-    debug_printf("RPC: testing process spawn\n");
+    debug_printf("RPC: testing remote process spawn\n");
     domainid_t new_pid;
     err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 1, &new_pid);
     if (err_is_fail(err)) {
@@ -171,7 +171,7 @@ static errval_t test_remote_spawn_process(void)
     }
     debug_printf("new pid=%d\n", new_pid);
 
-    debug_printf("RPC: testing process spawn. SUCCESS\n");
+    debug_printf("RPC: testing remote process spawn. SUCCESS\n");
     return SYS_ERR_OK;
 }
 

@@ -649,19 +649,23 @@ errval_t boot_core(coreid_t core_id) {
 
 /* urpc implementations */
 void *urpc_shared_base;
-__attribute__((aligned(4))) enum URPC_CHANNEL_STATUS {
+/*__attribute__((aligned(4))) enum URPC_CHANNEL_STATUS {
     URPC_CHANNEL_READY_FOR_CORE0 = 0,
     URPC_CHANNEL_READY_FOR_CORE1
-};
+};*/
+#define URPC_CHANNEL_READY_FOR_CORE0 0
+#define URPC_CHANNEL_READY_FOR_CORE1 1
+#define URPC_CHANNEL_TRANSFERING_RESOURCES 2
 errval_t urpc_spawn_on_app_core(void *name, domainid_t *domain_id) {
     errval_t err;
-    enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
-    debug_printf("urpc_spawn_on_app_core: status = %d\n", *status);
+    // enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
+    uint32_t volatile *status = (uint32_t volatile *) urpc_shared_base;
+    debug_printf("urpc_core1_listen: status = %d\n", *status);
     while (*status != URPC_CHANNEL_READY_FOR_CORE0);
     dmb();
 
-    debug_printf("urpc_spawn_on_app_core: writing name to shared buf\n");
-    void *buf = urpc_shared_base + sizeof(enum URPC_CHANNEL_STATUS);
+    debug_printf("urpc_core1_listen: writing name to shared buf\n");
+    void *buf = urpc_shared_base + sizeof(uint32_t); //sizeof(enum URPC_CHANNEL_STATUS);
     strcpy(buf, name);
     dmb();
     *status = URPC_CHANNEL_READY_FOR_CORE1;
@@ -680,11 +684,13 @@ errval_t urpc_spawn_on_app_core(void *name, domainid_t *domain_id) {
 errval_t urpc_core1_listen(void) {
     errval_t err;
 
-    enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
+    // enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
+    uint32_t volatile *status = (uint32_t volatile *) urpc_shared_base;
+
     debug_printf("urpc_core1_listen: status = %d\n", *status);
     while (*status != URPC_CHANNEL_READY_FOR_CORE1);
     dmb();
-    void *buf = urpc_shared_base + sizeof(enum URPC_CHANNEL_STATUS);
+    void *buf = urpc_shared_base + sizeof(uint32_t); //sizeof(enum URPC_CHANNEL_STATUS);
     debug_printf("urpc_core1_listen: read name [%s] from shared buf and spawning process\n", (char *) buf);
 
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
@@ -840,6 +846,10 @@ int main(int argc, char *argv[])
         }
         void *shared_buf_urpc = urpc_shared_base;
 
+        // set the status
+        *(uint32_t *) shared_buf_urpc = URPC_CHANNEL_TRANSFERING_RESOURCES;
+        shared_buf_urpc += sizeof(uint32_t);
+
         // write bootinfo to shared mem
         struct frame_identity id;
         frame_identify(cap_bootinfo, &id);
@@ -858,10 +868,15 @@ int main(int argc, char *argv[])
         shared_buf_urpc += sizeof(genpaddr_t);
         *((gensize_t*) shared_buf_urpc) = id.bytes;
         shared_buf_urpc += sizeof(gensize_t);
+
+        debug_printf("written shared information\n");
     } else {
         urpc_shared_base = (void *)MON_URPC_VBASE;
 
         void *shared_buf_urpc = urpc_shared_base;
+        assert(*(uint32_t *) shared_buf_urpc == URPC_CHANNEL_TRANSFERING_RESOURCES);
+        shared_buf_urpc += sizeof(uint32_t);
+
         // read in app core
         genpaddr_t bootinfo_base = *(genpaddr_t *)shared_buf_urpc;
         shared_buf_urpc += sizeof(genpaddr_t);
@@ -870,11 +885,6 @@ int main(int argc, char *argv[])
         genpaddr_t mmstrings_base = *(genpaddr_t *)shared_buf_urpc;
         shared_buf_urpc += sizeof(genpaddr_t);
         gensize_t mmstrings_bytes = *(gensize_t *)shared_buf_urpc;
-
-        // clear the frame as a communication channel
-        debug_printf("updating status to %d\n", URPC_CHANNEL_READY_FOR_CORE0);
-        *(enum URPC_CHANNEL_STATUS *)shared_buf_urpc = URPC_CHANNEL_READY_FOR_CORE0;
-        dmb();
 
         // forge the bootinfo cap
         err = devframe_forge(cap_bootinfo, bootinfo_base, bootinfo_bytes, my_core_id);
@@ -946,6 +956,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    debug_printf("init rpc\n");
     err = init_rpc();
     if(err_is_fail(err)){
         DEBUG_ERR(err, "init_rpc");
@@ -980,6 +991,12 @@ int main(int argc, char *argv[])
     debug_printf("Message handler loop\n");
 
     if (my_core_id == 1) {
+        // clear the frame as a communication channel
+        debug_printf("updating status to %d\n", URPC_CHANNEL_READY_FOR_CORE0);
+        // *(enum URPC_CHANNEL_STATUS *)shared_buf_urpc = URPC_CHANNEL_READY_FOR_CORE0;
+        *(uint32_t volatile *)urpc_shared_base = URPC_CHANNEL_READY_FOR_CORE0;
+        dmb();
+
         err = urpc_core1_listen();
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "in urpc_core1_listen");
