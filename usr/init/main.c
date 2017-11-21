@@ -43,6 +43,9 @@
 #define MON_URPC_VBASE          (INIT_DISPATCHER_VBASE + DISPATCHER_SIZE)
 
 #define SPLIT_ALIGNMENT         (1024*1024)
+#define N_LINES                 (MON_URPC_SIZE / 2 / 64)
+#define LINE_WORDS              (16)
+#define URPC_PAYLOAD_LEN        (10)
 
 /* rpc declarations */
 struct client {
@@ -68,8 +71,9 @@ errval_t send_process(void* args);
 
 /* multi-core declarations */
 errval_t boot_core(coreid_t core_id);
-errval_t urpc_spawn_on_app_core(void *name, domainid_t *domain_id);
-errval_t urpc_core1_listen(void);
+void urpc_spawn_on_app_core(void *name, domainid_t *domain_id);
+void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
+void urpc_read_until_ack(uint32_t *ack_response, coreid_t core);
 static inline void dmb(void) { __asm volatile ("dmb"); }
 
 /* testing declarations */
@@ -160,32 +164,32 @@ errval_t recv_handler(void* arg)
     void* answer;
     void* answer_args;
     switch (msg.words[0]) {
-        case AOS_RPC_ID_NUM:
-            answer_args = answer_number(cap, &msg);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_INIT:
-            answer_args = answer_init(cap);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_RAM:
-            answer_args = answer_ram(cap, &msg);
-            answer = (void*) send_ram;
-            break;
-        case AOS_RPC_ID_CHAR:
-            answer_args = answer_char(cap, &msg);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_STR:
-            answer_args = answer_str(cap, &msg);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_PROCESS:
-            answer_args = answer_process(cap, &msg);
-            answer = (void*) send_process;
-            break;
-        default:
-            return LIB_ERR_NOT_IMPLEMENTED;
+    case AOS_RPC_ID_NUM:
+        answer_args = answer_number(cap, &msg);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_INIT:
+        answer_args = answer_init(cap);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_RAM:
+        answer_args = answer_ram(cap, &msg);
+        answer = (void*) send_ram;
+        break;
+    case AOS_RPC_ID_CHAR:
+        answer_args = answer_char(cap, &msg);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_STR:
+        answer_args = answer_str(cap, &msg);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_PROCESS:
+        answer_args = answer_process(cap, &msg);
+        answer = (void*) send_process;
+        break;
+    default:
+        return LIB_ERR_NOT_IMPLEMENTED;
     }
     struct lmp_chan* ret_chan = (struct lmp_chan*) answer_args;
     err = lmp_chan_register_send(ret_chan, get_default_waitset(), MKCLOSURE(answer, answer_args));
@@ -276,14 +280,25 @@ void* answer_str(struct capref cap, struct lmp_recv_msg* msg)
 
 void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
 {
-    errval_t err, spawn_err;
+    errval_t err, spawn_err = SYS_ERR_OK;
     domainid_t domainid;
 
     debug_printf("got coreid: %d, process name: %s\n", (int)msg->words[1], (char *)&msg->words[3]);
     coreid_t target_core_id = *(coreid_t *) &msg->words[1];
 
-    if (disp_get_core_id() == 0 && target_core_id == 1) {
-        spawn_err = urpc_spawn_on_app_core(&msg->words[3], &domainid);
+    if (disp_get_core_id() != target_core_id) {
+        uint32_t message[URPC_PAYLOAD_LEN];
+        message[1] = AOS_RPC_ID_PROCESS;
+        strncpy((char *)(message + 2), (const char*)&msg->words[3], (URPC_PAYLOAD_LEN - 2)* 4 - 1);
+        ((char *)(message + 2))[(URPC_PAYLOAD_LEN - 2)* 4] = 0;
+        urpc_write(message, target_core_id);
+
+        urpc_read_until_ack(message, disp_get_core_id());
+        if (err_is_fail((errval_t)message[1])) {
+            debug_printf("Remote spawning failed\n");
+            return NULL;
+        }
+        domainid = message[0];
     }
     else {
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
@@ -567,7 +582,6 @@ errval_t boot_core(coreid_t core_id) {
     }
     core_data->urpc_frame_base = urpc_frame_id.base;
     core_data->urpc_frame_size = urpc_frame_id.bytes;
-    // core_data->chan_id = 1; // TODO: what should it be?
 
     /* load and relocate cpu driver */
     struct mem_region* cpu_module = multiboot_find_module(bi, "cpu_omap44xx");
@@ -642,61 +656,62 @@ errval_t boot_core(coreid_t core_id) {
 
 /* urpc implementations */
 void *urpc_shared_base;
-/*__attribute__((aligned(4))) enum URPC_CHANNEL_STATUS {
-    URPC_CHANNEL_READY_FOR_CORE0 = 0,
-    URPC_CHANNEL_READY_FOR_CORE1
-};*/
-#define URPC_CHANNEL_READY_FOR_CORE0 0
-#define URPC_CHANNEL_READY_FOR_CORE1 1
-#define URPC_CHANNEL_TRANSFERING_RESOURCES 2
-errval_t urpc_spawn_on_app_core(void *name, domainid_t *domain_id) {
-    errval_t err;
-    // enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
-    uint32_t volatile *status = (uint32_t volatile *) urpc_shared_base;
-    debug_printf("urpc_core1_listen: status = %d\n", *status);
-    while (*status != URPC_CHANNEL_READY_FOR_CORE0);
+uint32_t current_write_offset = 0;
+uint32_t current_read_offset = 0;
+
+void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core)
+{
+    uint32_t *tx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_write_offset*LINE_WORDS;
+    while (*(tx + LINE_WORDS -1));
+
+    for (int i = 0; i < URPC_PAYLOAD_LEN; i++) {
+        tx[i] = message[i];
+    }
+    tx[LINE_WORDS - 1] = 1;
+
     dmb();
 
-    debug_printf("urpc_core1_listen: writing name to shared buf\n");
-    void *buf = urpc_shared_base + sizeof(uint32_t); //sizeof(enum URPC_CHANNEL_STATUS);
-    strcpy(buf, name);
-    dmb();
-    *status = URPC_CHANNEL_READY_FOR_CORE1;
-
-    debug_printf("urpc_spawn_on_app_core: status = %d\n", *status);
-    while (*status != URPC_CHANNEL_READY_FOR_CORE0);
-    debug_printf("urpc_spawn_on_app_core: reading domain_id and err from shared buf\n");
-    dmb();
-    *domain_id = *(domainid_t *) buf;
-    buf += sizeof(domainid_t);
-    err = *(errval_t *) buf;
-
-    return err;
+    current_write_offset++;
+    current_write_offset %= N_LINES;
 }
 
-errval_t urpc_core1_listen(void) {
-    errval_t err;
+void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
+{
+    while (true) {
+        uint32_t *rx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
+        while (!*(rx + LINE_WORDS - 1));
 
-    // enum URPC_CHANNEL_STATUS *status = urpc_shared_base;
-    uint32_t volatile *status = (uint32_t volatile *) urpc_shared_base;
+        if (rx[0] == 1) {
+            if (rx[1] == 1) {
+                for (int i = 0; i < URPC_PAYLOAD_LEN - 1; i++) {
+                    ack_response[i] = rx[i+2];
+                }
+                return;
+            }
 
-    debug_printf("urpc_core1_listen: status = %d\n", *status);
-    while (*status != URPC_CHANNEL_READY_FOR_CORE1);
-    dmb();
-    void *buf = urpc_shared_base + sizeof(uint32_t); //sizeof(enum URPC_CHANNEL_STATUS);
-    debug_printf("urpc_core1_listen: read name [%s] from shared buf and spawning process\n", (char *) buf);
+            struct spawninfo *si;
+            switch (rx[1]) {
+            case AOS_RPC_ID_PROCESS:
+                si = malloc(sizeof(struct spawninfo));
+                errval_t err = spawn_load_by_name(rx + 2, si);
 
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name(buf, si);
+                uint32_t process_ack[URPC_PAYLOAD_LEN];
+                process_ack[0] = 1;
+                process_ack[1] = si->domain_id;
+                process_ack[2] = err;
+                urpc_write(process_ack, core ? 0 : 1);
+                break;
+            default:
+                debug_printf("Message type not supported by init\n");
+                return;
+            }
+        } else {
+            debug_printf("Forwarding not implemented!\n");
+        }
 
-    debug_printf("urpc_core1_listen: writing domain_id and err to shared buf\n");
-    *(domainid_t *) buf = si->domain_id;
-    buf += sizeof(domainid_t);
-    *(errval_t*) buf = err;
-    dmb();
-    *status = URPC_CHANNEL_READY_FOR_CORE0;
-
-    return SYS_ERR_OK;
+        current_read_offset++;
+        current_read_offset %= N_LINES;
+    }
 }
 
 /* tests implementations */
@@ -840,7 +855,7 @@ int main(int argc, char *argv[])
         void *shared_buf_urpc = urpc_shared_base;
 
         // set the status
-        *(uint32_t *) shared_buf_urpc = URPC_CHANNEL_TRANSFERING_RESOURCES;
+        *(uint32_t *) shared_buf_urpc = 0;// TODO: set the right word to 0
         shared_buf_urpc += sizeof(uint32_t);
 
         // write bootinfo to shared mem
@@ -867,7 +882,7 @@ int main(int argc, char *argv[])
         urpc_shared_base = (void *)MON_URPC_VBASE;
 
         void *shared_buf_urpc = urpc_shared_base;
-        assert(*(uint32_t *) shared_buf_urpc == URPC_CHANNEL_TRANSFERING_RESOURCES);
+        assert(*(uint32_t *) shared_buf_urpc == 0);
         shared_buf_urpc += sizeof(uint32_t);
 
         // read in app core
@@ -984,17 +999,7 @@ int main(int argc, char *argv[])
     debug_printf("Message handler loop\n");
 
     if (my_core_id == 1) {
-        // clear the frame as a communication channel
-        debug_printf("updating status to %d\n", URPC_CHANNEL_READY_FOR_CORE0);
-        // *(enum URPC_CHANNEL_STATUS *)shared_buf_urpc = URPC_CHANNEL_READY_FOR_CORE0;
-        *(uint32_t volatile *)urpc_shared_base = URPC_CHANNEL_READY_FOR_CORE0;
-        dmb();
-
-        err = urpc_core1_listen();
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "in urpc_core1_listen");
-            abort();
-        }
+        urpc_read_until_ack(NULL, my_core_id);
     }
 
     // Hang around
