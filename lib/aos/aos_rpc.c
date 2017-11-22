@@ -124,7 +124,7 @@ errval_t aos_rpc_rcv_handler_general (void* v_args) {
         return err;
     }
     // check that message was received
-    if (lmp_msg.buf.msglen != 1 || !lmp_msg.words[0]) {
+    if (lmp_msg.buf.msglen != 1 || lmp_msg.words[0] != AOS_RPC_ID_ACK) {
         debug_printf("aos_rpc_rcv_handler_general: received message not es expected");
         return FLOUNDER_ERR_RPC_MISMATCH;
     }
@@ -240,6 +240,8 @@ errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintpt
     return SYS_ERR_OK;
 }
 
+
+/* RPC calls visible to users */
 errval_t aos_rpc_send_number(struct aos_rpc *chan, uintptr_t val)
 {
     // implement functionality to send a number over the channel
