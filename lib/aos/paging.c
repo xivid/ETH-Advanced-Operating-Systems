@@ -25,7 +25,7 @@
 #define VIRTUAL_SPACE_SIZE 0xffffffff
 #define SLAB_REGION_SIZE BASE_PAGE_SIZE
 
-static errval_t paging_set_handler(void);
+static errval_t paging_set_handler(struct thread *t);
 
 static errval_t paging_slab_refill(struct slab_allocator *slabs);
 
@@ -156,7 +156,7 @@ errval_t paging_init(void)
         .slot = 0,
     };
     set_current_paging_state(&current);
-    errval_t err = paging_set_handler();
+    errval_t err = paging_set_handler(NULL);
     if (err_is_fail(err)) {
         debug_printf("setting the paging fault handler failed\n");
         return err;
@@ -171,7 +171,7 @@ errval_t paging_init(void)
  */
 void paging_init_onthread(struct thread *t)
 {
-    // TODO (M4): setup exception handler for thread `t'.
+    paging_set_handler(t);
 }
 
 /**
@@ -529,14 +529,20 @@ void free_list_defragment(struct paging_state *st) {
     }
 }
 
-errval_t paging_set_handler(void)
+errval_t paging_set_handler(struct thread *t)
 {
     // Set up page fault handler. The exception stack is a static buffer.
+    errval_t err;
     static char exception_stack[EXCEPTION_STACK_SIZE];
     lvaddr_t base = ROUND_UP((lvaddr_t) exception_stack, 4);
     lvaddr_t top = ROUND_DOWN(base + EXCEPTION_STACK_SIZE - 1, 4);
-    errval_t err = thread_set_exception_handler(exception_handler, NULL,
-            (void *) base, (void *) top, NULL, NULL);
+    if (t == NULL) {
+        err = thread_set_exception_handler(exception_handler, NULL,
+                (void *) base, (void *) top, NULL, NULL);
+    } else {
+        err = thread_set_exception_handler_for_thread(t, exception_handler,
+                NULL, (void *) base, (void *) top, NULL, NULL);
+    }
     if (err_is_fail(err)) {
         debug_printf("failed setting a page fault handler");
         return err;

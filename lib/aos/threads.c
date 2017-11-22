@@ -1369,6 +1369,48 @@ void *thread_get_tls_key(int key)
 }
 
 /**
+ * \brief Set the exception handler function for the given thread.
+ *        Optionally also change its stack, and return the old values.
+ *
+ * \param t The thread.
+ * \param newhandler New exception handler. Pass NULL to disable an existing handler.
+ * \param oldhandler If non-NULL, returns previous exception handler
+ * \param new_stack_base If non-NULL, sets a new exception handler stack (base)
+ * \param new_stack_top  If non-NULL, sets a new exception handler stack (top)
+ * \param old_stack_base If non-NULL, returns previous stack base
+ * \param old_stack_top If non-NULL, returns previous stack top
+ */
+errval_t thread_set_exception_handler_for_thread(struct thread *t,
+                                      exception_handler_fn newhandler,
+                                      exception_handler_fn *oldhandler,
+                                      void *new_stack_base,
+                                      void *new_stack_top,
+                                      void **old_stack_base,
+                                      void **old_stack_top)
+{
+    if (oldhandler != NULL) {
+        *oldhandler = t->exception_handler;
+    }
+
+    if (old_stack_base != NULL) {
+        *old_stack_base = t->exception_stack;
+    }
+
+    if (old_stack_top != NULL) {
+        *old_stack_top = t->exception_stack_top;
+    }
+
+    t->exception_handler = newhandler;
+
+    if (new_stack_base != NULL && new_stack_top != NULL) {
+        t->exception_stack = new_stack_base;
+        t->exception_stack_top = new_stack_top;
+    }
+
+    return SYS_ERR_OK;
+}
+
+/**
  * \brief Set the exception handler function for the current thread.
  *        Optionally also change its stack, and return the old values.
  *
@@ -1385,28 +1427,10 @@ errval_t thread_set_exception_handler(exception_handler_fn newhandler,
                                       void **old_stack_base, void **old_stack_top)
 {
     struct thread *me = thread_self();
-
-    if (oldhandler != NULL) {
-        *oldhandler = me->exception_handler;
-    }
-
-    if (old_stack_base != NULL) {
-        *old_stack_base = me->exception_stack;
-    }
-
-    if (old_stack_top != NULL) {
-        *old_stack_top = me->exception_stack_top;
-    }
-
-    me->exception_handler = newhandler;
-
-    if (new_stack_base != NULL && new_stack_top != NULL) {
-        me->exception_stack = new_stack_base;
-        me->exception_stack_top = new_stack_top;
-    }
-
-    return SYS_ERR_OK;
+    return thread_set_exception_handler_for_thread(me, newhandler, oldhandler,
+            new_stack_base, new_stack_top, old_stack_base, old_stack_top);
 }
+
 
 static void exception_handler_wrapper(arch_registers_state_t *cpuframe,
                                       arch_registers_fpu_state_t *fpuframe,

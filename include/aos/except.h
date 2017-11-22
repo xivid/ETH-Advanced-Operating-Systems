@@ -58,6 +58,11 @@ errval_t thread_set_exception_handler(exception_handler_fn newhandler,
                                       void *new_stack_base, void *new_stack_top,
                                       void **old_stack_base, void **old_stack_top);
 
+errval_t thread_set_exception_handler_for_thread(struct thread *t,
+                                      exception_handler_fn newhandler,
+                                      exception_handler_fn *oldhandler,
+                                      void *new_stack_base, void *new_stack_top,
+                                      void **old_stack_base, void **old_stack_top);
 __END_DECLS
 
 #endif
