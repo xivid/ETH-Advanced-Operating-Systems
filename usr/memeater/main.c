@@ -206,10 +206,8 @@ int main(int argc, char *argv[])
 
     /* test printf functionality */
     /*debug_printf("testing terminal printf function...\n");
-
-    printf("Hello world using terminal service\n");*/
-
-    debug_printf("memeater terminated....\n");
+    printf("Hello world using terminal service\n");
+    debug_printf("memeater terminated....\n");*/
 
     return EXIT_SUCCESS;
 }

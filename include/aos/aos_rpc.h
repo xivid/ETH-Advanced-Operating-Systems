@@ -22,12 +22,14 @@
 // IDs for different transmission types
 // 1 << 0 is reserved for acknowleding that the message arrived successfully
 enum enum_rpc_msgtype {
-    AOS_RPC_ID_INIT = 2,
+    AOS_RPC_ID_ACK = 1,
+    AOS_RPC_ID_INIT,
     AOS_RPC_ID_RAM,
     AOS_RPC_ID_NUM,
     AOS_RPC_ID_CHAR,
     AOS_RPC_ID_STR,
     AOS_RPC_ID_PROCESS,
+    AOS_RPC_ID_LIST_PROCESS,
 };
 
 struct domaininfo {
