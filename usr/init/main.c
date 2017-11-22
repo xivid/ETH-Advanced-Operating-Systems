@@ -288,12 +288,17 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
 
     if (disp_get_core_id() != target_core_id) {
         uint32_t message[URPC_PAYLOAD_LEN];
+        message[0] = 1;
         message[1] = AOS_RPC_ID_PROCESS;
         strncpy((char *)(message + 2), (const char*)&msg->words[3], (URPC_PAYLOAD_LEN - 2)* 4 - 1);
         ((char *)(message + 2))[(URPC_PAYLOAD_LEN - 2)* 4] = 0;
+
+        debug_printf("AOS_RPC_ID_PROCESS %d, msg[1] = %x\n", AOS_RPC_ID_PROCESS, message[1]);
+
         urpc_write(message, target_core_id);
 
         urpc_read_until_ack(message, disp_get_core_id());
+        debug_printf("urpc_read_until_ack returned\n");
         if (err_is_fail((errval_t)message[1])) {
             debug_printf("Remote spawning failed\n");
             return NULL;
@@ -661,12 +666,11 @@ uint32_t current_read_offset = 0;
 
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core)
 {
-    uint32_t *tx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_write_offset*LINE_WORDS;
+    volatile uint32_t *tx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_write_offset*LINE_WORDS;
     while (*(tx + LINE_WORDS -1));
 
-    tx[0] = 1; // always init
     for (int i = 0; i < URPC_PAYLOAD_LEN; i++) {
-        tx[i + 1] = message[i];
+        tx[i] = message[i];
     }
 
     dmb();
@@ -680,11 +684,12 @@ void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core)
 void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
 {
     while (true) {
-        uint32_t *rx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
+        volatile uint32_t *rx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
         while (!*(rx + LINE_WORDS - 1));
 
         dmb();
 
+        debug_printf("rx[0] = %x, rx[1] = %x, rx[2] = %x, rx[3] = %x\n", rx[0], rx[1], rx[2], rx[3]);
         if (rx[0] == 1) {
             if (rx[1] == 1) {
                 for (int i = 0; i < URPC_PAYLOAD_LEN - 1; i++) {
@@ -694,15 +699,18 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
             }
 
             struct spawninfo *si;
+            void *name = (uint32_t *) rx + 2;
+            debug_printf("rx[1] = %x\n", rx[1]);
             switch (rx[1]) {
             case AOS_RPC_ID_PROCESS:
                 si = malloc(sizeof(struct spawninfo));
-                errval_t err = spawn_load_by_name(rx + 2, si);
-
+                errval_t err = spawn_load_by_name(name, si);
+                debug_printf("spawn returned\n");
                 uint32_t process_ack[URPC_PAYLOAD_LEN];
                 process_ack[0] = 1;
-                process_ack[1] = si->domain_id;
-                process_ack[2] = err;
+                process_ack[1] = 1;
+                process_ack[2] = si->domain_id;
+                process_ack[3] = err;
                 urpc_write(process_ack, core ? 0 : 1);
                 break;
             default:
