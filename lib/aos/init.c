@@ -43,7 +43,7 @@ void libc_exit(int status)
     if(disp_get_domain_id() == 0) {
         errval_t err = cap_revoke(cap_dispatcher);
         if (err_is_fail(err)) {
-            sys_print("revoking dispatcher failed in _Exit, spinning!", 100);
+            sys_print("revoking dispatcher failed in _Exit, spinning!\n", 100);
             while (1) {}
         }
         err = cap_delete(cap_dispatcher);

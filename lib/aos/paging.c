@@ -25,7 +25,7 @@
 #define VIRTUAL_SPACE_SIZE 0xffffffff
 #define SLAB_REGION_SIZE BASE_PAGE_SIZE
 
-static errval_t paging_set_handler(struct thread *t);
+static errval_t paging_set_handler(void);
 
 static errval_t paging_slab_refill(struct slab_allocator *slabs);
 
@@ -156,7 +156,7 @@ errval_t paging_init(void)
         .slot = 0,
     };
     set_current_paging_state(&current);
-    errval_t err = paging_set_handler(NULL);
+    errval_t err = paging_set_handler();
     if (err_is_fail(err)) {
         debug_printf("setting the paging fault handler failed\n");
         return err;
@@ -171,7 +171,30 @@ errval_t paging_init(void)
  */
 void paging_init_onthread(struct thread *t)
 {
-    paging_set_handler(t);
+    errval_t err;
+    struct capref frame;
+    lvaddr_t stack_base, stack_top;
+    size_t real_bytes = EXCEPTION_STACK_SIZE;
+
+    err = frame_alloc(&frame, real_bytes, &real_bytes);
+    if (err_is_fail(err)) {
+        debug_printf("failed allocating a frame for the exception stack\n");
+        // Looks ugly, but i did not figure out a better way to do it.
+        assert(1 == 2);
+    }
+
+    err = paging_map_frame_readwrite((void *) &stack_base, real_bytes, frame);
+    if (err_is_fail(err)) {
+        debug_printf("failed mapping the exception stack\n");
+        assert(1 == 2);
+    }
+
+    stack_base = ROUND_UP(stack_base, 4);
+    stack_top = ROUND_DOWN(stack_base + EXCEPTION_STACK_SIZE - 1, 4);
+    thread_set_exception_handler_for_thread(t, exception_handler,
+            NULL, (void *) stack_base, (void *) stack_top, NULL, NULL);
+    debug_printf("set an exception stack: base=%p top=%p\n",
+            (void *) stack_base, (void *) stack_top);
 }
 
 /**
@@ -529,20 +552,15 @@ void free_list_defragment(struct paging_state *st) {
     }
 }
 
-errval_t paging_set_handler(struct thread *t)
+errval_t paging_set_handler(void)
 {
     // Set up page fault handler. The exception stack is a static buffer.
     errval_t err;
     static char exception_stack[EXCEPTION_STACK_SIZE];
     lvaddr_t base = ROUND_UP((lvaddr_t) exception_stack, 4);
     lvaddr_t top = ROUND_DOWN(base + EXCEPTION_STACK_SIZE - 1, 4);
-    if (t == NULL) {
-        err = thread_set_exception_handler(exception_handler, NULL,
-                (void *) base, (void *) top, NULL, NULL);
-    } else {
-        err = thread_set_exception_handler_for_thread(t, exception_handler,
-                NULL, (void *) base, (void *) top, NULL, NULL);
-    }
+    err = thread_set_exception_handler(exception_handler, NULL,
+            (void *) base, (void *) top, NULL, NULL);
     if (err_is_fail(err)) {
         debug_printf("failed setting a page fault handler");
         return err;
