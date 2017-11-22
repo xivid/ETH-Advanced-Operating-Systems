@@ -20,7 +20,6 @@
 #define AOS_RPC_ATTEMPTS            4 // how many attempts do we want for sending/receiving before throwing an error
 
 // IDs for different transmission types
-// 1 << 0 is reserved for acknowleding that the message arrived successfully
 enum enum_rpc_msgtype {
     AOS_RPC_ID_ACK = 1,
     AOS_RPC_ID_INIT,
@@ -29,7 +28,8 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_CHAR,
     AOS_RPC_ID_STR,
     AOS_RPC_ID_PROCESS,
-    AOS_RPC_ID_LIST_PROCESS,
+    AOS_RPC_ID_GET_PIDS,
+    AOS_RPC_ID_GET_PNAME,
 };
 
 struct domaininfo {
@@ -48,18 +48,6 @@ struct aos_rpc {
     domainid_t current_pid;
     // TODO: add state for your implementation
 };
-errval_t aos_rpc_send_handler_for_init (void* v_args);
-errval_t aos_rpc_send_handler_for_num (void* v_args);
-errval_t aos_rpc_send_handler_for_char (void* v_args);
-errval_t aos_rpc_send_handler_for_string (void* v_args);
-errval_t aos_rpc_send_handler_for_ram (void* v_args);
-errval_t aos_rpc_send_handler_for_process(void* v_args);
-
-errval_t aos_rpc_rcv_handler_general (void* v_args);
-errval_t aos_rpc_rcv_handler_for_ram (void* v_args);
-errval_t aos_rpc_rcv_handler_for_process(void *v_args);
-
-errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintptr_t* args);
 
 /**
  * \brief send a number over the given channel
@@ -153,8 +141,4 @@ struct aos_rpc *aos_rpc_get_process_channel(void);
  * \brief Returns the channel to the serial console
  */
 struct aos_rpc *aos_rpc_get_serial_channel(void);
-
-void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id);
-
-void print_process_table(struct aos_rpc *rpc);
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H
