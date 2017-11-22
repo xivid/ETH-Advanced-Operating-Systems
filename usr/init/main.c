@@ -37,7 +37,6 @@
 coreid_t my_core_id;
 struct bootinfo *bi;
 
-
 /* main */
 int main(int argc, char *argv[])
 {

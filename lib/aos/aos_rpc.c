@@ -350,7 +350,7 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
 {
     // TODO: what if string is bigger than 28 chars?
     uintptr_t args[9];
-    // order: 0-chan, 1-newpid, 2..8-the name
+    // order: 0-chan, 1-core, 2-ptr to newpid, 3..8-the name
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) core;
     args[2] = (uintptr_t) newpid;

@@ -38,6 +38,20 @@ struct client {
     struct lmp_chan lmp;
 } *client_list = NULL;
 
+struct domaininfo {
+    char *domain_name;
+    coreid_t core_id;
+    domainid_t pid;
+    struct domaininfo *next;
+};
+
+struct process_manager {
+    struct domaininfo *head;
+    domainid_t count;
+};
+
+struct process_manager pm;
+
 errval_t init_rpc(void);
 errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
@@ -45,11 +59,15 @@ void* answer_number(struct capref cap, struct lmp_recv_msg *msg);
 void* answer_char(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_str(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_process(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_pids(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_pname(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref cap);
 void* answer_ram(struct capref cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
 errval_t send_process(void* args);
+errval_t send_pids(void* args);
+errval_t send_pname(void* args);
 
 /* urpc declarations */
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
@@ -103,11 +121,11 @@ errval_t recv_handler(void* arg)
 {
     struct lmp_chan* lmp = (struct lmp_chan*) arg;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    struct capref cap;
-    errval_t err = lmp_chan_recv(lmp, &msg, &cap);
+    struct capref cap_endpoint;
+    errval_t err = lmp_chan_recv(lmp, &msg, &cap_endpoint);
     if (err_is_fail(err)) {
         if (lmp_err_is_transient(err)) {
-            err = lmp_chan_recv(lmp, &msg, &cap);
+            err = lmp_chan_recv(lmp, &msg, &cap_endpoint);
         }
         if (err_is_fail(err)) {  // non-transient error, or transient but still fail after retry
             DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan recv, non transient error");
@@ -134,30 +152,39 @@ errval_t recv_handler(void* arg)
     void* answer_args;
     switch (msg.words[0]) {
         case AOS_RPC_ID_NUM:
-            answer_args = answer_number(cap, &msg);
+            answer_args = answer_number(cap_endpoint, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_INIT:
-            answer_args = answer_init(cap);
+            answer_args = answer_init(cap_endpoint);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_RAM:
-            answer_args = answer_ram(cap, &msg);
+            answer_args = answer_ram(cap_endpoint, &msg);
             answer = (void*) send_ram;
             break;
         case AOS_RPC_ID_CHAR:
-            answer_args = answer_char(cap, &msg);
+            answer_args = answer_char(cap_endpoint, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_STR:
-            answer_args = answer_str(cap, &msg);
+            answer_args = answer_str(cap_endpoint, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_PROCESS:
-            answer_args = answer_process(cap, &msg);
+            answer_args = answer_process(cap_endpoint, &msg);
             answer = (void*) send_process;
             break;
+        case AOS_RPC_ID_GET_PIDS:
+            answer_args = answer_pids(cap_endpoint, &msg);
+            answer = (void*) send_pids;
+            break;
+        case AOS_RPC_ID_GET_PNAME:
+            answer_args = answer_pname(cap_endpoint, &msg);
+            answer = (void*) send_pname;
+            break;
         default:
+            debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
     }
     struct lmp_chan* ret_chan = (struct lmp_chan*) answer_args;
@@ -273,8 +300,7 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
             return NULL;
         }
         domainid = message[0];
-    }
-    else {
+    } else {
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
         spawn_err = spawn_load_by_name(&msg->words[3], si);
         if (err_is_fail(spawn_err)) {
@@ -313,6 +339,27 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
     *((domainid_t*) args) = domainid;
 
     return (void*) args_ptr;
+}
+
+void* answer_pids(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
+    // TODO: get pids from process_manager
+
+    size_t size_of_args = ROUND_UP(sizeof(struct lmp_chan),4) +
+                          sizeof(domainid_t) /* this is the length of pids[] */ +
+                          sizeof(domainid_t) * pm.count;
+
+    void* args_ptr = malloc(size_of_args);
+    void* args = args_ptr;
+
+    return args_ptr;
+}
+
+void* answer_pname(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
+    // TODO
+
+    void* args_ptr = NULL;
+
+    return args_ptr;
 }
 
 // sets up the client struct for new processes
@@ -388,6 +435,8 @@ void* answer_ram(struct capref cap, struct lmp_recv_msg* msg) {
     return (void*) args_ptr;
 }
 
+/* All send handlers */
+
 // handler to send a signal that the message was received
 errval_t send_received(void* arg) {
     struct lmp_chan* lmp = (struct lmp_chan*) arg;
@@ -439,6 +488,18 @@ errval_t send_process(void *args) {
         DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
         return err_send;
     }
+
+    return SYS_ERR_OK;
+}
+
+errval_t send_pids(void *args) {
+    // TODO
+
+    return SYS_ERR_OK;
+}
+
+errval_t send_pname(void *args) {
+    // TODO
 
     return SYS_ERR_OK;
 }
