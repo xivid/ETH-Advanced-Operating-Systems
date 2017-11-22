@@ -215,6 +215,7 @@ errval_t aos_rpc_send_and_receive (void* send_handler, void* rcv_handler, uintpt
     errval_t err = lmp_chan_register_send(&rpc->lmp, rpc->ws, MKCLOSURE(send_handler, args));
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_send_and_receive: lmp_chan_register_send failed\n");
+        debug_printf("err: %s\n", err_getstring(err));
         return err;
     }
 
@@ -306,6 +307,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
     assert(chan != NULL);
 
     // setup receiver slot
+    /* thread_mutex_lock(&chan->rpc_mutex); */
     errval_t err = lmp_chan_alloc_recv_slot(&chan->lmp);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_get_ram_cap: lmp chan alloc recv slot failed\n");
@@ -316,6 +318,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
         debug_printf("aos_rpc_get_ram_cap: send and receive failed\n");
         return err;
     }
+    /* thread_mutex_unlock(&chan->rpc_mutex); */
 
     return SYS_ERR_OK;
 }
@@ -418,6 +421,7 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
         debug_printf("aos_rpc_init: lmp_chan_accept failed\n");
         return err;
     }
+    thread_mutex_init(&rpc->rpc_mutex);
 
     uintptr_t args = (uintptr_t) rpc;
     err = aos_rpc_send_and_receive(aos_rpc_send_handler_for_init, aos_rpc_rcv_handler_general, &args);

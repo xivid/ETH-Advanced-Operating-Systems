@@ -44,6 +44,7 @@ struct aos_rpc {
 
     struct domaininfo* head;
     domainid_t current_pid;
+    struct thread_mutex rpc_mutex;
     // TODO: add state for your implementation
 };
 errval_t aos_rpc_send_handler_for_init (void* v_args);
