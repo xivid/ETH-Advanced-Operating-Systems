@@ -664,12 +664,14 @@ void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core)
     uint32_t *tx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_write_offset*LINE_WORDS;
     while (*(tx + LINE_WORDS -1));
 
+    tx[0] = 1; // always init
     for (int i = 0; i < URPC_PAYLOAD_LEN; i++) {
-        tx[i] = message[i];
+        tx[i + 1] = message[i];
     }
-    tx[LINE_WORDS - 1] = 1;
 
     dmb();
+
+    tx[LINE_WORDS - 1] = 1;
 
     current_write_offset++;
     current_write_offset %= N_LINES;
@@ -680,6 +682,8 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
     while (true) {
         uint32_t *rx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
         while (!*(rx + LINE_WORDS - 1));
+
+        dmb();
 
         if (rx[0] == 1) {
             if (rx[1] == 1) {
