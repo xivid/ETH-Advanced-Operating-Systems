@@ -14,8 +14,6 @@
 
 #include <aos/aos_rpc.h>
 
-#define LMP_ARGS_SIZE (10)
-
 errval_t send_handler (void *v_args);
 
 errval_t rcv_handler_general (void *v_args);
@@ -127,8 +125,8 @@ errval_t aos_rpc_send_number(struct aos_rpc *chan, uintptr_t val)
 errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
 {
     uintptr_t args[LMP_ARGS_SIZE];
-    args[0] = (uintptr_t) AOS_RPC_ID_STR;
-    args[1] = (uintptr_t) chan;
+    args[0] = (uintptr_t) chan;
+    args[1] = (uintptr_t) AOS_RPC_ID_STR;
 
     int str_size = strlen(string) + 1;
 
@@ -353,7 +351,6 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
 {
     rpc->ws = ws;
-    rpc->head = NULL;
 
     errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_initep);
     if (err_is_fail(err)) {
@@ -403,7 +400,7 @@ struct aos_rpc *aos_rpc_get_serial_channel(void)
 }
 
 /* void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id) { */
-/*     struct domaininfo *new_domain = malloc(sizeof(struct domaininfo)); */
+/*     struct domain_info *new_domain = malloc(sizeof(struct domain_info)); */
 /*     new_domain->domain_name = name; */
 /*     new_domain->core_id = core; */
 /*     new_domain->pid = id; */
@@ -412,7 +409,7 @@ struct aos_rpc *aos_rpc_get_serial_channel(void)
 /* } */
 
 /* void print_process_table(struct aos_rpc *rpc) { */
-/*     struct domaininfo *cur = rpc->head; */
+/*     struct domain_info *cur = rpc->head; */
 /*     debug_printf("------------------------------------------\n"); */
 /*     debug_printf("              process  table              \n"); */
 /*     debug_printf("------------------------------------------\n"); */

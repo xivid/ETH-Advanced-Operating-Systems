@@ -6,13 +6,146 @@
 #include <barrelfish_kpi/paging_arm_v7.h>
 #include <barrelfish_kpi/domain_params.h>
 #include <spawn/multiboot.h>
+#include <spawn/process_manager.h>
 
 extern struct bootinfo *bi;
+extern struct process_manager pm;
 
-errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret);
-errval_t init_child_vspace(struct spawninfo* si);
-errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes, const char* name);
-errval_t add_args(struct spawninfo* si, struct mem_region* module);
+errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
+    debug_printf("spawn start_child: starting: %s\n", binary_name);
+    errval_t err;
+    /* 1 - Get the binary from multiboot image */
+    struct mem_region *module = multiboot_find_module(bi, binary_name);
+    if (!module) {
+        debug_printf("The module %s was not found\n", binary_name);
+        return SPAWN_ERR_FIND_MODULE;
+    }
+
+    // child capref
+    struct capref child_frame = {
+            .cnode = cnode_module,
+            .slot = module->mrmod_slot,
+    };
+
+    // Initialize spawninfo
+    memset(si, 0, sizeof(*si));
+    si->binary_name = binary_name;
+
+    /* 2 - Map multiboot module in parent's address space */
+
+    // struct frame_identity id_child_frame;
+    // frame_identify(child_frame, &id_child_frame);
+
+    lvaddr_t map_elf;
+    err = paging_map_frame(get_current_paging_state(), (void**)&map_elf, module->mrmod_size /*id_child_frame.bytes*/, child_frame, NULL, NULL);
+    if (err_is_fail(err)) {
+        debug_printf("Error during paging_map_frame: %s\n", err_getstring(err));
+        return err;
+    }
+
+    struct Elf32_Ehdr *elf_head = (void*)map_elf;
+    if (!IS_ELF(*elf_head)) {
+        debug_printf("Module is not a correct ELF binary\n");
+        return ELF_ERR_HEADER;
+    }
+
+    /* 3 - init child's cspace */
+    err = init_child_cspace(si);
+    if (err_is_fail(err)) {
+        debug_printf("Error during init_child_cspace: %s \n", err_getstring(err));
+        return err;
+    }
+
+    /* 4 - init child's vspace */
+    err = init_child_vspace(si);
+    if (err_is_fail(err)) {
+        debug_printf("Error during init_child_vspace: %s \n", err_getstring(err));
+        return err;
+    }
+
+    /* 5 - load the elf */
+    genvaddr_t child_entry;
+    err = elf_load(EM_ARM, elf_allocate, &si->process_paging_state, map_elf, module->mrmod_size /*id_child_frame.bytes*/, &child_entry);
+    if (err_is_fail(err)) {
+        debug_printf("Error: unable to load elf\n");
+        return err;
+    }
+
+    /* 6 - setup the dispatcher */
+    err = setup_dispatcher(si, map_elf, module->mrmod_size /*id_child_frame.bytes*/, (const char *) binary_name);
+    if (err_is_fail(err)) {
+        debug_printf("Error during dispatcher creation\n");
+        return err;
+    }
+
+    /* 7 - setup the args */
+    err = add_args(si, module);
+    if (err_is_fail(err)) {
+        debug_printf("Error on setting up arguments\n");
+        return err;
+    }
+
+    /* 8 - invoke the dispatcher */
+    struct capref dispatcher_cap;
+    err = slot_alloc(&dispatcher_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Error allocating slot for dispatcher capability\n");
+        return err;
+    }
+
+    err = dispatcher_create(dispatcher_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Error creating the actual dispatcher capability %s\n", err_getstring(err));
+        return err;
+    }
+    // add content to certain slots which is needed for rpc
+    struct capref endpoint;
+    err = slot_alloc(&endpoint);
+    if (err_is_fail(err)) {
+        debug_printf("Error allocating slot for the endpoint: %s\n", err_getstring(err));
+        return err;
+    }
+    err = cap_retype(endpoint, dispatcher_cap, 0, ObjType_EndPoint, 0, 1);
+    if (err_is_fail(err)) {
+        debug_printf("Error retyping the endpoint: %s\n", err_getstring(err));
+        return err;
+    }
+    struct capref child_dispatcher = {
+            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+            .slot = TASKCN_SLOT_DISPATCHER
+    };
+    err = cap_copy(child_dispatcher, dispatcher_cap);
+    if (err_is_fail(err)) {
+        debug_printf("Error copying the dispatcher capability to the child\n");
+        return err;
+    }
+    struct capref self_endpoint = {
+            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+            .slot = TASKCN_SLOT_SELFEP
+    };
+    err = cap_copy(self_endpoint, endpoint);
+    if (err_is_fail(err)) {
+        debug_printf("Error copying endpoint to self_endpoint: %s\n", err_getstring(err));
+        return err;
+    }
+
+    struct capref dispatcher_frame = {
+            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+            .slot = TASKCN_SLOT_DISPFRAME
+    };
+
+    err = invoke_dispatcher(dispatcher_cap, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, dispatcher_frame, true);
+    if (err_is_fail(err)) {
+        debug_printf("Error on invoking dispatcher\n");
+        return err;
+    }
+
+    // dirty hack to get the domain id
+    struct dispatcher_generic *disp_gen = get_dispatcher_generic(si->handle);
+    si->domain_id = disp_gen->domain_id;
+
+    return SYS_ERR_OK;
+}
 
 errval_t init_child_cspace(struct spawninfo* si) {
 
@@ -110,7 +243,7 @@ errval_t init_child_vspace(struct spawninfo* si) {
     return SYS_ERR_OK;
 }
 
-errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_bytes, const char *name) {
+errval_t setup_dispatcher(struct spawninfo *si, lvaddr_t elf_base, size_t elf_bytes, const char *name) {
 
     errval_t err;
 
@@ -119,7 +252,7 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
     // Init dispatcher_cap as a frame cap, otherwise paging_map fails.
     err = frame_alloc(&dispatcher_cap, 1 << DISPATCHER_FRAME_BITS, &actual_bytes);
     if (err_is_fail(err)) {
-        debug_printf("Frame alloc failed in create_dispatcher\n");
+        debug_printf("Frame alloc failed in setup_dispatcher\n");
         return err;
     }
 
@@ -164,6 +297,8 @@ errval_t create_dispatcher(struct spawninfo* si, lvaddr_t elf_base, size_t elf_b
     disp_init_disabled(handle);
 
     disp_gen->core_id = disp_get_core_id(); // run child on the same core
+    disp_gen->domain_id = process_manager_add(&pm, name);
+    si->domain_id = disp_gen->domain_id;
     disp->udisp = dispatcher_in_child;
     disp->fpu_trap = 1;
     strncpy(disp->name, name, DISP_NAME_LEN);
@@ -268,137 +403,6 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
     spawn_params->pagesize = 0;
 
     si->enabled_area->named.r0 = (uint32_t) child_args_vaddr;
-    return SYS_ERR_OK;
-}
-
-
-errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
-    debug_printf("spawn start_child: starting: %s\n", binary_name);
-    errval_t err;
-    // - Get the binary from multiboot image
-    struct mem_region *module = multiboot_find_module(bi, binary_name);
-    if (!module) {
-        debug_printf("The module %s was not found\n", binary_name);
-        return SPAWN_ERR_FIND_MODULE;
-    }
-
-    // child capref
-    struct capref child_frame = {
-        .cnode = cnode_module,
-        .slot = module->mrmod_slot,
-    };
-
-    // Initialize spawninfo
-    memset(si, 0, sizeof(*si));
-    si->binary_name = binary_name;
-
-    // - Map multiboot module in your address space
-    // struct frame_identity id_child_frame;
-    // frame_identify(child_frame, &id_child_frame);
-
-    lvaddr_t map_elf;
-    err = paging_map_frame(get_current_paging_state(), (void**)&map_elf, module->mrmod_size /*id_child_frame.bytes*/, child_frame, NULL, NULL);
-    if (err_is_fail(err)) {
-        debug_printf("Error during paging_map_frame: %s\n", err_getstring(err));
-        return err;
-    }
-
-    struct Elf32_Ehdr *elf_head = (void*)map_elf;
-    if (!IS_ELF(*elf_head)) {
-        debug_printf("Module is not a correct ELF binary\n");
-        return ELF_ERR_HEADER;
-    }
-
-    err = init_child_cspace(si);
-    if (err_is_fail(err)) {
-        debug_printf("Error during init_child_cspace: %s \n", err_getstring(err));
-        return err;
-    }
-
-    err = init_child_vspace(si);
-    if (err_is_fail(err)) {
-        debug_printf("Error during init_child_vspace: %s \n", err_getstring(err));
-        return err;
-    }
-
-    genvaddr_t child_entry;
-    err = elf_load(EM_ARM, elf_allocate, &si->process_paging_state, map_elf, module->mrmod_size /*id_child_frame.bytes*/, &child_entry);
-    if (err_is_fail(err)) {
-        debug_printf("Error: unable to load elf\n");
-        return err;
-    }
-
-    err = create_dispatcher(si, map_elf, module->mrmod_size /*id_child_frame.bytes*/, (const char *)binary_name);
-    if (err_is_fail(err)) {
-        debug_printf("Error during dispatcher creation\n");
-        return err;
-    }
-
-    err = add_args(si, module);
-    if (err_is_fail(err)) {
-        debug_printf("Error on setting up arguments\n");
-        return err;
-    }
-
-    struct capref dispatcher_cap;
-    err = slot_alloc(&dispatcher_cap);
-    if (err_is_fail(err)) {
-        debug_printf("Error allocating slot for dispatcher capability\n");
-        return err;
-    }
-
-    err = dispatcher_create(dispatcher_cap);
-    if (err_is_fail(err)) {
-        debug_printf("Error creating the actual dispatcher capability %s\n", err_getstring(err));
-        return err;
-    }
-    // add content to certain slots which is needed for rpc
-    struct capref endpoint;
-    err = slot_alloc(&endpoint);
-    if (err_is_fail(err)) {
-        debug_printf("Error allocating slot for the endpoint: %s\n", err_getstring(err));
-        return err;
-    }
-    err = cap_retype(endpoint, dispatcher_cap, 0, ObjType_EndPoint, 0, 1);
-    if (err_is_fail(err)) {
-        debug_printf("Error retyping the endpoint: %s\n", err_getstring(err));
-        return err;
-    }
-    struct capref child_dispatcher = {
-        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
-        .slot = TASKCN_SLOT_DISPATCHER
-    };
-    err = cap_copy(child_dispatcher, dispatcher_cap);
-    if (err_is_fail(err)) {
-        debug_printf("Error copying the dispatcher capability to the child\n");
-        return err;
-    }
-    struct capref self_endpoint = {
-        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
-        .slot = TASKCN_SLOT_SELFEP
-    };
-    err = cap_copy(self_endpoint, endpoint);
-    if (err_is_fail(err)) {
-        debug_printf("Error copying endpoint to self_endpoint: %s\n", err_getstring(err));
-        return err;
-    }
-
-    struct capref dispatcher_frame = {
-        .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
-        .slot = TASKCN_SLOT_DISPFRAME
-    };
-
-
-    err = invoke_dispatcher(dispatcher_cap, cap_dispatcher, si->l1_cnode_cap, si->l1pagetable, dispatcher_frame, true);
-    if (err_is_fail(err)) {
-        debug_printf("Error on invoking dispatcher\n");
-        return err;
-    }
-
-    // dirty hack to get the domain id
-    struct dispatcher_generic *disp_gen = get_dispatcher_generic(si->handle);
-    si->domain_id = disp_gen->domain_id;
-
     return SYS_ERR_OK;
 }
 

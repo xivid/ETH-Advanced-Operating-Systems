@@ -17,7 +17,8 @@
 
 #include <aos/aos.h>
 
-#define AOS_RPC_ATTEMPTS            4 // how many attempts do we want for sending/receiving before throwing an error
+#define AOS_RPC_ATTEMPTS            (4) // how many attempts do we want for sending/receiving before throwing an error
+#define LMP_ARGS_SIZE               (10)
 
 // IDs for different transmission types
 enum enum_rpc_msgtype {
@@ -32,20 +33,11 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_GET_PNAME,
 };
 
-struct domaininfo {
-    char *domain_name;
-    coreid_t core_id;
-    domainid_t pid;
-    struct domaininfo *next;
-};
-
 struct aos_rpc {
     struct lmp_chan lmp;
     struct waitset* ws;
     char* buffer;
 
-    struct domaininfo* head;
-    domainid_t current_pid;
     // TODO: add state for your implementation
 };
 
