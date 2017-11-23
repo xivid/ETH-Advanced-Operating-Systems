@@ -117,11 +117,6 @@ int main(int argc, char *argv[])
 
     debug_printf("Message handler loop\n");
 
-    // Both cores listen for urpc requests
-    /*if (my_core_id == 1) {
-        urpc_read_until_ack(NULL, my_core_id);  // TODO: should be some similar read() function which however does not stop on ack
-        }*/
-
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     bool did_something = false;
