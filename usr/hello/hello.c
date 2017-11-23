@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 {
     debug_printf("hello started testing\n");
     test_huge_malloc();
-    test_dynamic_slots(2000);
+    // test_dynamic_slots(2000);
     test_paging();
     test_arm_map_unmap();
     return 0;

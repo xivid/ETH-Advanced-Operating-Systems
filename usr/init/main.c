@@ -106,12 +106,12 @@ int main(int argc, char *argv[])
 
     /* perform_tests(); */
 
-    // test remote spawn hello.1 from memeater.0
+    // test remote spawn hello.0 from memeater.1
     // WARNING: in principle, we shouldn't send anything over urpc before core 1 has finished reading the resources initially described in urpc frame.
     // however, the resources seems impossible to be overwritten under any circumstances.
     // So, I put this warning here just for reference in case some related problem occurs in the future.
 
-    if (my_core_id == 0) {
+    if (my_core_id == 1) {
         test_remote_spawn();
     }
 
@@ -141,9 +141,7 @@ int main(int argc, char *argv[])
         if (*(rx + LINE_WORDS - 1)) {
             // there's something new
 
-            // TODO: call handler for urpc
-            // process_urpc();
-
+            urpc_read_and_process(my_core_id);
 
             did_something = true;
         }
