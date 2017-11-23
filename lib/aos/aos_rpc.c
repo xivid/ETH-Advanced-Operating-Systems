@@ -358,7 +358,7 @@ errval_t rcv_handler_for_get_process_name (void *v_args)
     args[LMP_ARGS_SIZE] -= n_bytes_to_copy;
     args[LMP_ARGS_SIZE + 1] += n_bytes_to_copy;
 
-    if (args[LMP_ARGS_SIZE] == 0) {
+    if (args[LMP_ARGS_SIZE] != 0) {
         err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
                                      MKCLOSURE((void*) rcv_handler_general, args));
         if (err_is_fail(err)) {
@@ -438,7 +438,7 @@ errval_t rcv_handler_for_get_pids (void *v_args)
     args[LMP_ARGS_SIZE] -= n_pids_to_copy;
     args[LMP_ARGS_SIZE + 1] += n_pids_to_copy;
 
-    if (args[LMP_ARGS_SIZE] == 0) {
+    if (args[LMP_ARGS_SIZE] != 0) {
         err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
                                      MKCLOSURE((void*) rcv_handler_general, args));
         if (err_is_fail(err)) {
