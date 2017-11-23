@@ -374,13 +374,13 @@ errval_t rcv_handler_for_get_process_name (void *v_args)
 errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
                                       domainid_t **pids, size_t *pid_count)
 {
-    uintptr_t args[LMP_ARGS_SIZE];
+    uintptr_t args[LMP_ARGS_SIZE + 4];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_GET_PIDS;
-    args[2] = (uintptr_t) pid_count;
-    args[3] = (uintptr_t) pids;
-    args[4] = (uintptr_t) 0; // current bytes
-    args[5] = (uintptr_t) 0; //
+    args[LMP_ARGS_SIZE] = (uintptr_t) 0; // received pids
+    args[LMP_ARGS_SIZE + 1] = (uintptr_t) 0; // remaining pids
+    args[LMP_ARGS_SIZE + 2] = (uintptr_t) pid_count;
+    args[LMP_ARGS_SIZE + 3] = (uintptr_t) pids;
 
     errval_t err = send_and_receive(rcv_handler_for_get_pids, args);
     if (err_is_fail(err)) {
@@ -392,7 +392,62 @@ errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
 
 errval_t rcv_handler_for_get_pids (void *v_args)
 {
-    // TODO: Implement
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    struct capref cap;
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
+
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
+                MKCLOSURE((void*) rcv_handler_general, args));
+        count++;
+    }
+    if (err_is_fail(err)) {
+        debug_printf("rcv_handler_general: too many failed attempts or non transient error\n");
+        return err;
+    }
+
+    if (lmp_msg.words[0] != AOS_RPC_ID_ACK) {
+        debug_printf("rcv_handler_general: received message not es expected\n");
+        return FLOUNDER_ERR_RPC_MISMATCH;
+    }
+
+
+    bool first_message = args[LMP_ARGS_SIZE + 1] == 0;
+    domainid_t ** pids = (domainid_t **) args[LMP_ARGS_SIZE + 3];
+
+    if (first_message) {
+        uint32_t n_pids = lmp_msg.words[1];
+        args[LMP_ARGS_SIZE] = n_pids;
+        size_t *pid_count = (size_t *) args[LMP_ARGS_SIZE + 2];
+        *pid_count = n_pids;
+        *pids = malloc(n_pids *sizeof(domainid_t));
+        if (*pids == NULL) {
+            debug_printf("Malloc failed to allocate a string of the required size\n");
+            return LIB_ERR_MALLOC_FAIL;
+        }
+    }
+
+    uint32_t *copy_start = *pids + args[LMP_ARGS_SIZE + 1];
+    int string_off = first_message ? 2 : 1;
+    int n_pids_to_copy = min(9 - string_off, args[LMP_ARGS_SIZE]);
+    for (int i = 0; i < n_pids_to_copy; i++) {
+        copy_start[i] = lmp_msg.words[string_off + i];
+    }
+    args[LMP_ARGS_SIZE] -= n_pids_to_copy;
+    args[LMP_ARGS_SIZE + 1] += n_pids_to_copy;
+
+    if (args[LMP_ARGS_SIZE] == 0) {
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
+                                     MKCLOSURE((void*) rcv_handler_general, args));
+        if (err_is_fail(err)) {
+            debug_printf("can't set itself for the receive handler for the remaining bytes\n");
+            return err;
+        }
+    }
+
     return SYS_ERR_OK;
 }
 
