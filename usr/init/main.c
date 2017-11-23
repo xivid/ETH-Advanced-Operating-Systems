@@ -97,21 +97,23 @@ int main(int argc, char *argv[])
         }
     }
 
+    perform_tests();
+
     // test remote spawn hello.1 from memeater.0
     // WARNING: in principle, we shouldn't send anything over urpc before core 1 has finished reading the resources initially described in urpc frame.
     // however, the resources seems impossible to be overwritten under any circumstances.
     // So, I put this warning here just for reference in case some related problem occurs in the future.
+
     if (my_core_id == 0) {
         test_remote_spawn();
     }
 
-
     debug_printf("Message handler loop\n");
 
     // Both cores listen for urpc requests
-    if (my_core_id == 1) {
+    /*if (my_core_id == 1) {
         urpc_read_until_ack(NULL, my_core_id);  // TODO: should be some similar read() function which however does not stop on ack
-    }
+        }*/
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();

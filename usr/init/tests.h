@@ -129,7 +129,8 @@ __attribute__((unused))
 void perform_tests(void) {
     // here call all the tests we want to perform
 
-    test_multi_spawn(1, "/armv7/sbin/hello");  // FIXME: aos_rpc_send_handler_for_init fails when spawning multiple "hello"s
+    //    test_multi_spawn(1, "/armv7/sbin/hello");  // FIXME: aos_rpc_send_handler_for_init fails when spawning multiple "hello"s
+    test_multi_spawn(1, "/armv7/sbin/memeater");
     // test_alloc_free(400);  // FIXME: this still doesn't work
 
     /*

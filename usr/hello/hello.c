@@ -16,7 +16,6 @@
 
 #include <stdio.h>
 #include <aos/aos.h>
-#include <aos/aos_rpc.h>
 #include <aos/waitset.h>
 #include <aos/except.h>
 #include <time.h>
@@ -188,4 +187,3 @@ void test_arm_map_unmap(void) {
 
     debug_printf("testing arm map/unmap done\n");
 }
-
