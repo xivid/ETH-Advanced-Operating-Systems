@@ -61,6 +61,7 @@ errval_t send_pname(void* args);
 
 /* urpc declarations */
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
+void urpc_read_and_process(coreid_t core);
 void urpc_read_until_ack(uint32_t *ack_response, coreid_t core);
 static inline void dmb(void) { __asm volatile ("dmb"); }
 
@@ -672,6 +673,47 @@ void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core)
     current_write_offset %= N_LINES;
 }
 
+void urpc_read_and_process(coreid_t core)
+{
+    volatile uint32_t *rx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
+
+    if (rx[0] == 1 && rx[1] != AOS_RPC_ID_ACK) {
+        // otherwise, it's a request
+        struct spawninfo *si;
+        void *name = (uint32_t *) rx + 2;
+
+        debug_printf("rx[1] = %x\n", rx[1]);
+        switch (rx[1]) {
+            case AOS_RPC_ID_PROCESS:
+                si = malloc(sizeof(struct spawninfo));
+                errval_t err = spawn_load_by_name(name, si);
+                debug_printf("spawn returned\n");
+                uint32_t process_ack[URPC_PAYLOAD_LEN];
+                process_ack[0] = 1;
+                process_ack[1] = 1;
+                process_ack[2] = si->domain_id;
+                process_ack[3] = err;
+                urpc_write(process_ack, core ? 0 : 1);
+                break;
+            case AOS_RPC_ID_GET_PIDS:
+                debug_printf("URPC get pids not yet implemented\n");
+                break;
+            case AOS_RPC_ID_GET_PNAME:
+                debug_printf("URPC get process name not yet implemented\n");
+                break;
+            default:
+                debug_printf("Message type not supported by init\n");
+                return;
+        }
+
+    } else {
+        debug_printf("Forwarding not implemented!\n");
+    }
+
+    current_read_offset++;
+    current_read_offset %= N_LINES;
+}
+
 void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
 {
     while (true) {
@@ -681,46 +723,18 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
         dmb();
 
         debug_printf("rx[0] = %x, rx[1] = %x, rx[2] = %x, rx[3] = %x\n", rx[0], rx[1], rx[2], rx[3]);
-        if (rx[0] == 1) {
-            if (rx[1] == AOS_RPC_ID_ACK) {  // ack, it's a response
-                for (int i = 0; i < URPC_PAYLOAD_LEN - 1; i++) {
-                    ack_response[i] = rx[i+2];
-                }
-                return;
+        if (rx[0] == 1 && rx[1] == AOS_RPC_ID_ACK) {  // ack, it's a response
+            for (int i = 0; i < URPC_PAYLOAD_LEN - 1; i++) {
+                ack_response[i] = rx[i+2];
             }
 
-            // otherwise, it's a request
-            struct spawninfo *si;
-            void *name = (uint32_t *) rx + 2;
-            debug_printf("rx[1] = %x\n", rx[1]);
-            switch (rx[1]) {
-                case AOS_RPC_ID_PROCESS:
-                    si = malloc(sizeof(struct spawninfo));
-                    errval_t err = spawn_load_by_name(name, si);
-                    debug_printf("spawn returned\n");
-                    uint32_t process_ack[URPC_PAYLOAD_LEN];
-                    process_ack[0] = 1;
-                    process_ack[1] = 1;
-                    process_ack[2] = si->domain_id;
-                    process_ack[3] = err;
-                    urpc_write(process_ack, core ? 0 : 1);
-                    break;
-                case AOS_RPC_ID_GET_PIDS:
-                    debug_printf("URPC get pids not yet implemented\n");
-                    break;
-                case AOS_RPC_ID_GET_PNAME:
-                    debug_printf("URPC get process name not yet implemented\n");
-                    break;
-                default:
-                    debug_printf("Message type not supported by init\n");
-                    return;
-            }
-        } else {
-            debug_printf("Forwarding not implemented!\n");
+            current_read_offset++;
+            current_read_offset %= N_LINES;
+            return;
         }
 
-        current_read_offset++;
-        current_read_offset %= N_LINES;
+        urpc_read_and_process(core);
+
     }
 }
 

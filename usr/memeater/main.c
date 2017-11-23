@@ -164,7 +164,7 @@ static errval_t test_remote_spawn_process(void)
     errval_t err;
     debug_printf("RPC: testing remote process spawn\n");
     domainid_t new_pid;
-    err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 1, &new_pid);
+    err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 1 - disp_get_core_id(), &new_pid);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not spawn a remote process using RPC\n");
         return err;
@@ -228,10 +228,10 @@ int main(int argc, char *argv[])
         USER_PANIC_ERR(err, "could not request and map memory\n");
     }
 
-    err = test_spawn_process();
+    /*err = test_spawn_process();
     if (err_is_fail(err)) {
         USER_PANIC_ERR(err, "could not spawn a process\n");
-    }
+    }*/
 
     err = test_remote_spawn_process();
     if (err_is_fail(err)) {

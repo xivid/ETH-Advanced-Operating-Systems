@@ -27,7 +27,7 @@ errval_t process_manager_init(struct process_manager *pm) {
     pm->core = disp_get_core_id();
     pm->head = process_manager_new_node("init", pm->core, 0);
     pm->count = 1;
-    pm->next_pid = pm->head->pid + 1;
+    pm->next_pid = pm->count + 1;
 
     return SYS_ERR_OK;
 }

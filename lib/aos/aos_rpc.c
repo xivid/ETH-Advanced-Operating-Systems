@@ -267,7 +267,7 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
 errval_t rcv_handler_for_process(void *v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
-    domainid_t *new_pid = (domainid_t *) args[2];
+    domainid_t *new_pid = (domainid_t *) args[3];
 
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
@@ -285,10 +285,8 @@ errval_t rcv_handler_for_process(void *v_args) {
     }
 
     // check that message was received
-    if (lmp_msg.buf.msglen == 3 && lmp_msg.words[0] == AOS_RPC_ID_ACK) {
+    if (lmp_msg.words[0] == AOS_RPC_ID_ACK) {
         *new_pid = (domainid_t) lmp_msg.words[1];
-        /* add_new_process(rpc, name, core, lmp_msg.words[1]); */
-        /* print_process_table(rpc); */
     }
 
     return (errval_t) lmp_msg.words[2];
