@@ -272,7 +272,6 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
     errval_t err, spawn_err = SYS_ERR_OK;
     domainid_t domainid;
 
-    debug_printf("got coreid: %d, process name: %s\n", (int)msg->words[1], (char *)&msg->words[3]);
     coreid_t target_core_id = *(coreid_t *) &msg->words[1];
 
     if (disp_get_core_id() != target_core_id) {
@@ -282,12 +281,10 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
         strncpy((char *)(message + 2), (const char*)&msg->words[3], (URPC_PAYLOAD_LEN - 2)* 4 - 1);
         ((char *)(message + 2))[(URPC_PAYLOAD_LEN - 2)* 4] = 0;
 
-        debug_printf("AOS_RPC_ID_PROCESS %d, msg[1] = %x\n", AOS_RPC_ID_PROCESS, message[1]);
-
         urpc_write(message, target_core_id);
 
         urpc_read_until_ack(message, disp_get_core_id());
-        debug_printf("urpc_read_until_ack returned\n");
+
         if (err_is_fail((errval_t)message[1])) {
             debug_printf("Remote spawning failed\n");
             return NULL;
@@ -302,8 +299,6 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
         }
         domainid = si->domain_id;
     }
-
-    debug_printf("domain id is %d\n", domainid);
 
     // create answer
     struct client* he_is = NULL;
@@ -370,9 +365,7 @@ void* answer_pname(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
     errval_t err;
     domainid_t domainid = (domainid_t) msg->words[1];
 
-    debug_printf("process name query pid: %lu\n", (uint32_t)domainid);
     const char *name = process_manager_get_name(&pm, domainid);
-    debug_printf("got name: %s\n", name == NULL ? "(NULL)" : name);
 
     // find the channel
     struct client* he_is = NULL;
@@ -722,7 +715,6 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
 
         dmb();
 
-        debug_printf("rx[0] = %x, rx[1] = %x, rx[2] = %x, rx[3] = %x\n", rx[0], rx[1], rx[2], rx[3]);
         if (rx[0] == 1 && rx[1] == AOS_RPC_ID_ACK) {  // ack, it's a response
             for (int i = 0; i < URPC_PAYLOAD_LEN - 1; i++) {
                 ack_response[i] = rx[i+2];

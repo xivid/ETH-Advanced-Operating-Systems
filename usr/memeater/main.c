@@ -199,7 +199,7 @@ static errval_t test_print_processes(struct aos_rpc *channel) {
             DEBUG_ERR(err, "aos_rpc_process_get_name fails");
             return err;
         }
-        debug_printf("%8d\t%5d\t%s\n", disp_get_core_id(), process_ids[i], pname);
+        debug_printf("%8d\t%5d\t%s\n", process_ids[i] >> 24, process_ids[i] & 0xFFFFFF, pname);
     }
 
     debug_printf("------------------------------------------\n");
