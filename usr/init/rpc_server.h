@@ -158,6 +158,7 @@ errval_t recv_handler(void* arg)
             answer = (void*) send_process;
             break;
         default:
+            DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED, "rpc_server.h switch: default case\n");
             return LIB_ERR_NOT_IMPLEMENTED;
     }
     struct lmp_chan* ret_chan = (struct lmp_chan*) answer_args;
