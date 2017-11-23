@@ -118,6 +118,7 @@ int main(int argc, char *argv[])
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     bool did_something = false;
+    volatile uint32_t *rx;
     while (true) {
         // local events
         err = check_for_event(default_ws);
@@ -134,10 +135,16 @@ int main(int argc, char *argv[])
         }
         
         // urpc events
-        // TODO: call to check if there's something new
-        // if (....)
-        // { call method that handles urpc messages
-        // set did_something = true;}
+        rx = (uint32_t *)urpc_shared_base + my_core_id * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
+        if (*(rx + LINE_WORDS - 1)) {
+            // there's something new
+            
+            // TODO: call handler for urpc
+            // process_urpc();
+            
+            
+            did_something = true;
+        }
         
         // if we did something, we try to do more again immediately. Otherwise we yield
         if (did_something) {
