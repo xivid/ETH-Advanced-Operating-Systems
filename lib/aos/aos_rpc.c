@@ -416,8 +416,10 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
     }
     thread_mutex_init(&rpc->rpc_mutex);
 
-    uintptr_t args = (uintptr_t) rpc;
-    err = send_and_receive(rcv_handler_general, &args);
+    uintptr_t args[LMP_ARGS_SIZE];
+    args[0] = (uintptr_t) rpc;
+    args[1] = AOS_RPC_ID_INIT;
+    err = send_and_receive(rcv_handler_general, args);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_init: send_and_receive failed\n");
         return err;
