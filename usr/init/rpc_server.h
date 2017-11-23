@@ -10,7 +10,9 @@
 #ifndef _INIT_RPC_SERVER_H_
 #define _INIT_RPC_SERVER_H_
 
+#include <aos/aos_rpc.h>
 #include <spawn/spawn.h>
+#include <spawn/process_manager.h>
 
 #ifndef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
@@ -38,6 +40,8 @@ struct client {
     struct lmp_chan lmp;
 } *client_list = NULL;
 
+extern struct process_manager pm;
+
 errval_t init_rpc(void);
 errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
@@ -45,11 +49,15 @@ void* answer_number(struct capref cap, struct lmp_recv_msg *msg);
 void* answer_char(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_str(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_process(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_pids(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_pname(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref cap);
 void* answer_ram(struct capref cap, struct lmp_recv_msg* msg);
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
 errval_t send_process(void* args);
+errval_t send_pids(void* args);
+errval_t send_pname(void* args);
 
 /* urpc declarations */
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
@@ -103,11 +111,11 @@ errval_t recv_handler(void* arg)
 {
     struct lmp_chan* lmp = (struct lmp_chan*) arg;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    struct capref cap;
-    errval_t err = lmp_chan_recv(lmp, &msg, &cap);
+    struct capref cap_endpoint;
+    errval_t err = lmp_chan_recv(lmp, &msg, &cap_endpoint);
     if (err_is_fail(err)) {
         if (lmp_err_is_transient(err)) {
-            err = lmp_chan_recv(lmp, &msg, &cap);
+            err = lmp_chan_recv(lmp, &msg, &cap_endpoint);
         }
         if (err_is_fail(err)) {  // non-transient error, or transient but still fail after retry
             DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan recv, non transient error");
@@ -132,33 +140,42 @@ errval_t recv_handler(void* arg)
         return err;
     void* answer;
     void* answer_args;
+    // TODO: why not just passing in the lmp_chan*, instead of the cap_endpoint? It seems we don't really need the whois().
     switch (msg.words[0]) {
         case AOS_RPC_ID_NUM:
-            answer_args = answer_number(cap, &msg);
+            answer_args = answer_number(cap_endpoint, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_INIT:
-            answer_args = answer_init(cap);
+            answer_args = answer_init(cap_endpoint);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_RAM:
-            answer_args = answer_ram(cap, &msg);
+            answer_args = answer_ram(cap_endpoint, &msg);
             answer = (void*) send_ram;
             break;
         case AOS_RPC_ID_CHAR:
-            answer_args = answer_char(cap, &msg);
+            answer_args = answer_char(cap_endpoint, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_STR:
-            answer_args = answer_str(cap, &msg);
+            answer_args = answer_str(cap_endpoint, &msg);
             answer = (void*) send_received;
             break;
         case AOS_RPC_ID_PROCESS:
-            answer_args = answer_process(cap, &msg);
+            answer_args = answer_process(cap_endpoint, &msg);
             answer = (void*) send_process;
             break;
+        case AOS_RPC_ID_GET_PIDS:
+            answer_args = answer_pids(cap_endpoint, &msg);
+            answer = (void*) send_pids;
+            break;
+        case AOS_RPC_ID_GET_PNAME:
+            answer_args = answer_pname(cap_endpoint, &msg);
+            answer = (void*) send_pname;
+            break;
         default:
-            DEBUG_ERR(LIB_ERR_NOT_IMPLEMENTED, "rpc_server.h switch: default case\n");
+            debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
     }
     struct lmp_chan* ret_chan = (struct lmp_chan*) answer_args;
@@ -170,7 +187,7 @@ errval_t recv_handler(void* arg)
     return SYS_ERR_OK;
 }
 
-// TODO: rewrite this with cap_compare()
+// TODO: why do we need a WHOIS?
 errval_t whois(struct capref cap, struct client **he_is) {
     struct client *cur = client_list;
     struct capability return_cap;
@@ -179,6 +196,7 @@ errval_t whois(struct capref cap, struct client **he_is) {
         DEBUG_ERR(err, "usr/init/main.c whois: debug identify cap failed");
         return err;
     }
+    // TODO: rewrite this with cap_compare()
     while (cur != NULL) {
         if (return_cap.u.endpoint.listener == cur->end.listener
             && return_cap.u.endpoint.epoffset == cur->end.epoffset) {
@@ -274,8 +292,7 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
             return NULL;
         }
         domainid = message[0];
-    }
-    else {
+    } else {
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
         spawn_err = spawn_load_by_name(&msg->words[3], si);
         if (err_is_fail(spawn_err)) {
@@ -314,6 +331,75 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
     *((domainid_t*) args) = domainid;
 
     return (void*) args_ptr;
+}
+
+void* answer_pids(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
+    errval_t err;
+
+    // find the channel
+    struct client* he_is = NULL;
+    err = whois(cap_endpoint, &he_is);
+    if (err_is_fail(err) || he_is == NULL) {
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
+        return NULL;
+    }
+
+    size_t size_of_args = ROUND_UP(sizeof(struct lmp_chan),4) +
+                          sizeof(domainid_t) /* this is the length of pids[] */ +
+                          sizeof(domainid_t) * pm.count;
+
+    void* args_ptr = malloc(size_of_args);
+    void* args = args_ptr;
+
+    *((struct lmp_chan*) args) = he_is->lmp;
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // add length
+    *(size_t *)args = pm.count;
+    args += sizeof(size_t);
+    // copy pid to args
+    for (struct domain_info *p = pm.head; p != NULL; p = p->next) {
+        *(domainid_t *)args = p->pid;
+        args += sizeof(domainid_t);
+    }
+
+    return args_ptr;
+}
+
+void* answer_pname(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
+    errval_t err;
+    domainid_t domainid = (domainid_t) msg->words[1];
+
+    debug_printf("process name query pid: %lu\n", (uint32_t)domainid);
+    const char *name = process_manager_get_name(&pm, domainid);
+    debug_printf("got name: %s\n", name == NULL ? "(NULL)" : name);
+
+    // find the channel
+    struct client* he_is = NULL;
+    err = whois(cap_endpoint, &he_is);
+    if (err_is_fail(err) || he_is == NULL) {
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
+        return NULL;
+    }
+
+    size_t length_of_name = name == NULL ? 0 : strlen(name) + 1;  /* +1 for the NULL terminator */
+    size_t size_of_args = ROUND_UP(sizeof(struct lmp_chan),4) +
+                          sizeof(size_t) +
+                          length_of_name;
+    void* args_ptr = malloc(size_of_args);
+
+    void* args = args_ptr;
+    // add channel to args
+    *((struct lmp_chan*) args) = he_is->lmp;
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // add length
+    *(size_t *)args = length_of_name;  // 0 means not found
+    args += sizeof(size_t);
+    // copy name string to args
+    if (length_of_name) {
+        strcpy((char *)args, name);
+    }
+
+    return args_ptr;
 }
 
 // sets up the client struct for new processes
@@ -389,6 +475,8 @@ void* answer_ram(struct capref cap, struct lmp_recv_msg* msg) {
     return (void*) args_ptr;
 }
 
+/* All send handlers */
+
 // handler to send a signal that the message was received
 errval_t send_received(void* arg) {
     struct lmp_chan* lmp = (struct lmp_chan*) arg;
@@ -444,6 +532,124 @@ errval_t send_process(void *args) {
     return SYS_ERR_OK;
 }
 
+errval_t send_pids(void *args) {
+    errval_t err_send;
+    uintptr_t msg[9] = {0};
+    msg[0] = 1;  // ACK
+
+    // get channel
+    struct lmp_chan* lmp = (struct lmp_chan*) args;
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+
+    // get length
+    size_t length = (size_t) args;
+    msg[1] = length;
+    args += sizeof(size_t);
+
+    // get string and send in possibly multiple packets
+    // put into msg[2..8], 7 words <=> 28 bytes
+    memcpy((void *)msg[2], (const void *)args, 28);
+
+    err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/init/rpc_server.h send_pname(): could not do lmp_chan_send9");
+        return err_send;
+    }
+
+    if (length <= 28)
+        return SYS_ERR_OK;
+
+    // if there are remaining characters
+    length -= 28;
+    args += 28;
+    for (size_t i = 0; i < length / 32; ++i) {
+        // put into msg[1..8]
+        strncpy((void *)msg[1], (const void *)args, 32);
+
+        err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
+        if (err_is_fail(err_send)) {
+            DEBUG_ERR(err_send, "usr/init/rpc_server.h send_pname(): could not do lmp_chan_send9");
+            return err_send;
+        }
+
+        args += 32;
+        length -= 32;
+    }
+
+    // remaining partial packet
+    if (length) {
+        strncpy((void *)msg[1], (const void*) args, length);
+
+        err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
+        if (err_is_fail(err_send)) {
+            DEBUG_ERR(err_send, "usr/init/rpc_server.h send_pname(): could not do lmp_chan_send9");
+            return err_send;
+        }
+    }
+
+
+    return SYS_ERR_OK;
+}
+
+errval_t send_pname(void *args) {
+    errval_t err_send;
+    uintptr_t msg[9] = {0};
+    msg[0] = 1;  // ACK
+
+    // get channel
+    struct lmp_chan* lmp = (struct lmp_chan*) args;
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+
+    // get length
+    size_t length = (size_t) args;
+    msg[1] = length;
+    args += sizeof(size_t);
+
+    // get string and send in possibly multiple packets
+    // put into msg[2..8], 7 words <=> 28 bytes
+    strncpy((char *)msg[2], (const char *)args, 28);
+
+    err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/init/rpc_server.h send_pname(): could not do lmp_chan_send9");
+        return err_send;
+    }
+
+    if (length <= 28)
+        return SYS_ERR_OK;
+
+    // if there are remaining characters
+    length -= 28;
+    args += 28;
+    for (size_t i = 0; i < length / 32; ++i) {
+        // put into msg[1..8]
+        strncpy((char *)msg[1], (const char *)args, 32);
+
+        err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
+        if (err_is_fail(err_send)) {
+            DEBUG_ERR(err_send, "usr/init/rpc_server.h send_pname(): could not do lmp_chan_send9");
+            return err_send;
+        }
+
+        args += 32;
+        length -= 32;
+    }
+
+    // remaining partial packet
+    if (length) {
+        strncpy((char *)msg[1], (const char*) args, length);
+
+        err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
+        if (err_is_fail(err_send)) {
+            DEBUG_ERR(err_send, "usr/init/rpc_server.h send_pname(): could not do lmp_chan_send9");
+            return err_send;
+        }
+    }
+
+
+    return SYS_ERR_OK;
+}
+
 /* urpc implementations */
 void *urpc_shared_base;
 uint32_t current_write_offset = 0;
@@ -476,13 +682,14 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
 
         debug_printf("rx[0] = %x, rx[1] = %x, rx[2] = %x, rx[3] = %x\n", rx[0], rx[1], rx[2], rx[3]);
         if (rx[0] == 1) {
-            if (rx[1] == 1) {
+            if (rx[1] == AOS_RPC_ID_ACK) {  // ack, it's a response
                 for (int i = 0; i < URPC_PAYLOAD_LEN - 1; i++) {
                     ack_response[i] = rx[i+2];
                 }
                 return;
             }
 
+            // otherwise, it's a request
             struct spawninfo *si;
             void *name = (uint32_t *) rx + 2;
             debug_printf("rx[1] = %x\n", rx[1]);
@@ -497,6 +704,12 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
                     process_ack[2] = si->domain_id;
                     process_ack[3] = err;
                     urpc_write(process_ack, core ? 0 : 1);
+                    break;
+                case AOS_RPC_ID_GET_PIDS:
+                    debug_printf("URPC get pids not yet implemented\n");
+                    break;
+                case AOS_RPC_ID_GET_PNAME:
+                    debug_printf("URPC get process name not yet implemented\n");
                     break;
                 default:
                     debug_printf("Message type not supported by init\n");

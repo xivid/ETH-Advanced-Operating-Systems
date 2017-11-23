@@ -15,8 +15,6 @@
 #include <aos/aos_rpc.h>
 #include <bitmacros.h>
 
-#define LMP_ARGS_SIZE (10)
-
 errval_t send_handler (void *v_args);
 
 errval_t rcv_handler_general (void *v_args);
@@ -245,12 +243,14 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
                                coreid_t core, domainid_t *newpid)
 {
     // TODO: what if string is bigger than 28 chars?
+
     uintptr_t args[LMP_ARGS_SIZE];
     // order: 0-chan, 1-newpid, 2..8-the name
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_PROCESS;
     args[2] = (uintptr_t) core;
     args[3] = (uintptr_t) newpid;
+
     int str_size = strlen(name) + 1;
     int blocks = str_size / 4 + (str_size % 4 != 0);
     for (int j = 0; j < blocks; j++) {
@@ -461,7 +461,6 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
 {
     rpc->ws = ws;
-    rpc->head = NULL;
 
     errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_initep);
     if (err_is_fail(err)) {

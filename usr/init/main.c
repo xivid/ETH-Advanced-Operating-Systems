@@ -36,7 +36,7 @@
 /* init declarations */
 coreid_t my_core_id;
 struct bootinfo *bi;
-
+struct process_manager pm;
 
 /* main */
 int main(int argc, char *argv[])
@@ -84,6 +84,13 @@ int main(int argc, char *argv[])
     err = init_rpc();
     if(err_is_fail(err)){
         DEBUG_ERR(err, "init_rpc");
+        return EXIT_FAILURE;
+    }
+
+    debug_printf("init process manager\n");
+    err = process_manager_init(&pm);
+    if(err_is_fail(err)){
+        DEBUG_ERR(err, "process_manager_init");
         return EXIT_FAILURE;
     }
 
