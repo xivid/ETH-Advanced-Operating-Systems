@@ -176,10 +176,15 @@ static errval_t test_remote_spawn_process(void)
 }
 
 __attribute__((unused))
-static void test_print_processes(struct aos_rpc *channel) {
+static errval_t test_print_processes(struct aos_rpc *channel) {
+    errval_t err = SYS_ERR_OK;
     domainid_t *process_ids;
     size_t n_processes;
-    aos_rpc_process_get_all_pids(channel, &process_ids, &n_processes);
+    err = aos_rpc_process_get_all_pids(channel, &process_ids, &n_processes);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "aos_rpc_process_get_all_pids fails");
+        return err;
+    }
 
     debug_printf("------------------------------------------\n");
     debug_printf("              process  table              \n");
@@ -189,11 +194,16 @@ static void test_print_processes(struct aos_rpc *channel) {
 
     for (int i = 0; i < n_processes; i++) {
         char *pname;
-        aos_rpc_process_get_name(channel, process_ids[i], &pname);
+        err = aos_rpc_process_get_name(channel, process_ids[i], &pname);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "aos_rpc_process_get_name fails");
+            return err;
+        }
         debug_printf("%8d\t%5d\t%s\n", disp_get_core_id(), process_ids[i], pname);
     }
 
     debug_printf("------------------------------------------\n");
+    return err;
 }
 
 int main(int argc, char *argv[])
@@ -203,7 +213,10 @@ int main(int argc, char *argv[])
     debug_printf("memeater started....\n");
 
     init_rpc = *get_init_rpc();
-    test_print_processes(&init_rpc);
+    err = test_print_processes(&init_rpc);
+    if (err_is_fail(err)) {
+        USER_PANIC_ERR(err, "failure in testing print processes\n");
+    }
 
     err = test_basic_rpc();
     if (err_is_fail(err)) {
