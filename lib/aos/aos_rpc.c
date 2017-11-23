@@ -512,26 +512,3 @@ struct aos_rpc *aos_rpc_get_serial_channel(void)
 {
     return get_init_rpc();
 }
-
-/* void add_new_process(struct aos_rpc *rpc, char *name, coreid_t core, domainid_t id) { */
-/*     struct domaininfo *new_domain = malloc(sizeof(struct domaininfo)); */
-/*     new_domain->domain_name = name; */
-/*     new_domain->core_id = core; */
-/*     new_domain->pid = id; */
-/*     new_domain->next = rpc->head; */
-/*     rpc->head = new_domain; */
-/* } */
-
-/* void print_process_table(struct aos_rpc *rpc) { */
-/*     struct domaininfo *cur = rpc->head; */
-/*     debug_printf("------------------------------------------\n"); */
-/*     debug_printf("              process  table              \n"); */
-/*     debug_printf("------------------------------------------\n"); */
-/*     debug_printf("%8s\t%5s\tname\n", "core", "pid"); */
-/*     debug_printf("------------------------------------------\n"); */
-/*     while (cur) { */
-/*         debug_printf("%8d\t%5d\t%s\n", (int)cur->core_id, cur->pid, cur->domain_name); */
-/*         cur = cur->next; */
-/*     } */
-/*     debug_printf("------------------------------------------\n"); */
-/* } */

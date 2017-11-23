@@ -175,6 +175,27 @@ static errval_t test_remote_spawn_process(void)
     return SYS_ERR_OK;
 }
 
+__attribute__((unused))
+static void test_print_processes(struct aos_rpc *channel) {
+    domainid_t *process_ids;
+    size_t n_processes;
+    aos_rpc_process_get_all_pids(channel, &process_ids, &n_processes);
+
+    debug_printf("------------------------------------------\n");
+    debug_printf("              process  table              \n");
+    debug_printf("------------------------------------------\n");
+    debug_printf("%8s\t%5s\tname\n", "core", "pid");
+    debug_printf("------------------------------------------\n");
+
+    for (int i = 0; i < n_processes; i++) {
+        char *pname;
+        aos_rpc_process_get_name(channel, process_ids[i], &pname);
+        debug_printf("%8d\t%5d\t%s\n", disp_get_core_id(), process_ids[i], pname);
+    }
+
+    debug_printf("------------------------------------------\n");
+}
+
 int main(int argc, char *argv[])
 {
     errval_t err;
@@ -182,7 +203,7 @@ int main(int argc, char *argv[])
     debug_printf("memeater started....\n");
 
     init_rpc = *get_init_rpc();
-    /*print_process_table(&init_rpc);
+    test_print_processes(&init_rpc);
 
     err = test_basic_rpc();
     if (err_is_fail(err)) {
@@ -197,7 +218,7 @@ int main(int argc, char *argv[])
     err = test_spawn_process();
     if (err_is_fail(err)) {
         USER_PANIC_ERR(err, "could not spawn a process\n");
-    }*/
+    }
 
     err = test_remote_spawn_process();
     if (err_is_fail(err)) {
