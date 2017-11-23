@@ -167,8 +167,8 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
     uintptr_t args[LMP_ARGS_SIZE];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_RAM;
-    args[2] = (uintptr_t) &size;
-    args[3] = (uintptr_t) &align;
+    args[2] = (uintptr_t) size;
+    args[3] = (uintptr_t) align;
     args[4] = (uintptr_t) retcap;
     args[5] = (uintptr_t) ret_size;
 
@@ -211,7 +211,7 @@ errval_t rcv_handler_for_ram (void* v_args) {
         return err;
     }
     // check that message was received
-    if (lmp_msg.buf.msglen == 3 && lmp_msg.words[0] == AOS_RPC_ID_ACK) {
+    if (lmp_msg.words[0] == AOS_RPC_ID_ACK) {
         *ret_size = lmp_msg.words[1];
     }
 
