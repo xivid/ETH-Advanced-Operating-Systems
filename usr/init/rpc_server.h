@@ -542,13 +542,13 @@ errval_t send_pids(void *args) {
     args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
 
     // get length
-    size_t length = (size_t) args;
+    size_t length = *(size_t *) args;
     msg[1] = length;
     args += sizeof(size_t);
 
     // get string and send in possibly multiple packets
     // put into msg[2..8], 7 words <=> 28 bytes
-    memcpy((void *)msg[2], (const void *)args, 28);
+    memcpy((void *)&msg[2], (const void *)args, MIN(28, length * sizeof(domainid_t)));
 
     err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
     if (err_is_fail(err_send)) {
@@ -556,7 +556,7 @@ errval_t send_pids(void *args) {
         return err_send;
     }
 
-    if (length <= 28)
+    if (length <= 7)
         return SYS_ERR_OK;
 
     // if there are remaining characters
@@ -564,7 +564,7 @@ errval_t send_pids(void *args) {
     args += 28;
     for (size_t i = 0; i < length / 32; ++i) {
         // put into msg[1..8]
-        strncpy((void *)msg[1], (const void *)args, 32);
+        memcpy((void *)&msg[1], (const void *)args, 32);
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
@@ -578,7 +578,7 @@ errval_t send_pids(void *args) {
 
     // remaining partial packet
     if (length) {
-        strncpy((void *)msg[1], (const void*) args, length);
+        memcpy((void *)&msg[1], (const void*) args, length * sizeof(domainid_t));
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
@@ -601,13 +601,13 @@ errval_t send_pname(void *args) {
     args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
 
     // get length
-    size_t length = (size_t) args;
+    size_t length = *(size_t*) args;
     msg[1] = length;
     args += sizeof(size_t);
 
     // get string and send in possibly multiple packets
     // put into msg[2..8], 7 words <=> 28 bytes
-    strncpy((char *)msg[2], (const char *)args, 28);
+    strncpy((char *)&msg[2], (const char *)args, 28);
 
     err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
     if (err_is_fail(err_send)) {
@@ -623,7 +623,7 @@ errval_t send_pname(void *args) {
     args += 28;
     for (size_t i = 0; i < length / 32; ++i) {
         // put into msg[1..8]
-        strncpy((char *)msg[1], (const char *)args, 32);
+        strncpy((char *)&msg[1], (const char *)args, 32);
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
@@ -637,7 +637,7 @@ errval_t send_pname(void *args) {
 
     // remaining partial packet
     if (length) {
-        strncpy((char *)msg[1], (const char*) args, length);
+        strncpy((char *)&msg[1], (const char*) args, length);
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
