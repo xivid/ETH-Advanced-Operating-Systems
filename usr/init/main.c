@@ -115,12 +115,35 @@ int main(int argc, char *argv[])
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();
+    bool did_something = false;
     while (true) {
-        err = event_dispatch(default_ws);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "in event_dispatch");
-            abort();
+        // local events
+        err = check_for_event(default_ws);
+        if (err_is_ok(err)) {
+            struct event_closure closure;
+            err = get_next_event(default_ws, &closure);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "usr/init/main.c: event handling loop failure");
+                return EXIT_FAILURE;
+            }
+            assert(closure.handler != NULL);
+            closure.handler(closure.arg);
+            did_something = true;
         }
+        
+        // urpc events
+        // TODO: call to check if there's something new
+        // if (....)
+        // { call method that handles urpc messages
+        // set did_something = true;}
+        
+        // if we did something, we try to do more again immediately. Otherwise we yield
+        if (did_something) {
+            did_something = false;
+            continue;
+        }
+        else
+            thread_yield();
     }
 
     return EXIT_SUCCESS;
