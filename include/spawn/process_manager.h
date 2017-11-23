@@ -71,5 +71,10 @@ const char *process_manager_get_name(struct process_manager *pm, domainid_t doma
  */
 void process_manager_get_all_pids(struct process_manager *pm, domainid_t **arr, domainid_t *length);
 
-
+/**
+ * helper function for getting core id from PID
+ * @param pid
+ * @return
+ */
+coreid_t pid_get_core_id(domainid_t pid);
 #endif //_INIT_PROCESS_MANAGER_H_

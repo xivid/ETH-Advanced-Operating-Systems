@@ -295,10 +295,18 @@ errval_t rcv_handler_for_process(void *v_args) {
 errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
                                   char **name)
 {
+    return aos_rpc_process_get_name_on_core(chan, pid, name, disp_get_core_id() << 24);
+}
+
+errval_t aos_rpc_process_get_name_on_core(struct aos_rpc *chan, domainid_t pid,
+                                          char **name, domainid_t dest)
+{
     uintptr_t args[LMP_ARGS_SIZE + 3];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_GET_PNAME;
     args[2] = (uintptr_t) pid;
+    args[3] = (uintptr_t) dest;
+
     args[LMP_ARGS_SIZE] = (uintptr_t) 0; // remaining bytes
     args[LMP_ARGS_SIZE + 1] = (uintptr_t) 0; // received bytes
     args[LMP_ARGS_SIZE + 2] = (uintptr_t) name;
@@ -368,12 +376,23 @@ errval_t rcv_handler_for_get_process_name (void *v_args)
     return SYS_ERR_OK;
 }
 
+
 errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
-                                      domainid_t **pids, size_t *pid_count)
+                                           domainid_t **pids, size_t *pid_count)
+{
+    return aos_rpc_process_get_all_pids_core(chan, pids, pid_count, disp_get_core_id() << 24);
+}
+
+
+errval_t aos_rpc_process_get_all_pids_on_core(struct aos_rpc *chan,
+                                           domainid_t **pids, size_t *pid_count,
+                                           domainid_t dest)
 {
     uintptr_t args[LMP_ARGS_SIZE + 4];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_GET_PIDS;
+    args[2] = (uintptr_t) dest;
+
     args[LMP_ARGS_SIZE] = (uintptr_t) 0; // received pids
     args[LMP_ARGS_SIZE + 1] = (uintptr_t) 0; // remaining pids
     args[LMP_ARGS_SIZE + 2] = (uintptr_t) pid_count;

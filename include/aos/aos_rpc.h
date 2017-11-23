@@ -87,6 +87,17 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
                                   char **name);
 
 /**
+ * \brief Get name of process with id pid.
+ * \arg pid the process id to lookup
+ * \arg name A null-terminated character array with the name of the process
+ * that is allocated by the rpc implementation. Freeing is the caller's
+ * responsibility.
+ * \arg dest PID allocated by the process manager (the 1st byte is coreid, the last 3 bytes are the actual process id)
+ */
+errval_t aos_rpc_process_get_name_on_core(struct aos_rpc *chan, domainid_t pid,
+                                  char **name, domainid_t dest);
+
+/**
  * \brief Get process ids of all running processes
  * \arg pids An array containing the process ids of all currently active
  * processes. Will be allocated by the rpc implementation. Freeing is the
@@ -95,6 +106,20 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
  */
 errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
                                       domainid_t **pids, size_t *pid_count);
+
+
+/**
+ * \brief Get process ids of all running processes on a given core
+ * \arg pids An array containing the process ids of all currently active
+ * processes. Will be allocated by the rpc implementation. Freeing is the
+ * caller's  responsibility.
+ * \arg pid_count The number of entries in `pids' if the call was successful
+ * \arg dest PID allocated by the process manager (the 1st byte is coreid, the last 3 bytes are the actual process id)
+ */
+errval_t aos_rpc_process_get_all_pids_on_core(struct aos_rpc *chan,
+                                           domainid_t **pids, size_t *pid_count,
+                                           domainid_t dest);
+
 
 /**
  * \brief Gets a capability to device registers

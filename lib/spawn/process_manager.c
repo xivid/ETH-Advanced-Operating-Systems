@@ -56,7 +56,6 @@ const char *process_manager_get_name(struct process_manager *pm, domainid_t pid)
     return p->name;
 }
 
-__attribute__((unused))
 void process_manager_get_all_pids(struct process_manager *pm, domainid_t **arr, domainid_t *length) {
     size_t size = sizeof(domainid_t) * pm->count;
     *arr = (domainid_t *) malloc(size);
@@ -66,4 +65,8 @@ void process_manager_get_all_pids(struct process_manager *pm, domainid_t **arr, 
     for (struct domain_info* di = pm->head; di != NULL; di = di->next, ++ptr) {
         *ptr = di->pid;
     }
+}
+
+coreid_t pid_get_core_id(domainid_t pid) {
+    return pid >> 24;
 }
