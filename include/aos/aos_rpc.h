@@ -36,8 +36,7 @@ enum enum_rpc_msgtype {
 struct aos_rpc {
     struct lmp_chan lmp;
     struct waitset* ws;
-    char* buffer;
-
+    struct thread_mutex rpc_mutex;
     // TODO: add state for your implementation
 };
 

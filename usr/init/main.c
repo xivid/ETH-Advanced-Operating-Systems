@@ -104,30 +104,62 @@ int main(int argc, char *argv[])
         }
     }
 
+    perform_tests();
+
     // test remote spawn hello.1 from memeater.0
     // WARNING: in principle, we shouldn't send anything over urpc before core 1 has finished reading the resources initially described in urpc frame.
     // however, the resources seems impossible to be overwritten under any circumstances.
     // So, I put this warning here just for reference in case some related problem occurs in the future.
+
     if (my_core_id == 0) {
         test_remote_spawn();
     }
 
-
     debug_printf("Message handler loop\n");
 
     // Both cores listen for urpc requests
-    if (my_core_id == 1) {
+    /*if (my_core_id == 1) {
         urpc_read_until_ack(NULL, my_core_id);  // TODO: should be some similar read() function which however does not stop on ack
-    }
+        }*/
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();
+    bool did_something = false;
+    volatile uint32_t *rx;
     while (true) {
-        err = event_dispatch(default_ws);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "in event_dispatch");
-            abort();
+        // local events
+        err = check_for_event(default_ws);
+        if (err_is_ok(err)) {
+            struct event_closure closure;
+            err = get_next_event(default_ws, &closure);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "usr/init/main.c: event handling loop failure");
+                return EXIT_FAILURE;
+            }
+            assert(closure.handler != NULL);
+            closure.handler(closure.arg);
+            did_something = true;
         }
+        
+        // urpc events
+        rx = (uint32_t *)urpc_shared_base + my_core_id * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
+        if (*(rx + LINE_WORDS - 1)) {
+            // there's something new
+            
+            // TODO: call handler for urpc
+            // process_urpc();
+            
+            
+            did_something = true;
+        }
+        
+        // if we did something, we try to do more again immediately. Otherwise we yield
+        if (did_something) {
+            did_something = false;
+            continue;
+        }
+        else
+            thread_yield();
     }
 
     return EXIT_SUCCESS;
