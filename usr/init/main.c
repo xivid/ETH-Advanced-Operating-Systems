@@ -97,7 +97,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    perform_tests();
+    /* perform_tests(); */
 
     // test remote spawn hello.1 from memeater.0
     // WARNING: in principle, we shouldn't send anything over urpc before core 1 has finished reading the resources initially described in urpc frame.
@@ -133,19 +133,19 @@ int main(int argc, char *argv[])
             closure.handler(closure.arg);
             did_something = true;
         }
-        
+
         // urpc events
         rx = (uint32_t *)urpc_shared_base + my_core_id * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
         if (*(rx + LINE_WORDS - 1)) {
             // there's something new
-            
+
             // TODO: call handler for urpc
             // process_urpc();
-            
-            
+
+
             did_something = true;
         }
-        
+
         // if we did something, we try to do more again immediately. Otherwise we yield
         if (did_something) {
             did_something = false;

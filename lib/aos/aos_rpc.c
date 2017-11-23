@@ -13,10 +13,9 @@
  */
 
 #include <aos/aos_rpc.h>
+#include <bitmacros.h>
 
 #define LMP_ARGS_SIZE (10)
-
-#define min(a,b) ( ((a) < (b)) ? (a) : (b) )
 
 errval_t send_handler (void *v_args);
 
@@ -353,7 +352,7 @@ errval_t rcv_handler_for_get_process_name (void *v_args)
 
     char *copy_start = *name + args[LMP_ARGS_SIZE + 1];
     int string_off = first_message ? 2 : 1;
-    int n_bytes_to_copy = min((9 - string_off) * 4, args[LMP_ARGS_SIZE]);
+    int n_bytes_to_copy = MIN((9 - string_off) * 4, args[LMP_ARGS_SIZE]);
     strncpy(copy_start, (char *)(lmp_msg.words + string_off), n_bytes_to_copy);
     copy_start[n_bytes_to_copy] = 0;
     args[LMP_ARGS_SIZE] -= n_bytes_to_copy;
@@ -432,7 +431,7 @@ errval_t rcv_handler_for_get_pids (void *v_args)
 
     uint32_t *copy_start = *pids + args[LMP_ARGS_SIZE + 1];
     int string_off = first_message ? 2 : 1;
-    int n_pids_to_copy = min(9 - string_off, args[LMP_ARGS_SIZE]);
+    int n_pids_to_copy = MIN(9 - string_off, args[LMP_ARGS_SIZE]);
     for (int i = 0; i < n_pids_to_copy; i++) {
         copy_start[i] = lmp_msg.words[string_off + i];
     }
