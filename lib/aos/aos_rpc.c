@@ -164,13 +164,13 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
                              struct capref *retcap, size_t *ret_size)
 {
     // arguments: [aos_rpc, size, align, retcap, ret_size]
-    uintptr_t args[LMP_ARGS_SIZE];
+    uintptr_t args[LMP_ARGS_SIZE + 2];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_RAM;
     args[2] = (uintptr_t) size;
     args[3] = (uintptr_t) align;
-    args[4] = (uintptr_t) retcap;
-    args[5] = (uintptr_t) ret_size;
+    args[LMP_ARGS_SIZE] = (uintptr_t) retcap;
+    args[LMP_ARGS_SIZE + 1] = (uintptr_t) ret_size;
 
     assert(chan != NULL);
 
@@ -194,8 +194,8 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
 errval_t rcv_handler_for_ram (void* v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
-    struct capref* cap = (struct capref*) args[3];
-    size_t* ret_size = (size_t*) args[4];
+    struct capref* cap = (struct capref*) args[LMP_ARGS_SIZE];
+    size_t* ret_size = (size_t*) args[LMP_ARGS_SIZE + 1];
 
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, cap);
