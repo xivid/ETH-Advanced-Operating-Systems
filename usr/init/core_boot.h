@@ -29,7 +29,7 @@ errval_t core_boot_dump_resources(void);
  * and forges the caps.
  * @return error value
  */
-errval_t core_boot_load_resources(coreid_t my_core_id);
+errval_t core_boot_load_resources(coreid_t core_id);
 
 
 /* Multi-core implementations */
@@ -256,7 +256,7 @@ errval_t core_boot_dump_resources(void) {
     return err;
 }
 
-errval_t core_boot_load_resources(coreid_t my_core_id) {
+errval_t core_boot_load_resources(coreid_t core_id) {
     errval_t err = SYS_ERR_OK;
 
     urpc_shared_base = (void *)MON_URPC_VBASE;

@@ -141,8 +141,10 @@ int main(int argc, char *argv[])
         if (*(rx + LINE_WORDS - 1)) {
             // there's something new
             dmb();
-            urpc_read_and_process((uint32_t *) rx, my_core_id);
-            did_something = true;
+            if (rx[1] != AOS_RPC_ID_ACK) {
+                urpc_read_and_process((uint32_t *) rx, my_core_id);
+                did_something = true;
+            }
         }
 
         // if we did something, we try to do more again immediately. Otherwise we yield

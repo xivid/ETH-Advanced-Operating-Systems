@@ -380,7 +380,7 @@ errval_t rcv_handler_for_get_process_name (void *v_args)
 errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
                                            domainid_t **pids, size_t *pid_count)
 {
-    return aos_rpc_process_get_all_pids_core(chan, pids, pid_count, disp_get_core_id() << 24);
+    return aos_rpc_process_get_all_pids_on_core(chan, pids, pid_count, disp_get_core_id() << 24);
 }
 
 

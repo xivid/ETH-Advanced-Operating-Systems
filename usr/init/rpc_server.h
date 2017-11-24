@@ -280,7 +280,7 @@ void* answer_process(struct capref cap, struct lmp_recv_msg* msg)
 
     if (disp_get_core_id() != target_core_id) {
         uint32_t message[URPC_PAYLOAD_LEN];
-        message[0] = 1;
+        message[0] = 0;
         message[1] = AOS_RPC_ID_PROCESS;
         strncpy((char *)(message + 2), (const char*)&msg->words[3], (URPC_PAYLOAD_LEN - 2)* 4 - 1);
         ((char *)(message + 2))[(URPC_PAYLOAD_LEN - 2)* 4] = 0;
@@ -346,16 +346,16 @@ void* answer_pids(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
     } else {
         // send urpc request
         uint32_t message[URPC_PAYLOAD_LEN];
-        message[0] = 1;
+        message[0] = 0;
         message[1] = AOS_RPC_ID_GET_PIDS;
         urpc_write(message, target_core_id);
 
         // wait for and read response
         urpc_read_until_ack(message, my_core_id);
-        length = message[2];
+        length = message[0];
         if (length) {
             arr = malloc(sizeof(domainid_t) * length);
-            memcpy(arr, &message[3], sizeof(domainid_t) * 7);
+            memcpy(arr, &message[1], sizeof(domainid_t) * 7);
 
             if (length > 7) {
                 size_t remaining = length - 7;
@@ -363,16 +363,19 @@ void* answer_pids(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
 
                 while (remaining >= 8) {
                     urpc_read_until_ack(message, my_core_id);
-                    memcpy(ptr, (const void *)&message[2], sizeof(domainid_t) * 8);
+                    memcpy(ptr, (const void *)&message[0], sizeof(domainid_t) * 8);
                     remaining -= 8;
                     ptr += 8;
                 }
 
                 if (remaining) {
                     urpc_read_until_ack(message, my_core_id);
-                    memcpy(ptr, (const void *)&message[2], sizeof(domainid_t) * remaining);
+                    memcpy(ptr, (const void *)&message[0], sizeof(domainid_t) * remaining);
                 }
             }
+        } else {
+            debug_printf("Got error response for get_pids\n");
+            return NULL;
         }
     }
 
@@ -410,15 +413,13 @@ void* answer_pname(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
     domainid_t comm_dest = (domainid_t) msg->words[2];
     coreid_t target_core_id = pid_get_core_id(comm_dest);
 
-    debug_printf("in answer_pname: target_core_id %lu, my_core_id %lu\n", (uint32_t)target_core_id, (uint32_t)my_core_id);
-
-    char *name;
+    const char *name;
     if (target_core_id == my_core_id) {
         name = process_manager_get_name(&pm, pid);
     } else {
         // send urpc request
         uint32_t message[URPC_PAYLOAD_LEN];
-        message[0] = 1;
+        message[0] = 0;
         message[1] = AOS_RPC_ID_GET_PNAME;
         message[2] = pid;
         urpc_write(message, target_core_id);
@@ -426,13 +427,13 @@ void* answer_pname(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
         // wait for and read response
         urpc_read_until_ack(message, my_core_id);
 
-        size_t length = message[2];
+        size_t length = message[0];
         if (length) {
-            name = malloc(sizeof(char) * (length + 1));
-            char *ptr = name;
+            char *nameptr = malloc(sizeof(char) * (length + 1));
+            char *ptr = nameptr;
 
             // deal with the first packet (7 words at most)
-            strncpy(ptr, (const char *)&message[3], MIN(length, 28));
+            strncpy(ptr, (const char *)&message[1], MIN(length, 28));
 
             if (length > 28) {
                 size_t remaining = length - 28;
@@ -440,18 +441,22 @@ void* answer_pname(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
 
                 while (remaining >= 32) {
                     urpc_read_until_ack(message, my_core_id);
-                    strncpy(ptr, (const char *)&message[2], 32);
+                    strncpy(ptr, (const char *)&message[0], 32);
                     remaining -= 32;
                     ptr += 32;
                 }
 
                 if (remaining) {
                     urpc_read_until_ack(message, my_core_id);
-                    strncpy(ptr, (const char *)&message[2], remaining);
+                    strncpy(ptr, (const char *)&message[0], remaining);
                 }
             }
 
-            name[length] = 0;
+            nameptr[length] = 0;
+            name = nameptr;
+        } else {
+            debug_printf("Failed to get process name, empty string returned.\n");
+            return NULL;
         }
     }
 
@@ -742,6 +747,8 @@ void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core)
     volatile uint32_t *tx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_write_offset*LINE_WORDS;
     while (*(tx + LINE_WORDS -1));
 
+    dmb();
+
     for (int i = 0; i < URPC_PAYLOAD_LEN; i++) {
         tx[i] = message[i];
     }
@@ -763,10 +770,14 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
 
         dmb();
 
-        if (rx[0] == 1 && rx[1] == AOS_RPC_ID_ACK) {  // ack, it's a response
+        if (rx[0] == 0 && rx[1] == AOS_RPC_ID_ACK) {  // ack, it's a response
             for (int i = 0; i < URPC_PAYLOAD_LEN - 1; i++) {
                 ack_response[i] = rx[i+2];
             }
+
+            dmb();
+
+            rx[LINE_WORDS - 1] = 0;
 
             current_read_offset++;
             current_read_offset %= N_LINES;
@@ -779,27 +790,29 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core)
 
 void urpc_read_and_process(uint32_t *rx, coreid_t core)
 {
-    if (rx[0] == 1) {
-        switch (rx[1]) {
+    if (rx[1] != AOS_RPC_ID_ACK) {
+        if (rx[0] == 0) {
+            switch (rx[1]) {
             case AOS_RPC_ID_PROCESS:
                 urpc_spawn_handler(core, (uint32_t *) rx + 2);
                 break;
             case AOS_RPC_ID_GET_PIDS:
-                urpc_get_pids_handler(core);
+                urpc_get_pids_handler(core, 0);
                 break;
             case AOS_RPC_ID_GET_PNAME:
-                urpc_get_pname_handler(core, (domainid_t) rx + 2);
+                urpc_get_pname_handler(core, (domainid_t) rx[2]);
                 break;
             default:
-                debug_printf("Message type not supported by init\n");
+                debug_printf("Message type not supported by init %lu\n", rx[1]);
                 return;
+            }
+        } else {
+            debug_printf("Forwarding not implemented!\n");
         }
-    } else {
-        debug_printf("Forwarding not implemented!\n");
-    }
 
-    current_read_offset++;
-    current_read_offset %= N_LINES;
+        current_read_offset++;
+        current_read_offset %= N_LINES;
+    }
 }
 
 void urpc_spawn_handler(coreid_t core, void *name) {
@@ -808,7 +821,7 @@ void urpc_spawn_handler(coreid_t core, void *name) {
 
     errval_t err = spawn_load_by_name(name, si);
     uint32_t process_ack[URPC_PAYLOAD_LEN];
-    process_ack[0] = 1;
+    process_ack[0] = 0;
     process_ack[1] = AOS_RPC_ID_ACK;
     process_ack[2] = si->domain_id;
     process_ack[3] = err;
@@ -821,7 +834,7 @@ void urpc_get_pids_handler(coreid_t core, domainid_t pid) {
     process_manager_get_all_pids(&pm, &arr, &length);
 
     uint32_t pname_ack[URPC_PAYLOAD_LEN];
-    pname_ack[0] = 1;
+    pname_ack[0] = 0;
     pname_ack[1] = AOS_RPC_ID_ACK;
     pname_ack[2] = length;
 
@@ -841,7 +854,7 @@ void urpc_get_pids_handler(coreid_t core, domainid_t pid) {
 
         urpc_write(pname_ack, 1 - core);
 
-        name += 8;
+        arr += 8;
         length -= 8;
     }
 
@@ -858,7 +871,7 @@ void urpc_get_pname_handler(coreid_t core, domainid_t pid) {
     size_t length = strlen(name);
 
     uint32_t pname_ack[URPC_PAYLOAD_LEN];
-    pname_ack[0] = 1;
+    pname_ack[0] = 0;
     pname_ack[1] = AOS_RPC_ID_ACK;
     pname_ack[2] = length;
 

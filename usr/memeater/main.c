@@ -182,7 +182,17 @@ static errval_t test_print_processes(struct aos_rpc *channel) {
     size_t n_processes;
     err = aos_rpc_process_get_all_pids(channel, &process_ids, &n_processes);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "aos_rpc_process_get_all_pids fails");
+        DEBUG_ERR(err, "aos_rpc_process_get_all_pids fails\n");
+        return err;
+    }
+
+    coreid_t other_coreid = (1 - disp_get_core_id()) << 24;
+    domainid_t *process_ids_remote;
+    size_t remote_processes;
+    err = aos_rpc_process_get_all_pids_on_core(channel, &process_ids_remote,
+                                               &remote_processes, other_coreid);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "aos_rpc_process_get_all_pids_on_core fails\n");
         return err;
     }
 
@@ -196,10 +206,20 @@ static errval_t test_print_processes(struct aos_rpc *channel) {
         char *pname;
         err = aos_rpc_process_get_name(channel, process_ids[i], &pname);
         if (err_is_fail(err)) {
-            DEBUG_ERR(err, "aos_rpc_process_get_name fails");
+            DEBUG_ERR(err, "aos_rpc_process_get_name fails\n");
             return err;
         }
         debug_printf("%8d\t%5d\t%s\n", process_ids[i] >> 24, process_ids[i] & 0xFFFFFF, pname);
+    }
+
+    for (int i = 0; i < remote_processes; i++) {
+        char *pname;
+        err = aos_rpc_process_get_name_on_core(channel, process_ids_remote[i], &pname, other_coreid);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "aos_rpc_process_get_name_on_core fails\n");
+            return err;
+        }
+        debug_printf("%8d\t%5d\t%s\n", process_ids_remote[i] >> 24, process_ids_remote[i] & 0xFFFFFF, pname);
     }
 
     debug_printf("------------------------------------------\n");
