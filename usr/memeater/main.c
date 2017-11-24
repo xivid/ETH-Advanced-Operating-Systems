@@ -229,7 +229,11 @@ int main(int argc, char *argv[])
 {
     errval_t err;
 
-    debug_printf("memeater started....\n");
+    debug_printf("memeater started as (argc = %d):", argc);
+    for (int i = 0; i < argc; i++) {
+        printf(" [%s]", argv[i]);
+    }
+    printf("\n");
 
     init_rpc = *get_init_rpc();
     err = test_print_processes(&init_rpc);

@@ -43,10 +43,11 @@ struct spawninfo {
 
 // Start a child process by binary name. Fills in si
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si);
+errval_t spawn_load_by_name_with_arguments(void * binary_name, struct spawninfo * si, const char *argstr);
 errval_t elf_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags, void **ret);
 errval_t init_child_cspace(struct spawninfo* si);
 errval_t init_child_vspace(struct spawninfo* si);
 errval_t setup_dispatcher(struct spawninfo *si, lvaddr_t elf_base, size_t elf_bytes, const char *name);
-errval_t add_args(struct spawninfo* si, struct mem_region* module);
+errval_t add_args(struct spawninfo* si, struct mem_region* module, const char *argstr);
 
 #endif /* _INIT_SPAWN_H_ */

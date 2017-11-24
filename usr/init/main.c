@@ -119,41 +119,29 @@ int main(int argc, char *argv[])
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();
-    bool did_something = false;
-    volatile uint32_t *rx;
+    bool has_event = false;
+    // volatile uint32_t *rx;
     while (true) {
         // local events
-        err = check_for_event(default_ws);
+        err = event_dispatch_non_block(default_ws);
         if (err_is_ok(err)) {
-            struct event_closure closure;
-            err = get_next_event(default_ws, &closure);
-            if (err_is_fail(err)) {
-                DEBUG_ERR(err, "usr/init/main.c: event handling loop failure");
-                return EXIT_FAILURE;
-            }
-            assert(closure.handler != NULL);
-            closure.handler(closure.arg);
-            did_something = true;
+            has_event = true;
         }
 
         // urpc events
-        rx = (uint32_t *)urpc_shared_base + my_core_id * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
-        if (*(rx + LINE_WORDS - 1)) {
-            // there's something new
-            dmb();
-            if (rx[1] != AOS_RPC_ID_ACK) {
-                urpc_read_and_process((uint32_t *) rx, my_core_id);
-                did_something = true;
-            }
+        err = urpc_read_and_process_non_block(my_core_id);
+        if (err_is_ok(err)) {
+            has_event = true;
         }
 
         // if we did something, we try to do more again immediately. Otherwise we yield
-        if (did_something) {
-            did_something = false;
+        if (has_event) {
+            has_event = false;
             continue;
         }
-        else
+        else {
             thread_yield();
+        }
     }
 
     return EXIT_SUCCESS;

@@ -112,11 +112,11 @@ bool test_dynamic_slots(int count) {
     return true;
 }
 
-// test remote spawn hello.1 from memeater.0 (this relies on the implementation in memeater)
+// spawns memeater, which remote-spawns hello (this relies on the implementation in memeater)
 bool test_remote_spawn(void) {
     errval_t err;
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/memeater", si);
+    err = spawn_load_by_name_with_arguments("/armv7/sbin/memeater", si, "memeater Lorem ipsum dolor sit \"amet, consectetur\" adipiscing \"elit\"    ");
     if (err_is_fail(err)) {
         debug_printf("Failed spawning process memeater\n");
         return false;

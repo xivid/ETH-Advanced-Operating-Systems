@@ -12,7 +12,12 @@ extern struct bootinfo *bi;
 extern struct process_manager pm;
 
 errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
-    debug_printf("spawn start_child: starting: %s\n", binary_name);
+    return spawn_load_by_name_with_arguments(binary_name, si, NULL);
+}
+
+errval_t spawn_load_by_name_with_arguments(void * binary_name, struct spawninfo * si, const char *argstr) {
+    debug_printf("spawn_load_by_name: %s [%s]\n", binary_name, argstr == NULL ? "" : argstr);
+
     errval_t err;
     /* 1 - Get the binary from multiboot image */
     struct mem_region *module = multiboot_find_module(bi, binary_name);
@@ -79,7 +84,7 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
     }
 
     /* 7 - setup the args */
-    err = add_args(si, module);
+    err = add_args(si, module, argstr);
     if (err_is_fail(err)) {
         debug_printf("Error on setting up arguments\n");
         return err;
@@ -328,10 +333,10 @@ errval_t setup_dispatcher(struct spawninfo *si, lvaddr_t elf_base, size_t elf_by
     return SYS_ERR_OK;
 }
 
-errval_t add_args(struct spawninfo* si, struct mem_region* module) {
+errval_t add_args(struct spawninfo* si, struct mem_region* module, const char *argstr) {
 
     // get args as char
-    const char* args = multiboot_module_opts(module);
+    const char* args = (argstr == NULL) ? multiboot_module_opts(module) : argstr;
     size_t args_length = strlen(args);
     size_t frame_size = ROUND_UP(sizeof(struct spawn_domain_params) + args_length + 1, BASE_PAGE_SIZE);
 
@@ -377,21 +382,38 @@ errval_t add_args(struct spawninfo* si, struct mem_region* module) {
     memset(&spawn_params->envp[0], 0, sizeof(spawn_params->envp));
 
     // add argv to child vspace
+    // TODO: this is an ugly parsing algorithm. we should have a better parser.
     char* base = (char*) spawn_params + sizeof(struct spawn_domain_params);
     char* end = base;
     lvaddr_t child_base_addr = sizeof(struct spawn_domain_params) + (lvaddr_t) child_args_vaddr;
     strcpy(base, args);
     size_t argc = 0;
+    bool split_on_space = true;
     for (char *it = base; *it; ++it) {
-        if (*it== ' ') {
+        if (*it == '\"') {
+            if (split_on_space == false) { // this means this \" is the one on the right
+                *it = 0;
+                spawn_params->argv[argc++] = (void*) child_base_addr + (end-base);
+                ++it;
+                end = it + 1;
+            } else {
+                ++end;
+            }
+            split_on_space = !split_on_space;
+        }
+        else if (*it== ' ' && split_on_space) {
             *it = 0;
-            spawn_params->argv[argc++] = (void*) child_base_addr + (end-base);
-            ++it;
-            end = it;
+            if (*(it + 1) && *(it + 1) != ' ') {
+                spawn_params->argv[argc++] = (void *) child_base_addr + (end - base);
+                // ++it;
+                end = it + 1;
+            }
         }
     }
 
-    spawn_params->argv[argc++] = (void*) (end-base) + child_base_addr;
+    if (*end && *end != ' ') {
+        spawn_params->argv[argc++] = (void *) (end - base) + child_base_addr;
+    }
     spawn_params->argc = argc;
 
     // zero the rest

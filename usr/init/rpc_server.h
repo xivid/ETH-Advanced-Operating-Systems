@@ -62,6 +62,7 @@ errval_t send_pname(void* args);
 
 /* urpc declarations */
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
+errval_t urpc_read_and_process_non_block(coreid_t core);
 void urpc_read_and_process(uint32_t *rx, coreid_t core);
 void urpc_read_until_ack(uint32_t *ack_response, coreid_t core);
 static inline void dmb(void) { __asm volatile ("dmb"); }
@@ -812,7 +813,20 @@ void urpc_read_and_process(uint32_t *rx, coreid_t core)
 
         current_read_offset++;
         current_read_offset %= N_LINES;
+    } else {
+        debug_printf("unhandled AOS_RPC_ID_ACK!\n");
     }
+}
+
+errval_t urpc_read_and_process_non_block(coreid_t core) {
+    volatile uint32_t *rx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
+    if (*(rx + LINE_WORDS - 1)) {
+        // there's something new
+        dmb();
+        urpc_read_and_process((uint32_t *) rx, my_core_id);
+        return SYS_ERR_OK;
+    }
+    return LIB_ERR_NO_EVENT;
 }
 
 void urpc_spawn_handler(coreid_t core, void *name) {

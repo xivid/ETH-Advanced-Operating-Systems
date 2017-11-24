@@ -28,7 +28,12 @@ void test_arm_map_unmap(void);
 
 int main(int argc, char *argv[])
 {
-    debug_printf("hello started testing\n");
+    debug_printf("hello started as (argc = %d):", argc);
+    for (int i = 0; i < argc; i++) {
+        printf(" [%s]", argv[i]);
+    }
+    printf("\n");
+
     test_huge_malloc();
     // test_dynamic_slots(2000);
     test_paging();
