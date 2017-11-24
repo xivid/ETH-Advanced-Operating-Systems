@@ -39,10 +39,8 @@ domainid_t process_manager_add(struct process_manager *pm, const char *name) {
     struct domain_info *di = process_manager_new_node(name, pm->core, new_pid);
     di->next = pm->head;
     pm->head = di;
-
     pm->count++;
 
-    debug_printf("Added new process to the manager: name = [%s], pid = [%lx]\n", di->name, di->pid);
     return new_pid;
 }
 

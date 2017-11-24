@@ -123,7 +123,7 @@ static errval_t test_basic_rpc(void)
     }
 
     debug_printf("RPC: sending small string...\n");
-    err =  aos_rpc_send_string(&init_rpc, "Hello init");
+    err =  aos_rpc_send_string(&init_rpc, "Hello init!\n");
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not send a string\n");
         return err;
@@ -169,9 +169,8 @@ static errval_t test_remote_spawn_process(void)
         DEBUG_ERR(err, "could not spawn a remote process using RPC\n");
         return err;
     }
-    debug_printf("new pid=%d\n", new_pid);
 
-    debug_printf("RPC: testing remote process spawn. SUCCESS\n");
+    debug_printf("RPC: testing remote process spawn, spawned on core %d PID 0x%lx. SUCCESS\n", new_pid >> 24, new_pid & 0xFFFFFF);
     return SYS_ERR_OK;
 }
 

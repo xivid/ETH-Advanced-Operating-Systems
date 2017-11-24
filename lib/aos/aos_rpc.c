@@ -113,7 +113,7 @@ errval_t aos_rpc_send_number(struct aos_rpc *chan, uintptr_t val)
     uintptr_t args[LMP_ARGS_SIZE];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_NUM;
-    args[2] = (uintptr_t) &val;
+    args[2] = (uintptr_t) val;
 
     errval_t err = send_and_receive(rcv_handler_general, args);
     if (err_is_fail(err)) {
