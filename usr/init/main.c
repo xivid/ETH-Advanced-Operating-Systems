@@ -140,9 +140,8 @@ int main(int argc, char *argv[])
         rx = (uint32_t *)urpc_shared_base + my_core_id * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
         if (*(rx + LINE_WORDS - 1)) {
             // there's something new
-
-            urpc_read_and_process(my_core_id);
-
+            dmb();
+            urpc_read_and_process((uint32_t *) rx, my_core_id);
             did_something = true;
         }
 
