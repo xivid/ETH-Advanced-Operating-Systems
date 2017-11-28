@@ -147,7 +147,7 @@ static errval_t test_spawn_process(void)
     errval_t err;
     debug_printf("RPC: testing process spawn\n");
     domainid_t new_pid;
-    err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 0, &new_pid);
+    err = aos_rpc_process_spawn(init_rpc, "/armv7/sbin/hello", 0, &new_pid);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not spawn a process using RPC\n");
         return err;
@@ -164,7 +164,7 @@ static errval_t test_remote_spawn_process(void)
     errval_t err;
     debug_printf("RPC: testing remote process spawn\n");
     domainid_t new_pid;
-    err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 1 - disp_get_core_id(), &new_pid);
+    err = aos_rpc_process_spawn(init_rpc, "/armv7/sbin/hello", 1 - disp_get_core_id(), &new_pid);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not spawn a remote process using RPC\n");
         return err;
@@ -235,7 +235,7 @@ int main(int argc, char *argv[])
     }
     printf("\n");
 
-    err = test_print_processes(&init_rpc);
+    err = test_print_processes(init_rpc);
     if (err_is_fail(err)) {
         USER_PANIC_ERR(err, "failure in testing print processes\n");
     }
