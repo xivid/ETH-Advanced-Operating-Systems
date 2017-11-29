@@ -278,7 +278,11 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
     }
 
     if (current->type == NodeType_Keep) {
-        break_off_cap(mm, current, current->size, retcap);
+        err = break_off_cap(mm, current, current->size, retcap);
+        if (err_is_fail(err)) {
+            debug_printf("Failed to break off cap\n");
+            return err;
+        }
     } else {
         assert(aligned(current->base, alignment));
         assert(current->size >= size);
