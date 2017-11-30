@@ -30,6 +30,7 @@
 #include <spawn/multiboot.h>
 #include "rpc_server.h"
 #include "core_boot.h"
+#include "terminal.h"
 #include "tests.h"
 
 
@@ -70,6 +71,12 @@ int main(int argc, char *argv[])
         err = core_boot_dump_resources();
         if(err_is_fail(err)){
             DEBUG_ERR(err, "core_boot_dump_resources");
+            return EXIT_FAILURE;
+        }
+
+        err = register_getchar_interrupt_handler();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "register_getchar_handler");
             return EXIT_FAILURE;
         }
     } else {
