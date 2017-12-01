@@ -70,7 +70,7 @@ static void taken_list_delete_node(struct paging_state *st,
  *        creates a ARM l2 page table capability
  */
 __attribute__((unused))
-static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
+static errval_t arml2_alloc(struct paging_state *st, struct capref *ret)
 {
     errval_t err;
     err = st->slot_alloc->alloc(st->slot_alloc, ret);
@@ -87,7 +87,7 @@ static errval_t arml2_alloc(struct paging_state * st, struct capref *ret)
 }
 
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
-        struct capref pdir, struct slot_allocator * ca)
+        struct capref pdir, struct slot_allocator *ca)
 {
     st->l1_capref = pdir;
     st->slot_alloc = ca;
@@ -101,9 +101,10 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     paging_list_init_node(&st->first_region, start_vaddr, start_vaddr,
             (size_t) VIRTUAL_SPACE_SIZE - start_vaddr, NULL, NULL);
     st->free_list_head = &st->first_region;
-    thread_mutex_init(&st->paging_free_list_mutex);
-    thread_mutex_init(&st->paging_taken_list_mutex);
+    thread_mutex_init(&st->free_list_mutex);
+    thread_mutex_init(&st->taken_list_mutex);
     thread_mutex_init(&st->paging_map_mutex);
+    thread_mutex_init(&st->frame_alloc_mutex);
     return SYS_ERR_OK;
 }
 
@@ -122,11 +123,15 @@ void exception_handler(enum exception_type type, int subtype,
         size_t real_size;
         errval_t err;
         struct paging_state *st = get_current_paging_state();
+        struct thread *t = thread_self();
         lvaddr_t offset = (lvaddr_t) addr;
         lvaddr_t aligned = ROUND_DOWN(offset, BASE_PAGE_SIZE);
+
+        thread_mutex_lock(&st->frame_alloc_mutex);
         err = frame_alloc(&frame, BASE_PAGE_SIZE, &real_size);
+        thread_mutex_unlock(&st->frame_alloc_mutex);
+
         if (err_is_fail(err)) {
-            struct thread *t = thread_self();
             debug_printf("failed allocating frame in exception handler %p\n", t);
             goto loop;
         }
@@ -184,7 +189,11 @@ void paging_init_onthread(struct thread *t)
     lvaddr_t stack_base, stack_top;
     size_t real_bytes = EXCEPTION_STACK_SIZE;
 
+    struct paging_state *st = get_current_paging_state();
+    thread_mutex_lock(&st->frame_alloc_mutex);
     err = frame_alloc(&frame, real_bytes, &real_bytes);
+    thread_mutex_unlock(&st->frame_alloc_mutex);
+
     if (err_is_fail(err)) {
         debug_printf("failed allocating a frame for the exception stack\n");
         // Looks ugly, but i did not figure out a better way to do it.
@@ -201,6 +210,7 @@ void paging_init_onthread(struct thread *t)
     stack_top = ROUND_DOWN(stack_base + EXCEPTION_STACK_SIZE - 1, 4);
     thread_set_exception_handler_for_thread(t, exception_handler,
             NULL, (void *) stack_base, (void *) stack_top, NULL, NULL);
+
 }
 
 /**
@@ -357,7 +367,9 @@ errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
-    thread_mutex_lock(&st->paging_map_mutex);
+    // This mutex should be reentrable (nested), since paging_map_fixed_attr
+    // may recur due to slot_alloc->alloc() call for the mapping cap.
+    thread_mutex_lock_nested(&st->paging_map_mutex);
     struct capref l1_cap_dest = st->l1_capref;
     errval_t err;
     lvaddr_t cur_vaddr = vaddr;
@@ -454,14 +466,14 @@ __attribute__((unused))
 void free_list_insert_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->paging_free_list_mutex);
+    thread_mutex_lock(&st->free_list_mutex);
     // This list is sorted by base.
     struct paging_region **head = &st->free_list_head;
     if (*head == NULL) {
         *head = node;
         node->next = NULL;
         node->prev = NULL;
-        thread_mutex_unlock(&st->paging_free_list_mutex);
+        thread_mutex_unlock(&st->free_list_mutex);
         return;
     }
     struct paging_region *next = *head, *prev = NULL;
@@ -476,14 +488,14 @@ void free_list_insert_node(struct paging_state *st,
     if (next == *head) {
         *head = node;
     }
-    thread_mutex_unlock(&st->paging_free_list_mutex);
+    thread_mutex_unlock(&st->free_list_mutex);
 }
 
 __attribute__((unused))
 void taken_list_insert_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->paging_taken_list_mutex);
+    thread_mutex_lock(&st->taken_list_mutex);
     // This list is not sorted, so insert at front.
     if (st->taken_list_head == NULL) {
         node->prev = NULL;
@@ -492,7 +504,7 @@ void taken_list_insert_node(struct paging_state *st,
     }
     node->next = st->taken_list_head;
     st->taken_list_head = node;
-    thread_mutex_unlock(&st->paging_taken_list_mutex);
+    thread_mutex_unlock(&st->taken_list_mutex);
 }
 
 void paging_list_delete_node(struct paging_region **head,
@@ -515,33 +527,33 @@ void paging_list_delete_node(struct paging_region **head,
 void free_list_delete_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->paging_free_list_mutex);
+    thread_mutex_lock(&st->free_list_mutex);
     paging_list_delete_node(&st->free_list_head, node);
-    thread_mutex_unlock(&st->paging_free_list_mutex);
+    thread_mutex_unlock(&st->free_list_mutex);
 }
 
 void taken_list_delete_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->paging_taken_list_mutex);
+    thread_mutex_lock(&st->taken_list_mutex);
     paging_list_delete_node(&st->taken_list_head, node);
-    thread_mutex_unlock(&st->paging_taken_list_mutex);
+    thread_mutex_unlock(&st->taken_list_mutex);
 }
 
 __attribute__((unused))
 struct paging_region *free_list_find_node(struct paging_state *st,
         size_t size)
 {
-    thread_mutex_lock(&st->paging_free_list_mutex);
+    thread_mutex_lock(&st->free_list_mutex);
     struct paging_region *cur = st->free_list_head;
     while (cur) {
         if (cur->region_size >= size) {
-            thread_mutex_unlock(&st->paging_free_list_mutex);
+            thread_mutex_unlock(&st->free_list_mutex);
             return cur;
         }
         cur = cur->next;
     }
-    thread_mutex_unlock(&st->paging_free_list_mutex);
+    thread_mutex_unlock(&st->free_list_mutex);
     return NULL;
 }
 
@@ -564,11 +576,11 @@ void free_list_dec_size_node(struct paging_state *st,
 {
     if (node->region_size > decrement) {
         // We don't need to delete the node from the free list.
-        thread_mutex_lock(&st->paging_free_list_mutex);
+        thread_mutex_lock(&st->free_list_mutex);
         node->region_size -= decrement;
         node->base_addr += decrement;
         node->current_addr += decrement;
-        thread_mutex_unlock(&st->paging_free_list_mutex);
+        thread_mutex_unlock(&st->free_list_mutex);
     } else {
         // Delete the node.
         assert(st->free_list_head != &st->first_region);
