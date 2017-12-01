@@ -73,8 +73,8 @@ struct paging_state {
     struct paging_region first_region;
     bool can_use_slab;
     // TODO: implement multiple readers / one writer
-    struct thread_mutex paging_free_list_mutex;
-    struct thread_mutex paging_taken_list_mutex;
+    struct thread_mutex free_list_mutex;
+    struct thread_mutex taken_list_mutex;
     struct thread_mutex paging_map_mutex;
 };
 

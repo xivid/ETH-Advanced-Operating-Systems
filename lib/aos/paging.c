@@ -104,7 +104,6 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     thread_mutex_init(&st->free_list_mutex);
     thread_mutex_init(&st->taken_list_mutex);
     thread_mutex_init(&st->paging_map_mutex);
-    thread_mutex_init(&st->frame_alloc_mutex);
     return SYS_ERR_OK;
 }
 
@@ -127,9 +126,7 @@ void exception_handler(enum exception_type type, int subtype,
         lvaddr_t offset = (lvaddr_t) addr;
         lvaddr_t aligned = ROUND_DOWN(offset, BASE_PAGE_SIZE);
 
-        thread_mutex_lock(&st->frame_alloc_mutex);
         err = frame_alloc(&frame, BASE_PAGE_SIZE, &real_size);
-        thread_mutex_unlock(&st->frame_alloc_mutex);
 
         if (err_is_fail(err)) {
             debug_printf("failed allocating frame in exception handler %p\n", t);
@@ -189,10 +186,7 @@ void paging_init_onthread(struct thread *t)
     lvaddr_t stack_base, stack_top;
     size_t real_bytes = EXCEPTION_STACK_SIZE;
 
-    struct paging_state *st = get_current_paging_state();
-    thread_mutex_lock(&st->frame_alloc_mutex);
     err = frame_alloc(&frame, real_bytes, &real_bytes);
-    thread_mutex_unlock(&st->frame_alloc_mutex);
 
     if (err_is_fail(err)) {
         debug_printf("failed allocating a frame for the exception stack\n");

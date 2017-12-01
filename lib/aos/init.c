@@ -184,6 +184,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
 
     // init domains only get partial init
     if (init_domain) {
+        st->can_use_slab = true;
         return SYS_ERR_OK;
     }
 
