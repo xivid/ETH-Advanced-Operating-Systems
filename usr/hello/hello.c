@@ -19,11 +19,11 @@
 #include <aos/waitset.h>
 #include <aos/except.h>
 #include <time.h>
-
-void test_arm_map_unmap(void);
+#include "tests.h"
 
 int main(int argc, char *argv[])
 {
     debug_printf("hello started testing\n");
+    test_threads();
     return 0;
 }

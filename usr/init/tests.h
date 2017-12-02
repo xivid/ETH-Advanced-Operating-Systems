@@ -40,8 +40,7 @@ bool test_alloc_free(int allocations) {
     }
     debug_printf("allocations test succeeded\n");
     for (int i = 0; i < allocations; i++) {
-        size = BASE_PAGE_SIZE << (i % 9);
-        err = aos_ram_free(capabilities[i], size);
+        err = aos_ram_free(capabilities[i]);
         if (err_is_fail(err)) {
             debug_printf("Failed freeing capability %i\n", i);
             return false;
@@ -246,7 +245,7 @@ int test_one_thread(void *arg) {
     debug_printf("\t*** %d *** thread done %p\n", (int) arg, tmp);
     /* test_paging(false); */
     /* test_alloc_free(10); */
-    /* test_huge_malloc(); // TODO: fix me, i'm failing  */
+    /* test_huge_malloc(); // TODO: fix me, i'm failing */
     return 0;
 }
 
