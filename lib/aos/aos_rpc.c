@@ -172,7 +172,6 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
     assert(chan != NULL);
 
     // setup receiver slot
-    /* thread_mutex_lock(&chan->rpc_mutex); */
     errval_t err = lmp_chan_alloc_recv_slot(&chan->lmp);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_get_ram_cap: lmp chan alloc recv slot failed\n");
@@ -183,7 +182,6 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
         debug_printf("aos_rpc_get_ram_cap: send and receive failed\n");
         return err;
     }
-    /* thread_mutex_unlock(&chan->rpc_mutex); */
 
     return SYS_ERR_OK;
 }
