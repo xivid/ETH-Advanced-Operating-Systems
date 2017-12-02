@@ -40,7 +40,8 @@ bool test_alloc_free(int allocations) {
     }
     debug_printf("allocations test succeeded\n");
     for (int i = 0; i < allocations; i++) {
-        err = aos_ram_free(capabilities[i]);
+        size = BASE_PAGE_SIZE << (i % 9);
+        err = aos_ram_free(capabilities[i], size);
         if (err_is_fail(err)) {
             debug_printf("Failed freeing capability %i\n", i);
             return false;
