@@ -38,6 +38,7 @@ void slab_init(struct slab_allocator *slabs, size_t blocksize,
     slabs->slabs = NULL;
     slabs->blocksize = SLAB_REAL_BLOCKSIZE(blocksize);
     slabs->refill_func = refill_func;
+    thread_mutex_init(&slabs->slab_mutex);
 }
 
 
@@ -51,6 +52,7 @@ void slab_init(struct slab_allocator *slabs, size_t blocksize,
 void slab_grow(struct slab_allocator *slabs, void *buf, size_t buflen)
 {
     /* setup slab_head structure at top of buffer */
+    thread_mutex_lock_nested(&slabs->slab_mutex);
     assert(buflen > sizeof(struct slab_head));
     struct slab_head *head = buf;
     buflen -= sizeof(struct slab_head);
@@ -74,6 +76,7 @@ void slab_grow(struct slab_allocator *slabs, void *buf, size_t buflen)
     /* enqueue slab in list of slabs */
     head->next = slabs->slabs;
     slabs->slabs = head;
+    thread_mutex_unlock(&slabs->slab_mutex);
 }
 
 /**
@@ -85,6 +88,7 @@ void slab_grow(struct slab_allocator *slabs, void *buf, size_t buflen)
  */
 void *slab_alloc(struct slab_allocator *slabs)
 {
+    thread_mutex_lock_nested(&slabs->slab_mutex);
     errval_t err;
     /* find a slab with free blocks */
     struct slab_head *sh;
@@ -93,16 +97,19 @@ void *slab_alloc(struct slab_allocator *slabs)
     if (sh == NULL) {
         /* out of memory. try refill function if we have one */
         if (!slabs->refill_func) {
+            thread_mutex_unlock(&slabs->slab_mutex);
             return NULL;
         } else {
             err = slabs->refill_func(slabs);
             if (err_is_fail(err)) {
                 debug_printf("slab refill_func failed: %s\n",
                         err_getstring(err));
+                thread_mutex_unlock(&slabs->slab_mutex);
                 return NULL;
             }
             for (sh = slabs->slabs; sh != NULL && sh->free == 0; sh = sh->next);
             if (sh == NULL) {
+                thread_mutex_unlock(&slabs->slab_mutex);
                 return NULL;
             }
         }
@@ -114,6 +121,7 @@ void *slab_alloc(struct slab_allocator *slabs)
     sh->blocks = bh->next;
     sh->free--;
 
+    thread_mutex_unlock(&slabs->slab_mutex);
     return bh;
 }
 
@@ -129,6 +137,7 @@ void slab_free(struct slab_allocator *slabs, void *block)
         return;
     }
 
+    thread_mutex_lock_nested(&slabs->slab_mutex);
     struct block_head *bh = (struct block_head *)block;
 
     /* find matching slab */
@@ -149,6 +158,7 @@ void slab_free(struct slab_allocator *slabs, void *block)
     sh->blocks = bh;
     sh->free++;
     assert(sh->free <= sh->total);
+    thread_mutex_unlock(&slabs->slab_mutex);
 }
 
 /**
@@ -162,10 +172,12 @@ size_t slab_freecount(struct slab_allocator *slabs)
 {
     size_t ret = 0;
 
+    thread_mutex_lock_nested(&slabs->slab_mutex);
     for (struct slab_head *sh = slabs->slabs; sh != NULL; sh = sh->next) {
         ret += sh->free;
     }
 
+    thread_mutex_unlock(&slabs->slab_mutex);
     return ret;
 }
 
