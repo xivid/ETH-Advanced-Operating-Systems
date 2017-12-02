@@ -101,9 +101,8 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     paging_list_init_node(&st->first_region, start_vaddr, start_vaddr,
             (size_t) VIRTUAL_SPACE_SIZE - start_vaddr, NULL, NULL);
     st->free_list_head = &st->first_region;
-    thread_mutex_init(&st->free_list_mutex);
-    thread_mutex_init(&st->taken_list_mutex);
-    thread_mutex_init(&st->paging_map_mutex);
+    thread_mutex_init(&st->pagetable_mutex);
+    thread_mutex_init(&st->paging_data_mutex);
     return SYS_ERR_OK;
 }
 
@@ -270,20 +269,24 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
+    thread_mutex_lock_nested(&st->paging_data_mutex);
     size_t round_size = ROUND_UP(bytes, BASE_PAGE_SIZE);
     struct paging_region *node = free_list_find_node(st, round_size);
     if (!node) {
+        thread_mutex_unlock(&st->paging_data_mutex);
         return LIB_ERR_VSPACE_MMU_AWARE_NO_SPACE;
     }
     *buf = (void *) node->base_addr;
     free_list_dec_size_node(st, node, round_size);
     if (!st->can_use_slab) {
         // Slab regions are not unmapped, so we don't track them.
+        thread_mutex_unlock(&st->paging_data_mutex);
         return SYS_ERR_OK;
     }
     struct paging_region *taken_node = paging_list_create_node(st,
             (lvaddr_t) *buf, (lvaddr_t) *buf, round_size, NULL, NULL);
     taken_list_insert_node(st, taken_node);
+    thread_mutex_unlock(&st->paging_data_mutex);
 
     return SYS_ERR_OK;
 }
@@ -342,12 +345,14 @@ errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
     struct capref mapping;
     err = st->slot_alloc->alloc(st->slot_alloc, &mapping);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "slot allocation failed");
+        DEBUG_ERR(err, "slot allocation failed\n");
         return err;
     }
     err = vnode_map(l1_cap, *ret, index_l1, flags, 0, 1, mapping);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "vnode_map failed");
+        struct thread *t = thread_self();
+        DEBUG_ERR(err, "vnode_map failed %p slot=%d\n", t, (int) index_l1);
+        debug_printf("l2_pagetab[%d] = %d\n", (int) index_l1, st->l2_pagetabs[index_l1]);
         return err;
     }
     st->l2_pagetabs[index_l1].initialized = true;
@@ -361,9 +366,7 @@ errval_t init_l2_pagetab(struct paging_state *st, struct capref *ret,
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
-    // This mutex should be reentrable (nested), since paging_map_fixed_attr
-    // may recur due to slot_alloc->alloc() call for the mapping cap.
-    thread_mutex_lock_nested(&st->paging_map_mutex);
+    thread_mutex_lock_nested(&st->pagetable_mutex);
     struct capref l1_cap_dest = st->l1_capref;
     errval_t err;
     lvaddr_t cur_vaddr = vaddr;
@@ -374,7 +377,7 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         if (!st->l2_pagetabs[index_l1].initialized) {
             err = init_l2_pagetab(st, &l2_cap, l1_cap_dest, index_l1, flags);
             if (err_is_fail(err)) {
-                thread_mutex_unlock(&st->paging_map_mutex);
+                thread_mutex_unlock(&st->pagetable_mutex);
                 debug_printf("l2 pagetab initialisation failed\n");
                 return err;
             }
@@ -385,7 +388,7 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref mapping;
         err = st->slot_alloc->alloc(st->slot_alloc, &mapping);
         if (err_is_fail(err)) {
-            thread_mutex_unlock(&st->paging_map_mutex);
+            thread_mutex_unlock(&st->pagetable_mutex);
             debug_printf("slot allocation failed\n");
             return err;
         }
@@ -397,7 +400,7 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         err = vnode_map(l2_cap, frame, l2_offset, flags,
                         source_offset, pte_count, mapping);
         if (err_is_fail(err)) {
-            thread_mutex_unlock(&st->paging_map_mutex);
+            thread_mutex_unlock(&st->pagetable_mutex);
             debug_printf("vnode_map failed\n");
             return err;
         }
@@ -405,7 +408,7 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         cur_vaddr += pte_count * BASE_PAGE_SIZE;
     }
 
-    thread_mutex_unlock(&st->paging_map_mutex);
+    thread_mutex_unlock(&st->pagetable_mutex);
     return SYS_ERR_OK;
 }
 
@@ -415,6 +418,7 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
  */
 errval_t paging_unmap(struct paging_state *st, const void *region)
 {
+    thread_mutex_lock_nested(&st->paging_data_mutex);
     // 1. Find the address in the taken list.
     struct paging_region *cur = taken_list_find_node(st->taken_list_head,
             (lvaddr_t) region);
@@ -432,6 +436,7 @@ errval_t paging_unmap(struct paging_state *st, const void *region)
 
     // 5. Change the arm page tables.
     // TODO - should we modify the arm page table?
+    thread_mutex_unlock(&st->paging_data_mutex);
     return SYS_ERR_OK;
 }
 
@@ -460,14 +465,12 @@ __attribute__((unused))
 void free_list_insert_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->free_list_mutex);
     // This list is sorted by base.
     struct paging_region **head = &st->free_list_head;
     if (*head == NULL) {
         *head = node;
         node->next = NULL;
         node->prev = NULL;
-        thread_mutex_unlock(&st->free_list_mutex);
         return;
     }
     struct paging_region *next = *head, *prev = NULL;
@@ -482,14 +485,12 @@ void free_list_insert_node(struct paging_state *st,
     if (next == *head) {
         *head = node;
     }
-    thread_mutex_unlock(&st->free_list_mutex);
 }
 
 __attribute__((unused))
 void taken_list_insert_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->taken_list_mutex);
     // This list is not sorted, so insert at front.
     if (st->taken_list_head == NULL) {
         node->prev = NULL;
@@ -498,7 +499,6 @@ void taken_list_insert_node(struct paging_state *st,
     }
     node->next = st->taken_list_head;
     st->taken_list_head = node;
-    thread_mutex_unlock(&st->taken_list_mutex);
 }
 
 void paging_list_delete_node(struct paging_region **head,
@@ -521,33 +521,26 @@ void paging_list_delete_node(struct paging_region **head,
 void free_list_delete_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->free_list_mutex);
     paging_list_delete_node(&st->free_list_head, node);
-    thread_mutex_unlock(&st->free_list_mutex);
 }
 
 void taken_list_delete_node(struct paging_state *st,
         struct paging_region *node)
 {
-    thread_mutex_lock(&st->taken_list_mutex);
     paging_list_delete_node(&st->taken_list_head, node);
-    thread_mutex_unlock(&st->taken_list_mutex);
 }
 
 __attribute__((unused))
 struct paging_region *free_list_find_node(struct paging_state *st,
         size_t size)
 {
-    thread_mutex_lock(&st->free_list_mutex);
     struct paging_region *cur = st->free_list_head;
     while (cur) {
         if (cur->region_size >= size) {
-            thread_mutex_unlock(&st->free_list_mutex);
             return cur;
         }
         cur = cur->next;
     }
-    thread_mutex_unlock(&st->free_list_mutex);
     return NULL;
 }
 
@@ -570,11 +563,9 @@ void free_list_dec_size_node(struct paging_state *st,
 {
     if (node->region_size > decrement) {
         // We don't need to delete the node from the free list.
-        thread_mutex_lock(&st->free_list_mutex);
         node->region_size -= decrement;
         node->base_addr += decrement;
         node->current_addr += decrement;
-        thread_mutex_unlock(&st->free_list_mutex);
     } else {
         // Delete the node.
         assert(st->free_list_head != &st->first_region);
