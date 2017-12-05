@@ -93,6 +93,7 @@ errval_t mm_init(struct mm *mm, enum objtype objtype,
     mm->allocating_ram = false;
     mm->objtype = objtype;
     mm->head = NULL;
+    thread_mutex_init(&mm->mm_mutex);
 
     return SYS_ERR_OK;
 }
@@ -226,15 +227,18 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
                           struct capref *retcap)
 {
     errval_t err;
+    thread_mutex_lock_nested(&mm->mm_mutex);
     struct mmnode *current = mm->head;
     if (current == NULL) {
-        DEBUG_ERR(MM_ERR_MISSING_CAPS, "Cannot allocate memory without caps\n");
+        debug_printf("Cannot allocate memory without caps\n");
+        thread_mutex_unlock(&mm->mm_mutex);
         return MM_ERR_MISSING_CAPS;
     }
 
     err = mm_find_smallest_node(mm, size, alignment, &current);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "Error finding smallest node\n");
+        debug_printf("Error finding smallest node\n");
+        thread_mutex_unlock(&mm->mm_mutex);
         return err;
     }
 
@@ -243,7 +247,8 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
         size_t offset = largest_contained_power_of_2(current->size);
         err = break_off_cap(mm, current, offset, retcap);
         if (err_is_fail(err)) {
-            DEBUG_ERR(err, "Failed at splitting node");
+            debug_printf("Failed at splitting node\n");
+            thread_mutex_unlock(&mm->mm_mutex);
             return err;
         }
 
@@ -253,11 +258,13 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
                                                      offset);
             if (new_node == NULL) {
                 debug_printf("Failed to create new mmnode\n");
+                thread_mutex_unlock(&mm->mm_mutex);
                 return MM_ERR_NEW_NODE;
             }
             mm_insert_node(mm, new_node, current);
             current = new_node;
         } else {
+            thread_mutex_unlock(&mm->mm_mutex);
             return SYS_ERR_OK;
         }
 
@@ -265,13 +272,15 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
         err = refill_slots_if_needed(mm, &refilled);
         if (err_is_fail(err)) {
             debug_printf("Refilling slots failed\n");
+            thread_mutex_unlock(&mm->mm_mutex);
             return err;
         }
         if (refilled) {
             current = mm->head;
             err = mm_find_smallest_node(mm, size, alignment, &current);
             if (err_is_fail(err)) {
-                DEBUG_ERR(err, "Error finding node after slot refill\n");
+                debug_printf("Error finding node after slot refill\n");
+                thread_mutex_unlock(&mm->mm_mutex);
                 return err;
             }
         }
@@ -290,6 +299,7 @@ errval_t mm_alloc_aligned(struct mm *mm, size_t size, size_t alignment,
         mm_delete_node(mm, current, false);
     }
 
+    thread_mutex_unlock(&mm->mm_mutex);
     return SYS_ERR_OK;
 }
 
@@ -341,6 +351,7 @@ errval_t mm_alloc(struct mm *mm, size_t size, struct capref *retcap)
 errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
                  gensize_t size)
 {
+    thread_mutex_lock_nested(&mm->mm_mutex);
     struct frame_identity ident;
     frame_identify(cap, &ident);
     assert(ident.base == base && ident.bytes == size);
@@ -349,6 +360,7 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
     errval_t err;
     if (mm->head == NULL) {
         printf("No capability slots to free");
+        thread_mutex_unlock(&mm->mm_mutex);
         return MM_ERR_MISSING_CAPS;
     }
 
@@ -361,6 +373,7 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
         err = refill_slots_if_needed(mm, NULL);
         if (err_is_fail(err)) {
             debug_printf("Refilling slots failed in mm_free\n");
+            thread_mutex_unlock(&mm->mm_mutex);
             return err;
         }
     } else {
@@ -405,6 +418,7 @@ errval_t mm_free(struct mm *mm, struct capref cap, genpaddr_t base,
         }
     }
 
+    thread_mutex_unlock(&mm->mm_mutex);
     return SYS_ERR_OK;
 }
 
@@ -673,6 +687,7 @@ errval_t break_off_cap(struct mm *mm, struct mmnode *current,
     err = cap_retype(*left_cap, current->cap, parent_offset, mm->objtype, left_size, 1);
     if (err_is_fail(err)) {
         debug_printf("Failed to retype the cap for break off\n");
+        debug_printf("%s\n", err_getstring(err));
         return err;
     }
 
