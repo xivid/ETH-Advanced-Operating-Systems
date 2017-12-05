@@ -73,12 +73,6 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "core_boot_dump_resources");
             return EXIT_FAILURE;
         }
-
-        err = register_getchar_interrupt_handler();
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "register_getchar_handler");
-            return EXIT_FAILURE;
-        }
     } else {
         err = core_boot_load_resources(my_core_id);  // initialize_ram_alloc is done inside
         if(err_is_fail(err)){
@@ -103,6 +97,13 @@ int main(int argc, char *argv[])
 
     // WARNING: boot_core() must only be called AFTER core_boot_dump_resources()!
     if (my_core_id == 0) {
+        err = register_getchar_interrupt_handler();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "register_getchar_handler");
+            return EXIT_FAILURE;
+        }
+
+
         debug_printf("booting core 1\n");
         err = boot_core(1);
         if (err_is_fail(err)) {

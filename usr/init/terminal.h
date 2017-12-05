@@ -16,6 +16,7 @@ errval_t register_getchar_interrupt_handler(void);
 
 
 static void print_handler(void *handler_arg) {
+    assert(handler_arg == NULL);
     debug_printf("Received interrupt for getChar:\n");
     char new_char;
     scanf("%c", &new_char); // I hope this works
