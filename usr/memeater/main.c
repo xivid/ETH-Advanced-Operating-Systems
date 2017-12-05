@@ -235,12 +235,14 @@ int main(int argc, char *argv[])
     }
     printf("\n");
 
+    init_rpc = aos_rpc_get_init_channel();
+    assert(init_rpc);
+
     err = test_print_processes(init_rpc);
     if (err_is_fail(err)) {
         USER_PANIC_ERR(err, "failure in testing print processes\n");
     }
 
-    init_rpc = aos_rpc_get_init_channel();
     if (!init_rpc) {
         USER_PANIC_ERR(err, "init RPC channel NULL?\n");
     }
