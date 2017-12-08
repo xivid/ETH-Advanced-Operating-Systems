@@ -22,6 +22,7 @@ errval_t rcv_handler_for_ram (void *v_args);
 errval_t rcv_handler_for_process (void *v_args);
 errval_t rcv_handler_for_get_process_name (void *v_args);
 errval_t rcv_handler_for_get_pids (void *v_args);
+errval_t rcv_handler_for_char(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -215,11 +216,54 @@ errval_t rcv_handler_for_ram (void* v_args) {
 
 errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
 {
-    // TODO implement functionality to request a character from
-    // the serial driver.
+    errval_t err;
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[0] = (uintptr_t) chan;
+    args[1] = (uintptr_t) AOS_RPC_ID_GET_CHAR;
+    args[2] = (uintptr_t) 0; // The core dest
+
+    args[LMP_ARGS_SIZE] = (uintptr_t) retc;
+
+    debug_printf("Before send_and_receive\n");
+
+    err = send_and_receive(rcv_handler_for_char, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_rcv_char failed\n");
+        return err;
+    }
     return SYS_ERR_OK;
 }
 
+
+errval_t rcv_handler_for_char(void *v_args)
+{
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    struct capref cap;
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    debug_printf("in receive handler\n");
+    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
+
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
+                MKCLOSURE((void*) rcv_handler_general, args));
+        count++;
+    }
+    if (err_is_fail(err)) {
+        debug_printf("rcv_handler_general: too many failed attempts or non transient error\n");
+        return err;
+    }
+
+    if (lmp_msg.words[0] != AOS_RPC_ID_ACK) {
+        debug_printf("rcv_handler_for_char: received message not es expected\n");
+        return FLOUNDER_ERR_RPC_MISMATCH;
+    }
+
+    *(char*)(args[LMP_ARGS_SIZE]) = lmp_msg.words[1];
+
+    return SYS_ERR_OK;
+}
 
 errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 {
@@ -464,7 +508,6 @@ errval_t rcv_handler_for_get_pids (void *v_args)
 
     return SYS_ERR_OK;
 }
-
 
 errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
                                 lpaddr_t paddr, size_t bytes,

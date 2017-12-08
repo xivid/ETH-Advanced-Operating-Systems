@@ -120,7 +120,8 @@ int main(int argc, char *argv[])
     // So, I put this warning here just for reference in case some related problem occurs in the future.
 
     if (my_core_id == 1) {
-        test_remote_spawn();
+        test_multi_spawn(1, "/armv7/sbin/shell");
+        //test_remote_spawn();
     }
 
     debug_printf("Message handler loop\n");
