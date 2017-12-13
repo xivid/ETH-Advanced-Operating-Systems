@@ -87,6 +87,9 @@ struct dispatcher_generic {
 
     /// list of polled channels
     struct waitset_chanstate *polled_channels;
+
+    /// endpoint capability to nameserver process
+    struct aos_rpc *nameserver_rpc;
 };
 
 #endif // BARRELFISH_DISPATCHER_H

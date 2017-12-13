@@ -42,6 +42,8 @@ void set_current_paging_state(struct paging_state *st);
 struct ram_alloc_state *get_ram_alloc_state(void);
 struct slot_alloc_state *get_slot_alloc_state(void);
 
+void set_nameserver_rpc(struct aos_rpc *ns_rpc);
+struct aos_rpc *get_nameserver_rpc(void);
 
 __END_DECLS
 
