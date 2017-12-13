@@ -1,0 +1,6 @@
+[ build application { target = "nameserver",
+  		              cFiles = [ "main.c" ],
+                      addLinkFlags = [ "-e _start"],
+                      architectures = allArchitectures
+                    }
+]
