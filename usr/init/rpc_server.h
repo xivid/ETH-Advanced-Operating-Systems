@@ -40,8 +40,13 @@ struct client {
     struct lmp_chan lmp;
 } *client_list = NULL;
 
+struct nameserver_answer_t {
+    struct lmp_chan sender_lmp;
+};
+
 extern struct process_manager pm;
 extern coreid_t my_core_id;
+extern struct capref ns_endpoint; /// The endpoint cap to nameserver process
 
 errval_t init_rpc(void);
 errval_t recv_handler(void* arg);
@@ -54,11 +59,14 @@ void* answer_pids(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_pname(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref cap);
 void* answer_ram(struct capref cap, struct lmp_recv_msg* msg);
+void *answer_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg);
+
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
 errval_t send_process(void* args);
 errval_t send_pids(void* args);
 errval_t send_pname(void* args);
+errval_t send_nameserver_ep(void *args);
 
 /* urpc declarations */
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
@@ -179,6 +187,10 @@ errval_t recv_handler(void* arg)
         case AOS_RPC_ID_GET_PNAME:
             answer_args = answer_pname(cap_endpoint, &msg);
             answer = (void*) send_pname;
+            break;
+        case AOS_RPC_ID_GET_NAMESERVER_EP:
+            answer_args = answer_nameserver_ep(cap_endpoint, &msg);
+            answer = (void*) send_nameserver_ep;
             break;
         default:
             debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
@@ -563,6 +575,21 @@ void* answer_ram(struct capref cap, struct lmp_recv_msg* msg) {
     return (void*) args_ptr;
 }
 
+void* answer_nameserver_ep(struct capref cap, struct lmp_recv_msg* msg) {
+    struct client *sender = NULL;
+    errval_t err = whois(cap, &sender);
+    if (err_is_fail(err) || sender == NULL) {
+        DEBUG_ERR(err, "usr/init/main.c answer init: could not identify client");
+        return NULL;
+    }
+
+    struct nameserver_answer_t *args =
+        malloc(sizeof(struct nameserver_answer_t));
+    args->sender_lmp = sender->lmp;
+
+    return (void*) args;
+}
+
 /* All send handlers */
 
 // handler to send a signal that the message was received
@@ -734,6 +761,19 @@ errval_t send_pname(void *args) {
         }
     }
 
+
+    return SYS_ERR_OK;
+}
+
+errval_t send_nameserver_ep(void* args) {
+    struct nameserver_answer_t *ns_args = (struct nameserver_answer_t *) args;
+    struct lmp_chan *lmp = &ns_args->sender_lmp;
+
+    errval_t err_send = lmp_chan_send1(lmp, LMP_FLAG_SYNC, ns_endpoint, 1);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
+        return err_send;
+    }
 
     return SYS_ERR_OK;
 }
