@@ -25,10 +25,10 @@
 #include <multiboot.h>
 
 #include <mm/mm.h>
-#include "mem_alloc.h"
 #include <spawn/spawn.h>
 #include <spawn/multiboot.h>
-#include "rpc_server.h"
+
+#include "mem_alloc.h"
 #include "core_boot.h"
 #include "tests.h"
 
@@ -39,6 +39,7 @@ struct bootinfo *bi;
 struct process_manager pm;
 
 struct capref ns_endpoint; /// The endpoint cap to nameserver process
+struct client *client_list;
 
 /* main */
 int main(int argc, char *argv[])
