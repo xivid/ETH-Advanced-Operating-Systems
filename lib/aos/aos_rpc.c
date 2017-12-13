@@ -22,6 +22,7 @@ errval_t rcv_handler_for_ram (void *v_args);
 errval_t rcv_handler_for_process (void *v_args);
 errval_t rcv_handler_for_get_process_name (void *v_args);
 errval_t rcv_handler_for_get_pids (void *v_args);
+errval_t rcv_handler_for_ns(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -211,6 +212,53 @@ errval_t rcv_handler_for_ram (void* v_args) {
     }
 
     return (errval_t) lmp_msg.words[2];
+}
+
+errval_t aos_rpc_get_nameserver_ep(struct aos_rpc *init_chan,
+        struct capref *retcap)
+{
+    // arguments: [aos_rpc, msg_id, retcap]
+    uintptr_t args[3];
+    args[0] = (uintptr_t) init_chan;
+    args[1] = (uintptr_t) AOS_RPC_ID_GET_NAMESERVER_EP;
+    args[2] = (uintptr_t) retcap;
+
+    assert(init_chan != NULL);
+
+    // setup receiver slot
+    errval_t err = lmp_chan_alloc_recv_slot(&init_chan->lmp);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_get_ram_cap: lmp chan alloc recv slot failed\n");
+        return err;
+    }
+    err = send_and_receive(rcv_handler_for_ns, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_get_ram_cap: send and receive failed\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
+errval_t rcv_handler_for_ns(void *v_args) {
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    struct capref* retcap = (struct capref*) args[2];
+
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, retcap);
+
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
+                MKCLOSURE((void*) rcv_handler_for_ram, args));
+        count++;
+    }
+    if (err_is_fail(err)) {
+        debug_printf("rcv_handler_for_ram: too many failed attempts or non transient error\n");
+        return err;
+    }
+    return SYS_ERR_OK;
 }
 
 errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
