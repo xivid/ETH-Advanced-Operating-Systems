@@ -811,16 +811,19 @@ void urpc_read_and_process(uint32_t *rx, coreid_t core)
             debug_printf("Forwarding not implemented!\n");
         }
 
+
+        rx[LINE_WORDS - 1] = 0;
+
         current_read_offset++;
         current_read_offset %= N_LINES;
     } else {
-        debug_printf("unhandled AOS_RPC_ID_ACK!\n");
+        debug_printf("unhandled AOS_RPC_ID_ACK %i!\n", rx[0]);
     }
 }
 
 errval_t urpc_read_and_process_non_block(coreid_t core) {
     volatile uint32_t *rx = (uint32_t *)urpc_shared_base + core * N_LINES * LINE_WORDS + current_read_offset * LINE_WORDS;
-    if (*(rx + LINE_WORDS - 1)) {
+    if (*(rx + LINE_WORDS - 1) && rx[1] != AOS_RPC_ID_ACK) {
         // there's something new
         dmb();
         urpc_read_and_process((uint32_t *) rx, my_core_id);
