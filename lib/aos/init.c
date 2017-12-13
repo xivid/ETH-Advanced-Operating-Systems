@@ -94,16 +94,13 @@ static size_t syscall_terminal_write(const char *buf, size_t len)
 
 static size_t lmp_terminal_read(char *buf, size_t len)
 {
-    debug_printf("Called lmp terminal read\n");
     if (len) {
         struct aos_rpc * channel = aos_rpc_get_serial_channel();
         for (int i = 0; i < len; i++) {
-            debug_printf("before serial_getchar %i / %i\n", i, len);
             errval_t err = aos_rpc_serial_getchar(channel, buf + i);
-            debug_printf("passed serial_getchar (%c)\n", buf[i]);
             assert(!err_is_fail(err));
             if (buf[i] == 0) {
-                return i;
+                return i + 1;
             }
         }
     }

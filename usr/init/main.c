@@ -28,9 +28,9 @@
 #include "mem_alloc.h"
 #include <spawn/spawn.h>
 #include <spawn/multiboot.h>
+#include "terminal.h"
 #include "rpc_server.h"
 #include "core_boot.h"
-#include "terminal.h"
 #include "tests.h"
 
 

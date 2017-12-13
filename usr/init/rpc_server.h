@@ -518,8 +518,7 @@ void* answer_get_char(struct capref cap_endpoint, struct lmp_recv_msg* msg)
     char retchar;
 
     if (target_core_id == my_core_id) {
-        // TODO:
-        retchar = 'a';
+        retchar = get_next_char_from_buffer();
     } else {
         // send URPC request
         uint32_t message[URPC_PAYLOAD_LEN];
@@ -1037,7 +1036,7 @@ void urpc_get_char_handler(coreid_t core)
     uint32_t char_ack[URPC_PAYLOAD_LEN];
     char_ack[0] = INIT_PROCESS_ID;
     char_ack[1] = AOS_RPC_ID_ACK;
-    char_ack[2] = 'c';
+    char_ack[2] = get_next_char_from_buffer();
 
     urpc_write(char_ack, 1-core);
 }
