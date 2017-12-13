@@ -32,6 +32,7 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_GET_PIDS,
     AOS_RPC_ID_GET_PNAME,
     AOS_RPC_ID_GET_NAMESERVER_EP,
+    AOS_RPC_ID_GET_CHAR,
 };
 
 struct aos_rpc {

@@ -92,9 +92,31 @@ static size_t syscall_terminal_write(const char *buf, size_t len)
     return 0;
 }
 
-static size_t dummy_terminal_read(char *buf, size_t len)
+static size_t lmp_terminal_read(char *buf, size_t len)
 {
-    debug_printf("terminal read NYI! returning %d characters read\n", len);
+    debug_printf("Called lmp terminal read\n");
+    if (len) {
+        struct aos_rpc * channel = aos_rpc_get_serial_channel();
+        for (int i = 0; i < len; i++) {
+            debug_printf("before serial_getchar %i / %i\n", i, len);
+            errval_t err = aos_rpc_serial_getchar(channel, buf + i);
+            debug_printf("passed serial_getchar (%c)\n", buf[i]);
+            assert(!err_is_fail(err));
+            if (buf[i] == 0) {
+                return i;
+            }
+        }
+    }
+    return len;
+}
+
+static size_t syscall_terminal_read(char *buf, size_t len)
+{
+    debug_printf("Called syscall terminal read\n");
+    for (int i = 0; i < len; i++) {
+        errval_t err = sys_getchar(buf + i);
+        assert(!err_is_fail(err));
+    }
     return len;
 }
 
@@ -104,7 +126,7 @@ void barrelfish_libc_glue_init(void)
     // XXX: FIXME: Check whether we can use the proper kernel serial, and
     // what we need for that
     // TODO: change these to use the user-space serial driver if possible
-    _libc_terminal_read_func = dummy_terminal_read;
+    _libc_terminal_read_func = syscall_terminal_read;
     _libc_terminal_write_func = syscall_terminal_write; // make sure this is the syscall terminal before init has started
     _libc_exit_func = libc_exit;
     _libc_assert_func = libc_assert;
@@ -203,6 +225,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
 
     debug_printf("barrelfish_init_onthread(): initialized rpc\n");
     _libc_terminal_write_func = lmp_terminal_write;
+    _libc_terminal_read_func = lmp_terminal_read;
     st->can_use_slab = true;
 
 

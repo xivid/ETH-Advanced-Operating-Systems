@@ -30,6 +30,7 @@
 #include <spawn/multiboot.h>
 #include "rpc_server.h"
 #include "core_boot.h"
+#include "terminal.h"
 #include "tests.h"
 
 
@@ -98,6 +99,13 @@ int main(int argc, char *argv[])
 
     // WARNING: boot_core() must only be called AFTER core_boot_dump_resources()!
     if (my_core_id == 0) {
+        err = register_getchar_interrupt_handler();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "register_getchar_handler");
+            return EXIT_FAILURE;
+        }
+
+
         debug_printf("booting core 1\n");
         err = boot_core(1);
         if (err_is_fail(err)) {
@@ -114,7 +122,8 @@ int main(int argc, char *argv[])
     // So, I put this warning here just for reference in case some related problem occurs in the future.
 
     if (my_core_id == 1) {
-        test_remote_spawn();
+        test_multi_spawn(1, "/armv7/sbin/shell");
+        //test_remote_spawn();
     }
 
     debug_printf("Message handler loop\n");

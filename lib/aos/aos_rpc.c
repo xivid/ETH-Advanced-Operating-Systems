@@ -17,12 +17,14 @@
 
 errval_t send_handler (void *v_args);
 
+errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, struct capref *cap, void *rcv_handler);
 errval_t rcv_handler_general (void *v_args);
 errval_t rcv_handler_for_ram (void *v_args);
 errval_t rcv_handler_for_process (void *v_args);
 errval_t rcv_handler_for_get_process_name (void *v_args);
 errval_t rcv_handler_for_get_pids (void *v_args);
 errval_t rcv_handler_for_ns(void *v_args);
+errval_t rcv_handler_for_char(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -48,24 +50,30 @@ errval_t send_handler (void* v_args)
 errval_t rcv_handler_general (void* v_args)
 {
     uintptr_t* args = (uintptr_t*) v_args;
-    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
+
+    return receive_and_match_ack(args, &lmp_msg, &cap, (void *) rcv_handler_general);
+}
+
+errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, struct capref *cap, void *rcv_handler)
+{
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    errval_t err = lmp_chan_recv(&rpc->lmp, lmp_msg, cap);
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
         err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                MKCLOSURE((void*) rcv_handler_general, args));
+                                     MKCLOSURE((void*) rcv_handler, args));
         count++;
     }
     if (err_is_fail(err)) {
-        debug_printf("rcv_handler_general: too many failed attempts or non transient error\n");
+        debug_printf("registering receive handler: too many failed attempts\n");
         return err;
     }
-    // check that message was received
-    if (lmp_msg.buf.msglen != 1 || lmp_msg.words[0] != AOS_RPC_ID_ACK) {
-        debug_printf("rcv_handler_general: received message not es expected");
+
+    if (lmp_msg->words[0] != AOS_RPC_ID_ACK) {
+        debug_printf("Expected answer to be of type ACK\n");
         return FLOUNDER_ERR_RPC_MISMATCH;
     }
     return SYS_ERR_OK;
@@ -189,25 +197,14 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t size, size_t align,
 
 errval_t rcv_handler_for_ram (void* v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
-    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     struct capref* cap = (struct capref*) args[LMP_ARGS_SIZE];
-    size_t* ret_size = (size_t*) args[LMP_ARGS_SIZE + 1];
-
+    size_t *ret_size = (size_t*) args[LMP_ARGS_SIZE + 1];
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, cap);
 
-    int count = 0;
-    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                MKCLOSURE((void*) rcv_handler_for_ram, args));
-        count++;
-    }
+    errval_t err = receive_and_match_ack(args, &lmp_msg, cap, (void *) rcv_handler_for_ram);
     if (err_is_fail(err)) {
-        debug_printf("rcv_handler_for_ram: too many failed attempts or non transient error\n");
-        return err;
-    }
-    // check that message was received
-    if (lmp_msg.words[0] == AOS_RPC_ID_ACK) {
+        *ret_size = 0;
+    } else {
         *ret_size = lmp_msg.words[1];
     }
 
@@ -242,32 +239,45 @@ errval_t aos_rpc_get_nameserver_ep(struct aos_rpc *init_chan,
 
 errval_t rcv_handler_for_ns(void *v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
-    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     struct capref* retcap = (struct capref*) args[2];
-
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, retcap);
 
-    int count = 0;
-    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                MKCLOSURE((void*) rcv_handler_for_ram, args));
-        count++;
-    }
+    return receive_and_match_ack(args, &lmp_msg, retcap, (void*) rcv_handler_for_ns);
+}
+
+errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
+{
+    errval_t err;
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[0] = (uintptr_t) chan;
+    args[1] = (uintptr_t) AOS_RPC_ID_GET_CHAR;
+    args[2] = (uintptr_t) 0; // The core dest
+
+    args[LMP_ARGS_SIZE] = (uintptr_t) retc;
+
+    err = send_and_receive(rcv_handler_for_char, args);
     if (err_is_fail(err)) {
-        debug_printf("rcv_handler_for_ram: too many failed attempts or non transient error\n");
+        debug_printf("aos_rpc_rcv_char failed\n");
         return err;
     }
     return SYS_ERR_OK;
 }
 
-errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
+errval_t rcv_handler_for_char(void *v_args)
 {
-    // TODO implement functionality to request a character from
-    // the serial driver.
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct capref cap;
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap, (void *)rcv_handler_for_char);
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    *(char*)(args[LMP_ARGS_SIZE]) = lmp_msg.words[1];
+
     return SYS_ERR_OK;
 }
-
 
 errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 {
@@ -310,28 +320,17 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
     return SYS_ERR_OK;
 }
 
-errval_t rcv_handler_for_process(void *v_args) {
+errval_t rcv_handler_for_process(void *v_args)
+{
     uintptr_t* args = (uintptr_t*) v_args;
-    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
-    domainid_t *new_pid = (domainid_t *) args[3];
-
     struct capref cap;
+    domainid_t *new_pid = (domainid_t *) args[3];
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
 
-    int count = 0;
-    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                                     MKCLOSURE((void *) rcv_handler_for_process, args));
-        count++;
-    }
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap, (void*) rcv_handler_for_process);
     if (err_is_fail(err)) {
-        debug_printf("rcv_handler_for_process: too many failed attempts or non transient error\n");
-        return err;
-    }
-
-    // check that message was received
-    if (lmp_msg.words[0] == AOS_RPC_ID_ACK) {
+        *new_pid = 0;
+    } else {
         *new_pid = (domainid_t) lmp_msg.words[1];
     }
 
@@ -368,25 +367,12 @@ errval_t aos_rpc_process_get_name_on_core(struct aos_rpc *chan, domainid_t pid,
 errval_t rcv_handler_for_get_process_name (void *v_args)
 {
     uintptr_t* args = (uintptr_t*) v_args;
-    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
 
-    int count = 0;
-    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                MKCLOSURE((void*) rcv_handler_general, args));
-        count++;
-    }
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap, (void *)rcv_handler_for_get_process_name);
     if (err_is_fail(err)) {
-        debug_printf("rcv_handler_general: too many failed attempts or non transient error\n");
         return err;
-    }
-
-    if (lmp_msg.words[0] != AOS_RPC_ID_ACK) {
-        debug_printf("rcv_handler_general: received message not es expected\n");
-        return FLOUNDER_ERR_RPC_MISMATCH;
     }
 
     bool first_message = args[LMP_ARGS_SIZE + 1] == 0;
@@ -411,8 +397,9 @@ errval_t rcv_handler_for_get_process_name (void *v_args)
     args[LMP_ARGS_SIZE + 1] += n_bytes_to_copy;
 
     if (args[LMP_ARGS_SIZE] != 0) {
+        struct aos_rpc* rpc = (struct aos_rpc*) args[0];
         err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                                     MKCLOSURE((void*) rcv_handler_general, args));
+                                     MKCLOSURE((void*) rcv_handler_for_get_process_name, args));
         if (err_is_fail(err)) {
             debug_printf("can't set itself for the receive handler for the remaining bytes\n");
             return err;
@@ -455,27 +442,13 @@ errval_t aos_rpc_process_get_all_pids_on_core(struct aos_rpc *chan,
 errval_t rcv_handler_for_get_pids (void *v_args)
 {
     uintptr_t* args = (uintptr_t*) v_args;
-    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
     struct capref cap;
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&rpc->lmp, &lmp_msg, &cap);
 
-    int count = 0;
-    while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                MKCLOSURE((void*) rcv_handler_general, args));
-        count++;
-    }
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap, (void *) rcv_handler_for_get_pids);
     if (err_is_fail(err)) {
-        debug_printf("rcv_handler_general: too many failed attempts or non transient error\n");
         return err;
     }
-
-    if (lmp_msg.words[0] != AOS_RPC_ID_ACK) {
-        debug_printf("rcv_handler_general: received message not es expected\n");
-        return FLOUNDER_ERR_RPC_MISMATCH;
-    }
-
 
     bool first_message = args[LMP_ARGS_SIZE + 1] == 0;
     domainid_t ** pids = (domainid_t **) args[LMP_ARGS_SIZE + 3];
@@ -502,6 +475,7 @@ errval_t rcv_handler_for_get_pids (void *v_args)
     args[LMP_ARGS_SIZE + 1] += n_pids_to_copy;
 
     if (args[LMP_ARGS_SIZE] != 0) {
+        struct aos_rpc* rpc = (struct aos_rpc*) args[0];
         err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
                                      MKCLOSURE((void*) rcv_handler_general, args));
         if (err_is_fail(err)) {
@@ -512,7 +486,6 @@ errval_t rcv_handler_for_get_pids (void *v_args)
 
     return SYS_ERR_OK;
 }
-
 
 errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
                                 lpaddr_t paddr, size_t bytes,

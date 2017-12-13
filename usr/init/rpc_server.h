@@ -27,6 +27,8 @@
 #define INIT_DISPATCHER_VBASE   (INIT_ARGS_VBASE + ARGS_SIZE)
 #define MON_URPC_VBASE          (INIT_DISPATCHER_VBASE + DISPATCHER_SIZE)
 
+#define INIT_PROCESS_ID         (0)
+
 #define N_LINES                 (MON_URPC_SIZE / 2 / 64)
 #define LINE_WORDS              (16)
 #define URPC_PAYLOAD_LEN        (10)
@@ -53,6 +55,7 @@ errval_t recv_handler(void* arg);
 errval_t whois(struct capref cap, struct client **he_is);
 void* answer_number(struct capref cap, struct lmp_recv_msg *msg);
 void* answer_char(struct capref cap, struct lmp_recv_msg* msg);
+void* answer_get_char(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_str(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_process(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_pids(struct capref cap, struct lmp_recv_msg* msg);
@@ -67,6 +70,7 @@ errval_t send_process(void* args);
 errval_t send_pids(void* args);
 errval_t send_pname(void* args);
 errval_t send_nameserver_ep(void *args);
+errval_t send_char(void* args);
 
 /* urpc declarations */
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
@@ -77,6 +81,7 @@ static inline void dmb(void) { __asm volatile ("dmb"); }
 void urpc_spawn_handler(coreid_t core, void *name);
 void urpc_get_pids_handler(coreid_t core, domainid_t pid);
 void urpc_get_pname_handler(coreid_t core, domainid_t pid);
+void urpc_get_char_handler(coreid_t core);
 
 /* RPC implementations */
 /* Message format:
@@ -156,45 +161,49 @@ errval_t recv_handler(void* arg)
     void* answer_args;
     // TODO: why not just passing in the lmp_chan*, instead of the cap_endpoint? It seems we don't really need the whois().
     switch (msg.words[0]) {
-        case AOS_RPC_ID_NUM:
-            answer_args = answer_number(cap_endpoint, &msg);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_INIT:
-            answer_args = answer_init(cap_endpoint);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_RAM:
-            answer_args = answer_ram(cap_endpoint, &msg);
-            answer = (void*) send_ram;
-            break;
-        case AOS_RPC_ID_CHAR:
-            answer_args = answer_char(cap_endpoint, &msg);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_STR:
-            answer_args = answer_str(cap_endpoint, &msg);
-            answer = (void*) send_received;
-            break;
-        case AOS_RPC_ID_PROCESS:
-            answer_args = answer_process(cap_endpoint, &msg);
-            answer = (void*) send_process;
-            break;
-        case AOS_RPC_ID_GET_PIDS:
-            answer_args = answer_pids(cap_endpoint, &msg);
-            answer = (void*) send_pids;
-            break;
-        case AOS_RPC_ID_GET_PNAME:
-            answer_args = answer_pname(cap_endpoint, &msg);
-            answer = (void*) send_pname;
-            break;
-        case AOS_RPC_ID_GET_NAMESERVER_EP:
-            answer_args = answer_nameserver_ep(cap_endpoint, &msg);
-            answer = (void*) send_nameserver_ep;
-            break;
-        default:
-            debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
-            return LIB_ERR_NOT_IMPLEMENTED;
+    case AOS_RPC_ID_NUM:
+        answer_args = answer_number(cap_endpoint, &msg);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_INIT:
+        answer_args = answer_init(cap_endpoint);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_RAM:
+        answer_args = answer_ram(cap_endpoint, &msg);
+        answer = (void*) send_ram;
+        break;
+    case AOS_RPC_ID_CHAR:
+        answer_args = answer_char(cap_endpoint, &msg);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_STR:
+        answer_args = answer_str(cap_endpoint, &msg);
+        answer = (void*) send_received;
+        break;
+    case AOS_RPC_ID_PROCESS:
+        answer_args = answer_process(cap_endpoint, &msg);
+        answer = (void*) send_process;
+        break;
+    case AOS_RPC_ID_GET_PIDS:
+        answer_args = answer_pids(cap_endpoint, &msg);
+        answer = (void*) send_pids;
+        break;
+    case AOS_RPC_ID_GET_PNAME:
+        answer_args = answer_pname(cap_endpoint, &msg);
+        answer = (void*) send_pname;
+        break;
+    case AOS_RPC_ID_GET_CHAR:
+        answer_args = answer_get_char(cap_endpoint, &msg);
+        answer = (void*) send_char;
+        break;
+    case AOS_RPC_ID_GET_NAMESERVER_EP:
+        answer_args = answer_nameserver_ep(cap_endpoint, &msg);
+        answer = (void*) send_nameserver_ep;
+        break;
+    default:
+        debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
+        return LIB_ERR_NOT_IMPLEMENTED;
     }
     struct lmp_chan* ret_chan = (struct lmp_chan*) answer_args;
     err = lmp_chan_register_send(ret_chan, get_default_waitset(), MKCLOSURE(answer, answer_args));
@@ -502,6 +511,47 @@ void* answer_pname(struct capref cap_endpoint, struct lmp_recv_msg* msg) {
     return args_ptr;
 }
 
+void* answer_get_char(struct capref cap_endpoint, struct lmp_recv_msg* msg)
+{
+    domainid_t comm_dest = (domainid_t) msg->words[1];
+    coreid_t target_core_id = pid_get_core_id(comm_dest);
+    char retchar;
+
+    if (target_core_id == my_core_id) {
+        // TODO:
+        retchar = 'a';
+    } else {
+        // send URPC request
+        uint32_t message[URPC_PAYLOAD_LEN];
+        message[0] = 0;
+        message[1] = AOS_RPC_ID_GET_CHAR;
+        urpc_write(message, target_core_id);
+
+        // wait for and read response
+        urpc_read_until_ack(message, my_core_id);
+
+        retchar = message[0];
+    }
+
+    struct client* he_is = NULL;
+    errval_t err = whois(cap_endpoint, &he_is);
+    if (err_is_fail(err) || he_is == NULL) {
+        DEBUG_ERR(err, "usr/init/main.c answer char: could not identify client");
+        return NULL;
+    }
+
+    size_t size_of_args = ROUND_UP(sizeof(struct lmp_chan),4) + sizeof(char);
+    void* args_ptr = malloc(size_of_args);
+
+    void* args = args_ptr;
+    // add channel to args
+    *((struct lmp_chan*) args) = he_is->lmp;
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    *(char *)args = retchar;
+
+    return args_ptr;
+}
+
 // sets up the client struct for new processes
 void* answer_init(struct capref cap) {
     struct client *potential = NULL;
@@ -650,7 +700,7 @@ errval_t send_process(void *args) {
 errval_t send_pids(void *args) {
     errval_t err_send;
     uintptr_t msg[9] = {0};
-    msg[0] = 1;  // ACK
+    msg[0] = AOS_RPC_ID_ACK;
 
     // get channel
     struct lmp_chan* lmp = (struct lmp_chan*) args;
@@ -778,6 +828,23 @@ errval_t send_nameserver_ep(void* args) {
     return SYS_ERR_OK;
 }
 
+errval_t send_char(void* args)
+{
+    // get channel
+    struct lmp_chan* lmp = (struct lmp_chan*) args;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    char retchar = *(char*)args;
+
+    errval_t err_send = lmp_chan_send2(lmp, LMP_FLAG_SYNC, NULL_CAP, AOS_RPC_ID_ACK, retchar);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/init/main.c send char: could not do lmp chan send2");
+        return err_send;
+    }
+
+    return SYS_ERR_OK;
+}
+
 /* urpc implementations */
 void *urpc_shared_base;
 uint32_t current_write_offset = 0;
@@ -842,6 +909,9 @@ void urpc_read_and_process(uint32_t *rx, coreid_t core)
                 break;
             case AOS_RPC_ID_GET_PNAME:
                 urpc_get_pname_handler(core, (domainid_t) rx[2]);
+                break;
+            case AOS_RPC_ID_GET_CHAR:
+                urpc_get_char_handler(core);
                 break;
             default:
                 debug_printf("Message type not supported by init %lu\n", rx[1]);
@@ -962,5 +1032,14 @@ void urpc_get_pname_handler(coreid_t core, domainid_t pid) {
     // we don't send the '\0'
 }
 
+void urpc_get_char_handler(coreid_t core)
+{
+    uint32_t char_ack[URPC_PAYLOAD_LEN];
+    char_ack[0] = INIT_PROCESS_ID;
+    char_ack[1] = AOS_RPC_ID_ACK;
+    char_ack[2] = 'c';
+
+    urpc_write(char_ack, 1-core);
+}
 
 #endif /* _INIT_RPC_SERVER_H_ */

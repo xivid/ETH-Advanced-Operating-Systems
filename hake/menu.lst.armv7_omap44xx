@@ -21,8 +21,11 @@ module /armv7/sbin/memeater
 module /armv7/sbin/mmchs
 module /armv7/sbin/filereader
 
-# nameserver module
+# milestone 7 nameserver
 module /armv7/sbin/nameserver
+
+# milestone 7 shell
+module /armv7/sbin/shell
 
 # For pandaboard, use following values.
 mmap map 0x40000000 0x40000000 13 # Devices
