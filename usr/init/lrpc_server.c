@@ -5,11 +5,43 @@ struct client *whois(struct capref cap);
 
 // Local data structs definitions for marshaling operations. Should not be
 // visible outside the current file.
+// Make sure that the first field of each struct is the lmp channel.
+// recv_handler relies on this fact.
 
 // Struct for marshaling the answer to the request for obtaining the nameserver
 // endpoint.
 struct nameserver_answer_t {
     struct lmp_chan sender_lmp;
+    struct capref ns_endpoint;
+};
+
+// Struct for marshaling the answer to the request for spawning a process.
+struct process_answer_t {
+    struct lmp_chan sender_lmp;
+    errval_t err;
+    domainid_t domainid;
+};
+
+// Struct for marshalling the answer to the request of listing pids.
+struct pids_answer_t {
+    struct lmp_chan sender_lmp;
+    size_t count;
+    domainid_t *pids;
+};
+
+// Struct for marshalling the answer to the reguest of returning a process name.
+struct pname_answer_t {
+    struct lmp_chan sender_lmp;
+    size_t length;
+    char *name;
+};
+
+// Struct for marshalling the answer to the reguest of providing RAM.
+struct ram_answer_t {
+    struct lmp_chan sender_lmp;
+    errval_t err;
+    struct capref ram_cap;
+    size_t allocated_size;
 };
 
 /* RPC implementations */
@@ -140,8 +172,8 @@ errval_t recv_handler(void *arg)
     return SYS_ERR_OK;
 }
 
-// TODO: why do we need a WHOIS?
-struct client *whois(struct capref cap) {
+struct client *whois(struct capref cap)
+{
     struct client *cur = client_list;
     struct capability return_cap;
     errval_t err = debug_cap_identify(cap, &return_cap);
@@ -247,24 +279,12 @@ void *marshal_process(struct capref cap, struct lmp_recv_msg *msg)
         return NULL;
     }
 
-    size_t size_of_args = sizeof(domainid_t) +
-                          ROUND_UP(sizeof(struct lmp_chan),4) +
-                          ROUND_UP(sizeof(errval_t),4);
-    void *args_ptr = malloc(size_of_args);
-    void *args = args_ptr;
+    struct process_answer_t *args = malloc(sizeof(struct process_answer_t));
+    args->sender_lmp = sender->lmp;
+    args->err = spawn_err;
+    args->domainid = domainid;
 
-
-    // add channel to args
-    *((struct lmp_chan*) args) = sender->lmp;
-    // cast to void *and move pointer to after the lmp channel
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
-    // add error to args
-    *((errval_t*) args) = spawn_err;
-    // cast to void *and move pointer to after the error
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
-    *((domainid_t*) args) = domainid;
-
-    return (void*) args_ptr;
+    return (void*) args;
 }
 
 void *marshal_pids(struct capref cap_endpoint, struct lmp_recv_msg *msg) {
@@ -317,24 +337,18 @@ void *marshal_pids(struct capref cap_endpoint, struct lmp_recv_msg *msg) {
         return NULL;
     }
 
-    size_t size_of_args = ROUND_UP(sizeof(struct lmp_chan),4) +
-                          sizeof(domainid_t) /* the length of pids[] */ +
-                          sizeof(domainid_t) * length /* the pids[] */;
+    struct pids_answer_t *args = malloc(sizeof(struct pids_answer_t));
+    args->sender_lmp = sender->lmp;
+    args->count = length;
 
-    void *args_ptr = malloc(size_of_args);
-    void *args = args_ptr;
-
-    *((struct lmp_chan*) args) = sender->lmp;
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
-    // add length
-    *(size_t *)args = length;
-    args += sizeof(size_t);
-    // copy pid to args
     if (length) {
-        memcpy(args, arr, sizeof(domainid_t) * length);
+        args->pids = malloc(length * sizeof(domainid_t));
+        memcpy(args->pids, arr, sizeof(domainid_t) * length);
+    } else {
+        args->pids = NULL;
     }
 
-    return args_ptr;
+    return args;
 }
 
 void *marshal_pname(struct capref cap_endpoint, struct lmp_recv_msg *msg) {
@@ -394,25 +408,21 @@ void *marshal_pname(struct capref cap_endpoint, struct lmp_recv_msg *msg) {
         return NULL;
     }
 
-    size_t length_of_name = name == NULL ? 0 : strlen(name) + 1;  /* +1 for the NULL terminator */
-    size_t size_of_args = ROUND_UP(sizeof(struct lmp_chan),4) +
-                          sizeof(size_t) +
-                          length_of_name;
-    void *args_ptr = malloc(size_of_args);
+    /* +1 for the NULL terminator */
+    size_t length_of_name = (name == NULL) ? 0 : (strlen(name) + 1);
 
-    void *args = args_ptr;
-    // add channel to args
-    *((struct lmp_chan*) args) = sender->lmp;
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
-    // add length
-    *(size_t *)args = length_of_name;  // 0 means not found
-    args += sizeof(size_t);
-    // copy name string to args
+    struct pname_answer_t *args = malloc(sizeof(struct pname_answer_t));
+    args->sender_lmp = sender->lmp;
+    args->length = length_of_name;
+
     if (length_of_name) {
-        strcpy((char *)args, name);
+        args->name = malloc(length_of_name);
+        strncpy(args->name, name, length_of_name);
+    } else {
+        args->name = NULL;
     }
 
-    return args_ptr;
+    return args;
 }
 
 // sets up the client struct for new processes
@@ -460,26 +470,13 @@ void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg) {
     errval_t err = ram_alloc_aligned(&return_cap, (size_t) msg->words[1], (size_t) msg->words[2]);
 
 
-    size_t size_of_args = sizeof(size_t) + ROUND_UP(sizeof(struct lmp_chan),4) + ROUND_UP(sizeof(errval_t),4) + ROUND_UP(sizeof(struct capref),4);
-    void *args_ptr = malloc(size_of_args);
-    void *args = args_ptr;
+    struct ram_answer_t *args = malloc(sizeof(struct ram_answer_t));
+    args->sender_lmp = sender->lmp;
+    args->err = err;
+    args->ram_cap = return_cap;
+    args->allocated_size = allocated_size;
 
-
-    // add channel to args
-    *((struct lmp_chan*) args) = sender->lmp;
-    // cast to void *and move pointer to after the lmp channel
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
-    // add error to args
-    *((errval_t*) args) = err;
-    // cast to void *and move pointer to after the error
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
-    // add cap to args
-    *((struct capref*) args) = return_cap;
-    // cast t void *and move pointer
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct capref), 4);
-    *((size_t*) args) = allocated_size;
-
-    return (void*) args_ptr;
+    return (void*) args;
 }
 
 void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg) {
@@ -491,6 +488,7 @@ void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg) {
     struct nameserver_answer_t *args =
         malloc(sizeof(struct nameserver_answer_t));
     args->sender_lmp = sender->lmp;
+    args->ns_endpoint = ns_endpoint;
 
     return (void*) args;
 }
@@ -509,19 +507,11 @@ errval_t send_received(void *arg) {
 }
 
 errval_t send_ram(void *args) {
-    // get channel
-    struct lmp_chan* lmp = (struct lmp_chan*) args;
-    // cast to void *and move pointer to after the lmp channel
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
-    // get error
-    errval_t* err = (errval_t*) args;
-    // cast to void *and move pointer to after the error
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
-    // get cap
-    struct capref* cap = (struct capref*) args;
-    // cast t void *and move pointer
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct capref), 4);
-    size_t* allocated_size = (size_t*) args;
+    struct ram_answer_t *ram_args = (struct ram_answer_t *) args;
+    struct lmp_chan* lmp = &ram_args->sender_lmp;
+    errval_t *err = &ram_args->err;
+    struct capref *cap = &ram_args->ram_cap;
+    size_t *allocated_size = &ram_args->allocated_size;
 
     errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), *allocated_size, (uintptr_t) *err);
     if (err_is_fail(err_send)) {
@@ -533,17 +523,11 @@ errval_t send_ram(void *args) {
 }
 
 errval_t send_process(void *args) {
-    // get channel
-    struct lmp_chan* lmp = (struct lmp_chan*) args;
-    // cast to void *and move pointer to after the lmp channel
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
-    // get error
-    errval_t* err = (errval_t*) args;
-    // cast to void *and move pointer to after the error
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
-    domainid_t *domain_id = (domainid_t*) args;
+    struct process_answer_t *pr_args = (struct process_answer_t *) args;
+    size_t is_err = (err_is_fail(pr_args->err) ? 0 : 1);
 
-    errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, NULL_CAP, (size_t)(err_is_fail(*err)? 0:1), *domain_id, (uintptr_t) *err);
+    errval_t err_send = lmp_chan_send3(&pr_args->sender_lmp, LMP_FLAG_SYNC,
+            NULL_CAP, is_err, pr_args->domainid, (uintptr_t) pr_args->err);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
         return err_send;
@@ -558,17 +542,16 @@ errval_t send_pids(void *args) {
     msg[0] = 1;  // ACK
 
     // get channel
-    struct lmp_chan* lmp = (struct lmp_chan*) args;
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    struct pids_answer_t *pid_args = (struct pids_answer_t *) args;
+    struct lmp_chan* lmp = &pid_args->sender_lmp;
+    size_t length = pid_args->count;
+    domainid_t *pids = pid_args->pids;
 
-    // get length
-    size_t length = *(size_t *) args;
     msg[1] = length;
-    args += sizeof(size_t);
 
     // get string and send in possibly multiple packets
     // put into msg[2..8], 7 words <=> 28 bytes
-    memcpy((void *)&msg[2], (const void *)args, MIN(28, length * sizeof(domainid_t)));
+    memcpy((void *)&msg[2], pids, MIN(28, length * sizeof(domainid_t)));
 
     err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
     if (err_is_fail(err_send)) {
@@ -581,10 +564,10 @@ errval_t send_pids(void *args) {
 
     // if there are remaining characters
     length -= 28;
-    args += 28;
+    pids += 28;
     for (size_t i = 0; i < length / 32; ++i) {
         // put into msg[1..8]
-        memcpy((void *)&msg[1], (const void *)args, 32);
+        memcpy((void *)&msg[1], pids, 32);
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
@@ -592,13 +575,13 @@ errval_t send_pids(void *args) {
             return err_send;
         }
 
-        args += 32;
+        pids += 32;
         length -= 32;
     }
 
     // remaining partial packet
     if (length) {
-        memcpy((void *)&msg[1], (const void*) args, length * sizeof(domainid_t));
+        memcpy((void *)&msg[1], pids, length * sizeof(domainid_t));
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
@@ -616,18 +599,17 @@ errval_t send_pname(void *args) {
     uintptr_t msg[9] = {0};
     msg[0] = 1;  // ACK
 
-    // get channel
-    struct lmp_chan* lmp = (struct lmp_chan*) args;
-    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    struct pname_answer_t *pname_args = (struct pname_answer_t *) args;
+    struct lmp_chan* lmp = &pname_args->sender_lmp;
+    size_t length = pname_args->length;
+    char *name = pname_args->name;
 
-    // get length
-    size_t length = *(size_t*) args;
+
     msg[1] = length;
-    args += sizeof(size_t);
 
     // get string and send in possibly multiple packets
     // put into msg[2..8], 7 words <=> 28 bytes
-    strncpy((char *)&msg[2], (const char *)args, 28);
+    strncpy((char *)&msg[2], name, 28);
 
     err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
     if (err_is_fail(err_send)) {
@@ -640,10 +622,10 @@ errval_t send_pname(void *args) {
 
     // if there are remaining characters
     length -= 28;
-    args += 28;
+    name += 28;
     for (size_t i = 0; i < length / 32; ++i) {
         // put into msg[1..8]
-        strncpy((char *)&msg[1], (const char *)args, 32);
+        strncpy((char *)&msg[1], name, 32);
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
@@ -651,13 +633,13 @@ errval_t send_pname(void *args) {
             return err_send;
         }
 
-        args += 32;
+        name += 32;
         length -= 32;
     }
 
     // remaining partial packet
     if (length) {
-        strncpy((char *)&msg[1], (const char*) args, length);
+        strncpy((char *)&msg[1], (const char*) name, length);
 
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
@@ -674,7 +656,8 @@ errval_t send_nameserver_ep(void *args) {
     struct nameserver_answer_t *ns_args = (struct nameserver_answer_t *) args;
     struct lmp_chan *lmp = &ns_args->sender_lmp;
 
-    errval_t err_send = lmp_chan_send1(lmp, LMP_FLAG_SYNC, ns_endpoint, 1);
+    errval_t err_send = lmp_chan_send1(lmp, LMP_FLAG_SYNC,
+            ns_args->ns_endpoint, 1);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
         return err_send;
