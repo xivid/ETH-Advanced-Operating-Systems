@@ -98,21 +98,21 @@ int main(int argc, char *argv[])
     }
 
     // WARNING: boot_core() must only be called AFTER core_boot_dump_resources()!
-    if (my_core_id == 0) {
-        err = register_getchar_interrupt_handler();
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "register_getchar_handler");
-            return EXIT_FAILURE;
-        }
+    /* if (my_core_id == 0) { */
+    /*     err = register_getchar_interrupt_handler(); */
+    /*     if (err_is_fail(err)) { */
+    /*         DEBUG_ERR(err, "register_getchar_handler"); */
+    /*         return EXIT_FAILURE; */
+    /*     } */
 
 
-        debug_printf("booting core 1\n");
-        err = boot_core(1);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed");
-            return EXIT_FAILURE;
-        }
-    }
+    /*     debug_printf("booting core 1\n"); */
+    /*     err = boot_core(1); */
+    /*     if (err_is_fail(err)) { */
+    /*         DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed"); */
+    /*         return EXIT_FAILURE; */
+    /*     } */
+    /* } */
 
     /* perform_tests(); */
 
@@ -135,23 +135,11 @@ int main(int argc, char *argv[])
         err = spawn_load_by_name("/armv7/sbin/nameserver", si);
         if (err_is_fail(err)) {
             debug_printf("Failed spawning process nameserver\n");
-            return -1;
+            return 1;
         }
-
-        ns_endpoint = (struct capref) {
-            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
-            .slot = TASKCN_SLOT_SELFEP,
-        };
-
-        err = spawn_load_by_name("/armv7/sbin/hello", si);
-        if (err_is_fail(err)) {
-            debug_printf("Failed spawning process nameserver\n");
-            return -1;
-        }
-
-    } else {
-        ns_endpoint = NULL_CAP;
     }
+    // init the nameserver's endpoint with NULL_CAP
+    ns_endpoint = NULL_CAP;
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();

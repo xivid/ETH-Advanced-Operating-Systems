@@ -2,6 +2,7 @@
 
 errval_t recv_handler(void *arg);
 struct client *whois(struct capref cap);
+struct client *nameserver_client = NULL;
 
 // Local data structs definitions for marshaling operations. Should not be
 // visible outside the current file.
@@ -155,14 +156,25 @@ errval_t recv_handler(void *arg)
             send_handler = send_pname;
             break;
         case AOS_RPC_ID_GET_NAMESERVER_EP:
-            answer_args = marshal_nameserver_ep(cap_endpoint, &msg);
+            answer_args = marshal_get_nameserver_endpoint(cap_endpoint, &msg);
             send_handler = send_nameserver_ep;
+            break;
+        case AOS_RPC_ID_REGISTER_NAMESERVER:
+            answer_args = marshal_register_nameserver(cap_endpoint);
+            send_handler = send_received;
+            break;
+        case AOS_RPC_ID_SET_NAMESERVER_EP:
+            answer_args = marshal_set_nameserver_endpoint(cap_endpoint);
+            send_handler = send_received;
             break;
         default:
             debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
     }
     struct lmp_chan *ret_chan = (struct lmp_chan *) answer_args;
+    if (!ret_chan) {
+        return SYS_ERR_LMP_NO_TARGET;
+    }
     err = lmp_chan_register_send(ret_chan, get_default_waitset(),
             MKCLOSURE((void*) send_handler, answer_args));
     if (err_is_fail(err)) {
@@ -433,11 +445,13 @@ void *marshal_init(struct capref cap) {
         return (void*) &(potential->lmp);
     }
 
-    // new client, allocate a channel (it's only used for sending, receiving is always done by open-receiving)
+    // new client, allocate a channel (it's only used for sending,
+    // receiving is always done by open-receiving)
     potential = (struct client*) malloc(sizeof(struct client));
 
     struct capability return_cap;
     debug_cap_identify(cap, &return_cap);
+
     potential->end = return_cap.u.endpoint;
     potential->prev = NULL;
     if (client_list == NULL) {
@@ -479,7 +493,9 @@ void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg) {
     return (void*) args;
 }
 
-void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg) {
+void *marshal_get_nameserver_endpoint(struct capref cap,
+        struct lmp_recv_msg *msg)
+{
     struct client *sender = whois(cap);
     if (sender == NULL) {
         return NULL;
@@ -491,6 +507,56 @@ void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg) {
     args->ns_endpoint = ns_endpoint;
 
     return (void*) args;
+}
+
+void *marshal_register_nameserver(struct capref cap)
+{
+    if (nameserver_client != NULL) {
+        debug_printf("a nameserver is already registered\n");
+        return NULL;
+    }
+
+    struct client *sender = whois(cap);
+    if (sender == NULL) {
+        return NULL;
+    }
+    nameserver_client = sender;
+    debug_printf("nameserver registered with init\n");
+
+    return (void *) &sender->lmp;
+}
+
+void *marshal_set_nameserver_endpoint(struct capref cap)
+{
+    if (!nameserver_client) {
+        debug_printf("init: no nameserver has registered yet. Can't set the \
+                nameserver cap\n");
+        return NULL;
+    }
+
+    errval_t err = slot_alloc(&ns_endpoint);
+    if (err_is_fail(err)) {
+        debug_printf("could not allocate a slot for the ns_endpoint\n");
+        return NULL;
+    }
+    err = cap_copy(ns_endpoint, cap);
+    if (err_is_fail(err)) {
+        debug_printf("could not copy the cap into ns_endpoint\n");
+        return NULL;
+    }
+
+    debug_printf("nameserver's endpoint was registered with init\n");
+
+    /////////////////////////////////////////////////////////////
+    // For testing reasons only. Remove me otherwise!
+    struct spawninfo *si = malloc(sizeof(struct spawninfo));
+    err = spawn_load_by_name("/armv7/sbin/hello", si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawning process nameserver\n");
+        return NULL;
+    }
+    /////////////////////////////////////////////////////////////
+    return (void *) &nameserver_client->lmp;
 }
 
 /* All send handlers */
