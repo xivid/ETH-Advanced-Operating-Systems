@@ -25,10 +25,10 @@
 #include <multiboot.h>
 
 #include <mm/mm.h>
-#include "mem_alloc.h"
 #include <spawn/spawn.h>
 #include <spawn/multiboot.h>
-#include "rpc_server.h"
+#include "terminal.h"
+#include "mem_alloc.h"
 #include "core_boot.h"
 #include "tests.h"
 
@@ -37,6 +37,9 @@
 coreid_t my_core_id;
 struct bootinfo *bi;
 struct process_manager pm;
+
+struct capref ns_endpoint; /// The endpoint cap to nameserver process
+struct client *client_list;
 
 /* main */
 int main(int argc, char *argv[])
@@ -96,6 +99,13 @@ int main(int argc, char *argv[])
 
     // WARNING: boot_core() must only be called AFTER core_boot_dump_resources()!
     if (my_core_id == 0) {
+        err = register_getchar_interrupt_handler();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "register_getchar_handler");
+            return EXIT_FAILURE;
+        }
+
+
         debug_printf("booting core 1\n");
         err = boot_core(1);
         if (err_is_fail(err)) {
@@ -112,10 +122,36 @@ int main(int argc, char *argv[])
     // So, I put this warning here just for reference in case some related problem occurs in the future.
 
     if (my_core_id == 1) {
-        test_remote_spawn();
+        test_multi_spawn(1, "/armv7/sbin/shell");
+        //test_remote_spawn();
     }
 
     debug_printf("Message handler loop\n");
+
+
+    if (my_core_id == 0) {
+        // start nameserver
+        struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/nameserver", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed spawning process nameserver\n");
+            return -1;
+        }
+
+        ns_endpoint = (struct capref) {
+            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+            .slot = TASKCN_SLOT_SELFEP,
+        };
+
+        err = spawn_load_by_name("/armv7/sbin/hello", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed spawning process nameserver\n");
+            return -1;
+        }
+
+    } else {
+        ns_endpoint = NULL_CAP;
+    }
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();

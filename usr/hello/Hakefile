@@ -11,7 +11,7 @@
 --------------------------------------------------------------------------
 
 [ build application { target = "hello",
-  		              cFiles = [ "hello.c" ],
+                      cFiles = [ "hello.c" ],
                       addLinkFlags = [ "-e _start"],
                       architectures = allArchitectures
                     }

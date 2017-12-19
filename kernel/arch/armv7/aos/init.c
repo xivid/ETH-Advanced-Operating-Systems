@@ -125,7 +125,7 @@ arch_init(struct arm_core_data *boot_core_data,
 
     struct multiboot_info *mb=
         (struct multiboot_info *)core_data->multiboot_header;
-    
+
     MSG("Multiboot info:\n");
     MSG(" info header at 0x%"PRIxLVADDR"\n",       (lvaddr_t)mb);
     MSG(" mods_addr is P:0x%"PRIxLPADDR"\n",       (lpaddr_t)mb->mods_addr);
@@ -141,9 +141,24 @@ arch_init(struct arm_core_data *boot_core_data,
     parse_commandline((const char *)core_data->cmdline, cmdargs);
 
     MSG("Welcome to AOS.\n");
-    serial_putchar(0, 42);
-    printf("test abc\n");
-    blink_leds();
-
-    while(1);
+    serial_putchar(0, '*');
+    printf("Input something like:\n");
+    printf(" b - to start blinking the lights\n");
+    printf(" g - to let the Panda greet you\n");
+    printf(" q - to quit this loop\n");
+    printf("any other input is ignored.\n");
+    char cur = 0;
+    while (1) {
+        if (cur == 'b') {
+            printf("Enjoy the show!\n");
+            blink_leds();
+        } else if (cur == 'g') {
+            printf("Panda greets you, master!\n");
+        } else if (cur == 'q') {
+            printf("Bye-bye!\n");
+            return;
+        }
+        cur = serial_getchar(0);
+        printf("%c\n", cur);
+    }
 }

@@ -31,6 +31,8 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_PROCESS,
     AOS_RPC_ID_GET_PIDS,
     AOS_RPC_ID_GET_PNAME,
+    AOS_RPC_ID_GET_NAMESERVER_EP,
+    AOS_RPC_ID_GET_CHAR,
 };
 
 struct aos_rpc {
@@ -57,6 +59,11 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string);
 errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t bytes, size_t align,
                              struct capref *retcap, size_t *ret_bytes);
 
+/**
+ * \brief request the nameserver endpoint capability from the init process
+ */
+errval_t aos_rpc_get_nameserver_ep(struct aos_rpc *init_chan,
+        struct capref *retcap);
 /**
  * \brief get one character from the serial port
  */

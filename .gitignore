@@ -18,6 +18,7 @@ tags
 .arcconfig
 sftp-config.json
 .sync-config.cson
+.vscode
 
 /.metadata/
 /toolchain/

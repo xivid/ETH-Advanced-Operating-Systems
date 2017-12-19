@@ -20,7 +20,7 @@
 #include <aos/waitset.h>
 #include <aos/paging.h>
 
-static struct aos_rpc init_rpc;
+static struct aos_rpc *init_rpc, *mem_rpc;
 
 const char *str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, "
                   "sed do eiusmod tempor incididunt ut labore et dolore magna "
@@ -45,7 +45,7 @@ static errval_t request_and_map_memory(void)
     debug_printf("obtaining cap of %" PRIu32 " bytes...\n", BASE_PAGE_SIZE);
 
     struct capref cap1;
-    err = aos_rpc_get_ram_cap(&init_rpc, BASE_PAGE_SIZE, BASE_PAGE_SIZE, &cap1, &bytes);
+    err = aos_rpc_get_ram_cap(mem_rpc, BASE_PAGE_SIZE, BASE_PAGE_SIZE, &cap1, &bytes);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not get BASE_PAGE_SIZE cap\n");
         return err;
@@ -116,21 +116,21 @@ static errval_t test_basic_rpc(void)
     debug_printf("RPC: testing basic RPCs...\n");
 
     debug_printf("RPC: sending number...\n");
-    err =  aos_rpc_send_number(&init_rpc, 42);
+    err =  aos_rpc_send_number(init_rpc, 42);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not send a string\n");
         return err;
     }
 
     debug_printf("RPC: sending small string...\n");
-    err =  aos_rpc_send_string(&init_rpc, "Hello init!\n");
+    err =  aos_rpc_send_string(init_rpc, "Hello init!\n");
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not send a string\n");
         return err;
     }
 
     debug_printf("RPC: sending large string...\n");
-    err = aos_rpc_send_string(&init_rpc, str);
+    err =  aos_rpc_send_string(init_rpc, str);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not send a string\n");
         return err;
@@ -164,7 +164,7 @@ static errval_t test_remote_spawn_process(void)
     errval_t err;
     debug_printf("RPC: testing remote process spawn\n");
     domainid_t new_pid;
-    err = aos_rpc_process_spawn(&init_rpc, "/armv7/sbin/hello", 1 - disp_get_core_id(), &new_pid);
+    err = aos_rpc_process_spawn(init_rpc, "/armv7/sbin/hello", 1 - disp_get_core_id(), &new_pid);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not spawn a remote process using RPC\n");
         return err;
@@ -235,10 +235,21 @@ int main(int argc, char *argv[])
     }
     printf("\n");
 
-    init_rpc = *get_init_rpc();
-    err = test_print_processes(&init_rpc);
+    init_rpc = aos_rpc_get_init_channel();
+    assert(init_rpc);
+
+    err = test_print_processes(init_rpc);
     if (err_is_fail(err)) {
         USER_PANIC_ERR(err, "failure in testing print processes\n");
+    }
+
+    if (!init_rpc) {
+        USER_PANIC_ERR(err, "init RPC channel NULL?\n");
+    }
+
+    mem_rpc = aos_rpc_get_memory_channel();
+    if (!mem_rpc) {
+        USER_PANIC_ERR(err, "init RPC channel NULL?\n");
     }
 
     err = test_basic_rpc();

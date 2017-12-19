@@ -5,6 +5,8 @@
 #ifndef _INIT_CORE_BOOT_H_
 #define _INIT_CORE_BOOT_H_
 
+#include "lrpc_server.h"
+
 
 /* multi-core declarations */
 
