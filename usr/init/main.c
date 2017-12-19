@@ -106,12 +106,12 @@ int main(int argc, char *argv[])
         }
 
 
-        debug_printf("booting core 1\n");
+        /*debug_printf("booting core 1\n");
         err = boot_core(1);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed");
             return EXIT_FAILURE;
-        }
+        }*/
     }
 
     /* perform_tests(); */
@@ -121,13 +121,21 @@ int main(int argc, char *argv[])
     // however, the resources seems impossible to be overwritten under any circumstances.
     // So, I put this warning here just for reference in case some related problem occurs in the future.
 
+    debug_printf("Message handler loop\n");
+
+    debug_printf("test get chars\n", 15);
+    for (int i = 0; i < 100; ++i) {
+        char c;
+        debug_printf("Input a char: ");
+        c = get_next_char_from_buffer();
+        debug_printf("%d: char is [%c] (%d)\n", i, c, c);
+    }
+/*
+
     if (my_core_id == 1) {
         test_multi_spawn(1, "/armv7/sbin/shell");
         //test_remote_spawn();
     }
-
-    debug_printf("Message handler loop\n");
-
 
     if (my_core_id == 0) {
         // start nameserver
@@ -145,13 +153,23 @@ int main(int argc, char *argv[])
 
         err = spawn_load_by_name("/armv7/sbin/hello", si);
         if (err_is_fail(err)) {
-            debug_printf("Failed spawning process nameserver\n");
+            debug_printf("Failed spawning process hello\n");
             return -1;
         }
 
     } else {
         ns_endpoint = NULL_CAP;
     }
+
+    if (my_core_id == 0) {
+        debug_printf("Starting network process\n");
+        struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/network", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed spawning network process\n");
+            return -1;
+        }
+    } */
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();
@@ -161,12 +179,14 @@ int main(int argc, char *argv[])
         // local events
         err = event_dispatch_non_block(default_ws);
         if (err_is_ok(err)) {
+            debug_printf("dispatched a new lmp event\n");
             has_event = true;
         }
 
         // urpc events
         err = urpc_read_and_process_non_block(my_core_id);
         if (err_is_ok(err)) {
+            debug_printf("dispatched a new ump event\n");
             has_event = true;
         }
 

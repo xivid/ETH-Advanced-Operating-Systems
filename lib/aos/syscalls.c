@@ -40,6 +40,6 @@ errval_t sys_print(const char *string, size_t length)
 errval_t sys_getchar(char *c)
 {
     struct sysret ret= syscall1(SYSCALL_GETCHAR);
-    *c= ret.value;
+    *c = (char) ret.value;
     return ret.error;
 }
