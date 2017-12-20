@@ -4,8 +4,9 @@
 
 #include "slip.h"
 
-#define DEBUG_PACKET
-#define TRACE_PACKET
+// #define DEBUG_PACKET
+// #define TRACE_PACKET
+// #define ENABLE_UDP_IPV4_CHKSUM
 
 void slip_receive(uint8_t *buf, size_t len)
 {
@@ -313,13 +314,12 @@ void udp_packet_recv_handler(struct udp_t *udp, size_t len, struct ip_t *ip) {
 }
 
 void udp_echo_handler(struct udp_t *udp, size_t len, struct ip_t *ip) {
-    size_t payload_length = len - 8;
 
     udp_reply.ip = (struct ip_t) {
         .version = 4,
         .ihl = 5,
         .tos = 0x00, /* hope this doesn't matter */
-        .length = htons((uint16_t)(20 + 8 + payload_length)),
+        .length = htons((uint16_t)(20 + len)),
         .id = htons(0xBEEF), /* some random identification */
         .flag_off = htons(0x4000),
         .ttl = 0x40, /* ttl = 64, hope this works */
@@ -336,16 +336,29 @@ void udp_echo_handler(struct udp_t *udp, size_t len, struct ip_t *ip) {
         .checksum = 0x0000
     };
 
-    memcpy(udp_reply.payload, udp->payload, sizeof(uint8_t) * payload_length);
+    memcpy(udp_reply.payload, udp->payload, sizeof(uint8_t) * (len - 8));
 
     uint16_t checksum;
-    // fill udp checksum
-    // checksum = inet_checksum(&icmp_echo_reply.icmp, (uint16_t)(8 + payload_length));
-    udp_reply.udp.checksum = 0x0000; // optional for IPv4, skipped
 
+    // fill udp checksum (checksum for udp on ipv4 is optional, disabled by default to improve performance)
+#ifdef ENABLE_UDP_IPV4_CHKSUM
+    struct udp_ipv4_pseudo_header_t header = {
+            .ip_src = htonl(0x0a000201),
+            .ip_dst = htonl(ip->ip_src),
+            .zeros = 0x00,
+            .protocol = 0x11,
+            .udp_length = htons((uint16_t)len),
+            .udp = udp_reply.udp
+    };
+    memcpy(header.payload, udp->payload, sizeof(uint8_t) * (len - 8));
+    checksum = inet_checksum(&header, (uint16_t)(len + 12));
+    udp_reply.udp.checksum = checksum;
+#else
+    udp_reply.udp.checksum = 0x0000;
+#endif
     // fill ip checksum
     checksum = inet_checksum(&udp_reply.ip, 20);
     udp_reply.ip.checksum = checksum;
 
-    slip_send((uint8_t *)&udp_reply, 20 + 8 + payload_length);
+    slip_send((uint8_t *)&udp_reply, 20 + len);
 }

@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
     debug_printf("Testing greeting to host by serial\n");
     slip_send((uint8_t *)"hello host!\r\n", 13);
 
-
+    debug_printf("Networking enters message handler loop\n");
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
