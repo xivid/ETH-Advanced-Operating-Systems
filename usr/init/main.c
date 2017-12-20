@@ -170,7 +170,6 @@ int main(int argc, char *argv[])
 
     if (my_core_id == 0) {
 
-        /*
         debug_printf("Starting network process\n");
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
         err = spawn_load_by_name("/armv7/sbin/network", si);
@@ -178,8 +177,8 @@ int main(int argc, char *argv[])
             debug_printf("Failed spawning network process\n");
             return -1;
         }
-*/
 
+        /*
 
         debug_printf("testing uart4\n");
 
@@ -224,7 +223,7 @@ int main(int argc, char *argv[])
                 serial_write((uint8_t *) &c, 1);
         }
 
-
+*/
     }
 
     // Hang around

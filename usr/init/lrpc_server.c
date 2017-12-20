@@ -168,6 +168,7 @@ errval_t recv_handler(void *arg)
         case AOS_RPC_ID_DEVICE:
             answer_args = marshal_device_cap(cap_endpoint, &msg);
             send_handler = send_device_cap;
+            break;
         default:
             debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
@@ -512,7 +513,7 @@ void *marshal_device_cap(struct capref cap, struct lmp_recv_msg *msg) {
     struct capref new_cap;
     errval_t err = slot_alloc(&new_cap);
     if (err_is_ok(err)) {
-        debug_printf("marshal_device_cap: forging %llx:%llx\n", paddr, bytes);
+        debug_printf("marshal_device_cap: forging %lx:%lx\n", paddr, bytes);
         err = frame_forge(new_cap, paddr, bytes, 0 /* TODO: support second core */ );
     }
 

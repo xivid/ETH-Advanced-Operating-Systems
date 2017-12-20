@@ -11,7 +11,10 @@
 --------------------------------------------------------------------------
 
 [ build application { target = "network",
-                      cFiles = [ "network.c" ],
+                      cFiles = [
+                        "network.c",
+                        "slip.c"
+                      ],
                       addLinkFlags = [ "-e _start"],
                       addLibraries = [ "netutil" ],
                       architectures = allArchitectures

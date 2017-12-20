@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include "slip.h"
 
 #include <aos/aos.h>
 #include <aos/aos_rpc.h>
@@ -19,6 +20,8 @@ int main(int argc, char *argv[])
     struct aos_rpc *init_rpc = aos_rpc_get_init_channel();
     errval_t err;
 
+    slip_datagram = EMPTY_SLIP_DATAGRAM;
+    slip_escaping = false;
 
     debug_printf("Get uart4 device frame\n");
     struct capref cap_uart4;
@@ -42,7 +45,28 @@ int main(int argc, char *argv[])
 
 
     debug_printf("Writing to serial\n");
-    serial_write((uint8_t*) "hello!\r\n", 8);
+    struct slip_datagram_t send_datagram = {
+            .data = "hello host!\r\n\xc0",
+            .size = 14
+    };
+    slip_datagram_send(&send_datagram);
+
+
+    // Hang around
+    struct waitset *default_ws = get_default_waitset();
+    while (true) {
+        err = event_dispatch(default_ws);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "in event_dispatch");
+            abort();
+        }
+    }
 
     return 0;
 }
+
+void serial_input(uint8_t *buf, size_t len)
+{
+    slip_input(buf, len);
+}
+
