@@ -44,6 +44,13 @@ struct ram_answer_t {
     size_t allocated_size;
 };
 
+// Struct for marshalling the answer to the reguest of providing RAM.
+struct device_answer_t {
+    struct lmp_chan sender_lmp;
+    struct capref cap_device;
+    errval_t err;
+};
+
 /* RPC implementations */
 /* Message format:
  * There are at most 9 uintptr_t-length words in msg, namely msg[0] ... msg[8]
@@ -158,6 +165,9 @@ errval_t recv_handler(void *arg)
             answer_args = marshal_nameserver_ep(cap_endpoint, &msg);
             send_handler = send_nameserver_ep;
             break;
+        case AOS_RPC_ID_DEVICE:
+            answer_args = marshal_device_cap(cap_endpoint, &msg);
+            send_handler = send_device_cap;
         default:
             debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
@@ -188,9 +198,6 @@ struct client *whois(struct capref cap)
             break;
         }
         cur = cur->next;
-    }
-    if (cur == NULL) {
-        debug_printf("could not identify the client\n");
     }
     return cur;
 }
@@ -493,6 +500,30 @@ void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg) {
     return (void*) args;
 }
 
+void *marshal_device_cap(struct capref cap, struct lmp_recv_msg *msg) {
+    struct client *sender = whois(cap);
+    if (sender == NULL) {
+        return NULL;
+    }
+
+    lpaddr_t paddr = msg->words[1];
+    size_t bytes = msg->words[2];
+
+    struct capref new_cap;
+    errval_t err = slot_alloc(&new_cap);
+    if (err_is_ok(err)) {
+        debug_printf("marshal_device_cap: forging %llx:%llx\n", paddr, bytes);
+        err = frame_forge(new_cap, paddr, bytes, 0 /* TODO: support second core */ );
+    }
+
+    struct device_answer_t *args = malloc(sizeof(struct device_answer_t));
+    args->sender_lmp = sender->lmp;
+    args->cap_device = new_cap;
+    args->err = err;
+
+    return (void*) args;
+}
+
 /* All send handlers */
 
 // handler to send a signal that the message was received
@@ -660,6 +691,20 @@ errval_t send_nameserver_ep(void *args) {
             ns_args->ns_endpoint, 1);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
+        return err_send;
+    }
+
+    return SYS_ERR_OK;
+}
+
+errval_t send_device_cap(void *args) {
+    struct device_answer_t *dev_args = (struct device_answer_t *) args;
+    struct lmp_chan *lmp = &dev_args->sender_lmp;
+
+    errval_t err_send = lmp_chan_send2(lmp, LMP_FLAG_SYNC,
+                                       dev_args->cap_device, AOS_RPC_ID_ACK /* 1 */, dev_args->err);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/init/main.c send_device_cap: could not do lmp chan send1");
         return err_send;
     }
 

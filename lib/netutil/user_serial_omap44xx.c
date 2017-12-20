@@ -13,6 +13,7 @@ static omap44xx_uart3_t port;
 
 static void serial_poll(omap44xx_uart3_t *uart)
 {
+    debug_printf("In serial_poll\n");
     // Read while we can
     while(omap44xx_uart3_lsr_rx_fifo_e_rdf(uart)) {
         uint8_t c = omap44xx_uart3_rhr_rhr_rdf(uart);
@@ -22,6 +23,7 @@ static void serial_poll(omap44xx_uart3_t *uart)
 
 static void serial_interrupt(void *arg)
 {
+    debug_printf("In serial_interrupt\n");
     // get type
     omap44xx_uart3_iir_t iir= omap44xx_uart3_iir_rd(&port);
 
@@ -224,6 +226,7 @@ errval_t serial_init(lvaddr_t vbase, uint32_t irq) {
 static void serial_putchar(uint8_t c)
 {
     // Wait until FIFO can hold more characters
+    debug_printf("In serial_putchar\n");
     int maxit = 100000;
     while (!omap44xx_uart3_lsr_tx_fifo_e_rdf(&port) && maxit-- > 0);
     if(maxit == 0){
@@ -231,6 +234,7 @@ static void serial_putchar(uint8_t c)
     } else {
         // Write character
         omap44xx_uart3_thr_thr_wrf(&port, c);
+        debug_printf("serial_putchar: wrote [%c] (%d)\n", c, c);
     }
 
 }
@@ -240,4 +244,15 @@ void serial_write(uint8_t *c, size_t len)
     for (int i = 0; i < len; i++) {
         serial_putchar(c[i]);
     }
+}
+
+void serial_input(uint8_t *buf, size_t len)
+{
+    debug_printf("In serial_input: *buf=%c\n", *buf);
+    // TODO
+    for (int i = 0; i < len; i++) {
+        // buf[i] = 'c';
+        debug_printf("%c(%d)\n", buf[i], buf[i]);
+    }
+
 }

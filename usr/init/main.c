@@ -23,6 +23,7 @@
 #include <aos/kernel_cap_invocations.h>
 #include <aos/coreboot.h>
 #include <multiboot.h>
+#include <maps/omap44xx_map.h>
 
 #include <mm/mm.h>
 #include <spawn/spawn.h>
@@ -32,6 +33,8 @@
 #include "core_boot.h"
 #include "tests.h"
 
+#include <netutil/user_serial.h>
+
 
 /* init declarations */
 coreid_t my_core_id;
@@ -40,6 +43,8 @@ struct process_manager pm;
 
 struct capref ns_endpoint; /// The endpoint cap to nameserver process
 struct client *client_list;
+
+#define DEBUG_NETWORKING_REMOVE_ALL
 
 /* main */
 int main(int argc, char *argv[])
@@ -105,13 +110,14 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
 
-
-        /*debug_printf("booting core 1\n");
+#ifndef DEBUG_NETWORKING_REMOVE_ALL
+        debug_printf("booting core 1\n");
         err = boot_core(1);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed");
             return EXIT_FAILURE;
-        }*/
+        }
+#endif
     }
 
     /* perform_tests(); */
@@ -123,6 +129,7 @@ int main(int argc, char *argv[])
 
     debug_printf("Message handler loop\n");
 
+#ifndef DEBUG_NETWORKING_REMOVE_ALL
     debug_printf("test get chars\n", 15);
     for (int i = 0; i < 100; ++i) {
         char c;
@@ -130,7 +137,6 @@ int main(int argc, char *argv[])
         c = get_next_char_from_buffer();
         debug_printf("%d: char is [%c] (%d)\n", i, c, c);
     }
-/*
 
     if (my_core_id == 1) {
         test_multi_spawn(1, "/armv7/sbin/shell");
@@ -160,8 +166,11 @@ int main(int argc, char *argv[])
     } else {
         ns_endpoint = NULL_CAP;
     }
+#endif
 
     if (my_core_id == 0) {
+
+        /*
         debug_printf("Starting network process\n");
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
         err = spawn_load_by_name("/armv7/sbin/network", si);
@@ -169,7 +178,54 @@ int main(int argc, char *argv[])
             debug_printf("Failed spawning network process\n");
             return -1;
         }
-    } */
+*/
+
+
+        debug_printf("testing uart4\n");
+
+        char buf[1000];
+        struct capref mem_uart4;
+        err = slot_alloc(&mem_uart4);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "cannot slot_alloc for mem_uart4\n");
+            return EXIT_FAILURE;
+        }
+
+        err = frame_forge(mem_uart4, OMAP44XX_MAP_L4_PER_UART4, OMAP44XX_MAP_L4_PER_UART4_SIZE, 0);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "cannot forge frame of mem_uart4");
+            return EXIT_FAILURE;
+        }
+
+        debug_print_cap_at_capref(buf, 1000, mem_uart4);
+        debug_printf("mem_uart4: %s\n", buf);
+
+        void *uart4_base;
+        err = paging_map_frame_attr(get_current_paging_state(), &uart4_base, OMAP44XX_MAP_L4_PER_UART4_SIZE, mem_uart4, VREGION_FLAGS_READ_WRITE_NOCACHE, NULL, NULL);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "cannot map mem_uart4 to my own space");
+            return EXIT_FAILURE;
+        }
+
+        err = serial_init((lvaddr_t) uart4_base, UART4_IRQ);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "cannot serial_init uart4");
+            return EXIT_FAILURE;
+        }
+
+        serial_write((uint8_t *)"hello\r\n", 7);
+        char c;
+        while (1) {
+            debug_printf("Input a char: ");
+            c = get_next_char_from_buffer();
+            if (c == '\n')
+                serial_write((uint8_t *) "\r\n", 2);
+            else
+                serial_write((uint8_t *) &c, 1);
+        }
+
+
+    }
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();
@@ -179,14 +235,12 @@ int main(int argc, char *argv[])
         // local events
         err = event_dispatch_non_block(default_ws);
         if (err_is_ok(err)) {
-            debug_printf("dispatched a new lmp event\n");
             has_event = true;
         }
 
         // urpc events
         err = urpc_read_and_process_non_block(my_core_id);
         if (err_is_ok(err)) {
-            debug_printf("dispatched a new ump event\n");
             has_event = true;
         }
 

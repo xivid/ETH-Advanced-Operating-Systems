@@ -29,6 +29,7 @@ void *marshal_pname(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_init(struct capref cap);
 void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg);
+void *marshal_device_cap(struct capref cap, struct lmp_recv_msg *msg);
 
 // Callbacks to process the marshaled answers and send the response.
 typedef errval_t (*send_func_t)(void *);
@@ -38,5 +39,6 @@ errval_t send_process(void *args);
 errval_t send_pids(void *args);
 errval_t send_pname(void *args);
 errval_t send_nameserver_ep(void *args);
+errval_t send_device_cap(void *args);
 
 #endif /* _LRPC_SERVER_H_ */

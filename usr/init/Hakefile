@@ -22,7 +22,7 @@
                         "distops/invocations.c"
                       ],
                       addLinkFlags = [ "-e _start_init"],
-                      addLibraries = [ "mm", "getopt", "elf", "spawn" ],
+                      addLibraries = [ "mm", "getopt", "elf", "spawn", "netutil" ],
                       architectures = allArchitectures
                     }
 ]

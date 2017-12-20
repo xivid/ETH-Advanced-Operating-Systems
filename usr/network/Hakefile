@@ -13,6 +13,7 @@
 [ build application { target = "network",
                       cFiles = [ "network.c" ],
                       addLinkFlags = [ "-e _start"],
+                      addLibraries = [ "netutil" ],
                       architectures = allArchitectures
                     }
 ]

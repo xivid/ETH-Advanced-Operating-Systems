@@ -16,7 +16,7 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
 }
 
 errval_t spawn_load_by_name_with_arguments(void * binary_name, struct spawninfo * si, const char *argstr) {
-    debug_printf("spawn_load_by_name: %s [%s]\n", binary_name, argstr == NULL ? "" : argstr);
+    debug_printf("spawn_load_by_name: %s %s\n", binary_name, argstr == NULL ? "" : argstr);
 
     errval_t err;
     /* 1 - Get the binary from multiboot image */
@@ -183,13 +183,24 @@ errval_t init_child_cspace(struct spawninfo* si) {
     }
 
     // setup up initep
-    struct capref parent_initep = {
+    struct capref child_initep = {
         .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
         .slot = TASKCN_SLOT_INITEP
     };
-    err = cap_copy(parent_initep, cap_initep);
+    err = cap_copy(child_initep, cap_initep);
     if (err_is_fail(err)) {
         debug_printf("Error during copy of L1Cnode parent initep cap to cap_initep: %s", err_getstring(err));
+        return err;
+    }
+
+    // setup irq
+    struct capref child_irq = {
+            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+            .slot = TASKCN_SLOT_IRQ
+    };
+    err = cap_copy(child_irq, cap_irq);
+    if (err_is_fail(err)) {
+        debug_printf("Error during copy of L1Cnode parent irq cap to cap_irq: %s", err_getstring(err));
         return err;
     }
 

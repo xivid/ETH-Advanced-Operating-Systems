@@ -25,6 +25,7 @@ errval_t rcv_handler_for_get_process_name (void *v_args);
 errval_t rcv_handler_for_get_pids (void *v_args);
 errval_t rcv_handler_for_ns(void *v_args);
 errval_t rcv_handler_for_char(void *v_args);
+errval_t rcv_handler_for_device(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -511,7 +512,41 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
                                 lpaddr_t paddr, size_t bytes,
                                 struct capref *frame)
 {
-    return LIB_ERR_NOT_IMPLEMENTED;
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[0] = (uintptr_t) rpc;
+    args[1] = (uintptr_t) AOS_RPC_ID_DEVICE;
+    args[2] = (uintptr_t) paddr;
+    args[3] = (uintptr_t) bytes;
+    args[LMP_ARGS_SIZE] = (uintptr_t) frame;
+
+    assert(rpc != NULL);
+
+    // setup receiver slot
+    errval_t err = lmp_chan_alloc_recv_slot(&rpc->lmp);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_get_device_cap: lmp chan alloc recv slot failed\n");
+        return err;
+    }
+    err = send_and_receive(rcv_handler_for_device, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_get_device_cap: send and receive failed\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
+errval_t rcv_handler_for_device (void* v_args) {
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct capref* cap = (struct capref*) args[LMP_ARGS_SIZE];
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+
+    errval_t err = receive_and_match_ack(args, &lmp_msg, cap, (void *) rcv_handler_for_device);
+    if (err_is_fail(err)) {
+        *cap = NULL_CAP;
+    }
+
+    return (errval_t) lmp_msg.words[1];
 }
 
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
