@@ -12,9 +12,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    int *tmp = malloc(1000);
-    debug_printf("malloc succeeded %p\n", tmp);
-
     struct waitset *default_ws = get_default_waitset();
     while (true) {
         err = event_dispatch(default_ws);

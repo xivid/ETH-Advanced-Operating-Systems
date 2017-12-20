@@ -32,9 +32,12 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_GET_PIDS,
     AOS_RPC_ID_GET_PNAME,
     AOS_RPC_ID_GET_CHAR,
-    AOS_RPC_ID_REGISTER_NAMESERVER,
+    AOS_RPC_ID_NAMESERVER_SYN,
+    AOS_RPC_ID_REGISTER_NAMESERVER_WITH_INIT,
     AOS_RPC_ID_SET_NAMESERVER_EP,
     AOS_RPC_ID_GET_NAMESERVER_EP,
+    AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER,
+    AOS_RPC_ID_FAIL,
 };
 
 struct aos_rpc {
@@ -147,6 +150,14 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc, lpaddr_t paddr, size_t byte
  */
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc);
 
+/**
+ * \brief Initialize a channel to nameserver
+ * \param rpc Will store the channel to nameserver
+ * \param cap A capability for nameserver's endpoint obtained from init
+ * \param id Will store the unique client id (see the nameserver protocol)
+ */
+errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
+        unsigned *id);
 
 /**
  * \brief Returns the RPC channel to init.

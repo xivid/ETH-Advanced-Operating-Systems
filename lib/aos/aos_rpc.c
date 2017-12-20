@@ -25,6 +25,7 @@ errval_t rcv_handler_for_get_process_name (void *v_args);
 errval_t rcv_handler_for_get_pids (void *v_args);
 errval_t rcv_handler_for_ns(void *v_args);
 errval_t rcv_handler_for_char(void *v_args);
+errval_t rcv_handler_for_ns_syn(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -63,8 +64,7 @@ errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, st
 
     int count = 0;
     while (count < AOS_RPC_ATTEMPTS && lmp_err_is_transient(err) && err_is_fail(err)) {
-        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
-                                     MKCLOSURE((void*) rcv_handler, args));
+        err = lmp_chan_recv(&rpc->lmp, lmp_msg, cap);
         count++;
     }
     if (err_is_fail(err)) {
@@ -516,9 +516,10 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
     return SYS_ERR_OK;
 }
 
-errval_t aos_rpc_ns(struct waitset* ws, struct aos_rpc *rpc, struct capref cap)
+errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
+        unsigned *id)
 {
-    rpc->ws = ws;
+    rpc->ws = get_default_waitset();
 
     errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap);
     if (err_is_fail(err)) {
@@ -527,14 +528,34 @@ errval_t aos_rpc_ns(struct waitset* ws, struct aos_rpc *rpc, struct capref cap)
     }
     thread_mutex_init(&rpc->rpc_mutex);
 
-    uintptr_t args[LMP_ARGS_SIZE];
+    uintptr_t args[LMP_ARGS_SIZE + 1];
     args[0] = (uintptr_t) rpc;
-    args[1] = AOS_RPC_ID_INIT;
-    err = send_and_receive(rcv_handler_general, args);
+    args[1] = AOS_RPC_ID_NAMESERVER_SYN;
+    args[LMP_ARGS_SIZE] = (uintptr_t) id;
+
+    err = send_and_receive(rcv_handler_for_ns_syn, args);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_init: send_and_receive failed\n");
         return err;
     }
+
+    return SYS_ERR_OK;
+}
+
+errval_t rcv_handler_for_ns_syn(void *v_args)
+{
+    uintptr_t* args = (uintptr_t*) v_args;
+    size_t *id = (size_t*) args[LMP_ARGS_SIZE];
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    struct capref cap;
+
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap,
+            (void *) rcv_handler_for_ns_syn);
+    if (err_is_fail(err)) {
+        return err;
+    }
+    *id = lmp_msg.words[1];
+
     return SYS_ERR_OK;
 }
 

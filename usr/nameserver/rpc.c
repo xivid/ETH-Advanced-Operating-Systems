@@ -1,4 +1,5 @@
 #include "rpc.h"
+#include "whois.h"
 
 struct aos_rpc *listen_rpc = NULL;
 errval_t ns_init_rpc(void)
@@ -19,7 +20,7 @@ errval_t ns_init_rpc(void)
     }
 
     err = lmp_chan_register_recv(&listen_rpc->lmp, get_default_waitset(),
-            MKCLOSURE((void*) ns_recv_ack_handler, &listen_rpc->lmp));
+            MKCLOSURE((void*) ns_recv_listener_handler, &listen_rpc->lmp));
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/nameserver/rpc.c: lmp chan register recv failed");
         return EXIT_FAILURE;
@@ -49,7 +50,7 @@ errval_t ns_send_register(void) {
     uintptr_t args[MAX_LMP_ARGS];
     args[0] = (uintptr_t) rpc;
     args[1] = (uintptr_t) &rpc->lmp.local_cap;
-    args[2] = (uintptr_t) AOS_RPC_ID_REGISTER_NAMESERVER;
+    args[2] = (uintptr_t) AOS_RPC_ID_REGISTER_NAMESERVER_WITH_INIT;
 
     errval_t err = send(args, ns_send_handler, ns_recv_ack_handler);
     if (err_is_fail(err)) {
@@ -72,4 +73,21 @@ errval_t ns_send_listen_cap(void) {
         return err;
     }
     return SYS_ERR_OK;
+}
+
+void *ns_marshal_init(struct capref cap) {
+    struct aos_rpc *client_rpc;
+    unsigned id;
+    int res = ns_add_client(cap, &client_rpc, &id);
+    if (res) {
+        debug_printf("nameserver failed adding a client!\n");
+        return NULL;
+    }
+
+    uintptr_t *answer_args = malloc(sizeof(uintptr_t) * MAX_LMP_ARGS);
+    answer_args[0] = (uintptr_t) client_rpc;
+    answer_args[1] = (uintptr_t) 0;
+    answer_args[2] = AOS_RPC_ID_ACK;
+    answer_args[3] = (uintptr_t) id;
+    return answer_args;
 }

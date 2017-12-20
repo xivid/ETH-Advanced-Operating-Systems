@@ -159,7 +159,7 @@ errval_t recv_handler(void *arg)
             answer_args = marshal_get_nameserver_endpoint(cap_endpoint, &msg);
             send_handler = send_nameserver_ep;
             break;
-        case AOS_RPC_ID_REGISTER_NAMESERVER:
+        case AOS_RPC_ID_REGISTER_NAMESERVER_WITH_INIT:
             answer_args = marshal_register_nameserver(cap_endpoint);
             send_handler = send_received;
             break;
@@ -456,8 +456,7 @@ void *marshal_init(struct capref cap) {
     potential->prev = NULL;
     if (client_list == NULL) {
         potential->next = NULL;
-    }
-    else {
+    } else {
         potential->next = client_list;
         client_list->prev = potential;
     }
@@ -555,6 +554,11 @@ void *marshal_set_nameserver_endpoint(struct capref cap)
         debug_printf("Failed spawning process nameserver\n");
         return NULL;
     }
+    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
+    /* if (err_is_fail(err)) { */
+    /*     debug_printf("Failed spawning process nameserver\n"); */
+    /*     return NULL; */
+    /* } */
     /////////////////////////////////////////////////////////////
     return (void *) &nameserver_client->lmp;
 }
