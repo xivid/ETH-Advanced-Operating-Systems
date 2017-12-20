@@ -38,6 +38,7 @@
                              "lmp_chan.c",
                              "lmp_endpoints.c",
                              "morecore.c",
+                             "nameserver.c",
                              "paging.c",
                              "ram_alloc.c",
                              "slab.c",

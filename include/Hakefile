@@ -8,7 +8,7 @@
 -- Attn: Systems Group.
 --
 -- Hakefile for /include
--- 
+--
 --------------------------------------------------------------------------
 
 [ includeFile [
@@ -91,6 +91,7 @@
    "aos/morecore.h",
    "aos/msgbuf.h",
    "aos/multihop_chan.h",
+   "aos/nameserver.h",
    "aos/nameservice_client.h",
    "aos/net_constants.h",
    "aos/pmap.h",
