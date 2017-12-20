@@ -31,8 +31,10 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_PROCESS,
     AOS_RPC_ID_GET_PIDS,
     AOS_RPC_ID_GET_PNAME,
-    AOS_RPC_ID_GET_NAMESERVER_EP,
     AOS_RPC_ID_GET_CHAR,
+    AOS_RPC_ID_REGISTER_NAMESERVER,
+    AOS_RPC_ID_SET_NAMESERVER_EP,
+    AOS_RPC_ID_GET_NAMESERVER_EP,
 };
 
 struct aos_rpc {
@@ -42,6 +44,7 @@ struct aos_rpc {
     // TODO: add state for your implementation
 };
 
+errval_t aos_rpc_ns(struct waitset* ws, struct aos_rpc *rpc, struct capref cap);
 /**
  * \brief send a number over the given channel
  */

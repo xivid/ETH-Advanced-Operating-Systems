@@ -516,6 +516,28 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
     return SYS_ERR_OK;
 }
 
+errval_t aos_rpc_ns(struct waitset* ws, struct aos_rpc *rpc, struct capref cap)
+{
+    rpc->ws = ws;
+
+    errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_init: lmp_chan_accept failed\n");
+        return err;
+    }
+    thread_mutex_init(&rpc->rpc_mutex);
+
+    uintptr_t args[LMP_ARGS_SIZE];
+    args[0] = (uintptr_t) rpc;
+    args[1] = AOS_RPC_ID_INIT;
+    err = send_and_receive(rcv_handler_general, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_init: send_and_receive failed\n");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
 /**
  * \brief Returns the RPC channel to init.
  */
