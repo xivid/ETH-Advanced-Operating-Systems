@@ -16,6 +16,7 @@
 #define _LIB_BARRELFISH_AOS_MESSAGES_H
 
 #include <aos/aos.h>
+#include <fs/fs.h>
 
 #define AOS_RPC_ATTEMPTS            (4) // how many attempts do we want for sending/receiving before throwing an error
 #define LMP_ARGS_SIZE               (10)
@@ -33,6 +34,7 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_GET_PNAME,
     AOS_RPC_ID_GET_NAMESERVER_EP,
     AOS_RPC_ID_GET_CHAR,
+    AOS_RPC_ID_GET_DEVICE_CAP,
 };
 
 struct aos_rpc {
@@ -164,4 +166,28 @@ struct aos_rpc *aos_rpc_get_process_channel(void);
  * \brief Returns the channel to the serial console
  */
 struct aos_rpc *aos_rpc_get_serial_channel(void);
+
+// rpc calls for fat32
+
+// mount mount fat32 drive is mounted to path, given also the uri of the mount command
+errval_t aos_rpc_fat_mount(struct aos_rpc* chan, const char* path, const char* uri);
+// unmounts the fat32 drive (use with care)
+errval_t aos_rpc_fat_unmount(struct aos_rpc* chan);
+// open file at path and return via handle
+errval_t aos_rpc_fat_open(struct aos_rpc* chan, char* path, void** handle);
+// close the file given with handle
+errval_t aos_rpc_fat_close(struct aos_rpc* chan, void* handle);
+// read the file given in handle to buffer, read maximum of bytes, returns bytes_read with the actual read number
+errval_t aos_rpc_fat_read(struct aos_rpc* chan, void* handle, void* buffer, size_t bytes, size_t* bytes_read);
+// move read pointer of open file at handle, move by offset, new offset is given in handle->current_offset
+errval_t aos_rpc_fat_seek(struct aos_rpc* chan, void* handle, enum fs_seekpos whence, off_t offset);
+// open directory "path", return opened directory via handle
+errval_t aos_rpc_fat_opendir(struct aos_rpc* chan, const char *path, void** handle);
+// close the directory given by handle
+errval_t aos_rpc_fat_closedir(struct aos_rpc* chan, void* handle);
+// read next entry in the directory given by handle, return the name
+errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** name);
+// returns the stat fs_fileinfo of the open file/dir given by handle
+errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info);
+
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H

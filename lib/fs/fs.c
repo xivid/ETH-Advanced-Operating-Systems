@@ -8,6 +8,7 @@
 #include <fs/dirent.h>
 #include <fs/ramfs.h>
 
+#include "fopen_fat32.h"
 #include "fs_internal.h"
 
 /*
@@ -32,7 +33,10 @@ errval_t filesystem_init(void)
 {
     errval_t err;
 
-    /* TODO: Filesystem project: hook up your init code here */
+    err = init_fat32_rpc();
+    if (err_is_fail(err)) {
+        return err;
+    }
 
     ramfs_mount_t st = NULL;
     err = ramfs_mount("/", &st);
@@ -61,5 +65,5 @@ errval_t filesystem_init(void)
  */
 errval_t filesystem_mount(const char *path, const char *uri)
 {
-    return LIB_ERR_NOT_IMPLEMENTED;
+    return fopen_fat32_mount(path, uri);
 }

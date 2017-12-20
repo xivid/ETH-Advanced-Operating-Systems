@@ -63,6 +63,7 @@ void* answer_pname(struct capref cap, struct lmp_recv_msg* msg);
 void* answer_init(struct capref cap);
 void* answer_ram(struct capref cap, struct lmp_recv_msg* msg);
 void *answer_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg);
+void* answer_device_cap(struct capref cap, struct lmp_recv_msg* msg);
 
 errval_t send_received(void* arg);
 errval_t send_ram(void* args);
@@ -71,6 +72,7 @@ errval_t send_pids(void* args);
 errval_t send_pname(void* args);
 errval_t send_nameserver_ep(void *args);
 errval_t send_char(void* args);
+errval_t send_device_cap(void* args);
 
 /* urpc declarations */
 void urpc_write(const uint32_t message[URPC_PAYLOAD_LEN], coreid_t core);
@@ -201,6 +203,9 @@ errval_t recv_handler(void* arg)
         answer_args = answer_nameserver_ep(cap_endpoint, &msg);
         answer = (void*) send_nameserver_ep;
         break;
+    case AOS_RPC_ID_GET_DEVICE_CAP:
+        answer_args = answer_device_cap(cap_endpoint, &msg);
+        answer = (void*) send_device_cap;
     default:
         debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
         return LIB_ERR_NOT_IMPLEMENTED;
@@ -639,6 +644,43 @@ void* answer_nameserver_ep(struct capref cap, struct lmp_recv_msg* msg) {
     return (void*) args;
 }
 
+void* answer_device_cap(struct capref cap, struct lmp_recv_msg* msg) {
+    struct client *sender = NULL;
+    errval_t err = whois(cap, &sender);
+    if (err_is_fail(err) || sender == NULL) {
+        DEBUG_ERR(err, "usr/init/main.c answer init: could not identify client");
+        return NULL;
+    }
+    struct capref return_cap;
+    err = slot_alloc(&return_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/rpc_server.h answer device cap: could not alloc slot");
+    }
+    err = frame_forge(return_cap, (lpaddr_t) msg->words[2], (size_t) msg->words[1], my_core_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/rpc_server.h answer device cap: could not forge frame");
+    }
+
+    size_t size_of_args = ROUND_UP(sizeof(struct lmp_chan),4) + ROUND_UP(sizeof(errval_t),4) + ROUND_UP(sizeof(struct capref),4);
+    void* args_ptr = malloc(size_of_args);
+    void* args = args_ptr;
+
+
+    // add channel to args
+    *((struct lmp_chan*) args) = sender->lmp;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // add error to args
+    *((errval_t*) args) = err;
+    // cast to void* and move pointer to after the error
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
+    // add cap to args
+    *((struct capref*) args) = return_cap;
+
+    return (void*) args_ptr;
+}
+
+
 /* All send handlers */
 
 // handler to send a signal that the message was received
@@ -670,6 +712,27 @@ errval_t send_ram(void* args) {
     errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), *allocated_size, (uintptr_t) *err);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
+        return err_send;
+    }
+
+    return SYS_ERR_OK;
+}
+
+errval_t send_device_cap(void* args) {
+    // get channel
+    struct lmp_chan* lmp = (struct lmp_chan*) args;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(struct lmp_chan), 4);
+    // get error
+    errval_t* err = (errval_t*) args;
+    // cast to void* and move pointer to after the error
+    args = (void*) ROUND_UP((uintptr_t) args + sizeof(errval_t), 4);
+    // get cap
+    struct capref* cap = (struct capref*) args;
+
+    errval_t err_send = lmp_chan_send2(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), (uintptr_t) *err);
+    if (err_is_fail(err_send)) {
+        DEBUG_ERR(err_send, "usr/init/main.c send device cap: could not do lmp chan send2");
         return err_send;
     }
 

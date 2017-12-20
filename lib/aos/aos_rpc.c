@@ -25,6 +25,7 @@ errval_t rcv_handler_for_get_process_name (void *v_args);
 errval_t rcv_handler_for_get_pids (void *v_args);
 errval_t rcv_handler_for_ns(void *v_args);
 errval_t rcv_handler_for_char(void *v_args);
+errval_t rcv_handler_for_device_cap(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -491,7 +492,42 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
                                 lpaddr_t paddr, size_t bytes,
                                 struct capref *frame)
 {
-    return LIB_ERR_NOT_IMPLEMENTED;
+    // arguments: [aos_rpc, bytes, paddr, retcap]
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[0] = (uintptr_t) rpc;
+    args[1] = (uintptr_t) AOS_RPC_ID_GET_DEVICE_CAP;
+    args[2] = (uintptr_t) bytes;
+    args[3] = (uintptr_t) paddr;
+    args[LMP_ARGS_SIZE] = (uintptr_t) frame;
+
+    assert(rpc != NULL);
+
+    // setup receiver slot
+    errval_t err = lmp_chan_alloc_recv_slot(&rpc->lmp);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_get_device_cap: lmp chan alloc recv slot failed\n");
+        return err;
+    }
+    err = send_and_receive(rcv_handler_for_device_cap, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_get_device_cap: send and receive failed\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
+errval_t rcv_handler_for_device_cap (void* v_args) {
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct capref* cap = (struct capref*) args[LMP_ARGS_SIZE];
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+
+    errval_t err = receive_and_match_ack(args, &lmp_msg, cap, (void *) rcv_handler_for_device_cap);
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    return (errval_t) lmp_msg.words[1];
 }
 
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
@@ -546,4 +582,55 @@ struct aos_rpc *aos_rpc_get_process_channel(void)
 struct aos_rpc *aos_rpc_get_serial_channel(void)
 {
     return get_init_rpc();
+}
+
+// mount mount fat32 drive is mounted to path, given also the uri of the mount command
+errval_t aos_rpc_fat_mount(struct aos_rpc* chan, const char* path, const char* uri) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// unmounts the fat32 drive (use with care)
+errval_t aos_rpc_fat_unmount(struct aos_rpc* chan){
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// open file at path and return via handle
+errval_t aos_rpc_fat_open(struct aos_rpc* chan, char* path, void** handle) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// close the file given with handle
+errval_t aos_rpc_fat_close(struct aos_rpc* chan, void* handle) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// read the file given in handle to buffer, read maximum of bytes, returns bytes_read with the actual read number
+errval_t aos_rpc_fat_read(struct aos_rpc* chan, void* handle, void* buffer, size_t bytes, size_t* bytes_read) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// move read pointer of open file at handle, move by offset, new offset is given in handle->current_offset
+errval_t aos_rpc_fat_seek(struct aos_rpc* chan, void* handle, enum fs_seekpos whence, off_t offset) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// open directory "path", return opened directory via handle
+errval_t aos_rpc_fat_opendir(struct aos_rpc* chan, const char *path, void** handle) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// close the directory given by handle
+errval_t aos_rpc_fat_closedir(struct aos_rpc* chan, void* handle) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// read next entry in the directory given by handle, return the name
+errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** name) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
+}
+// returns the stat fs_fileinfo of the open file/dir given by handle
+errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info) {
+    
+    return LIB_ERR_NOT_IMPLEMENTED;
 }
