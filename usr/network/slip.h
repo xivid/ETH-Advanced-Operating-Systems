@@ -72,7 +72,7 @@ void slip_send(uint8_t *buf, size_t size);
  * ip definitions
  */
 
-//! IP address type (in binary network format).
+//! IP address type
 typedef uint32_t ip_addr_t;
 
 //! The IP packet structure.
@@ -101,9 +101,11 @@ struct ip_t
     uint16_t checksum;
 
     //! IP source address (in network format).
-    uint32_t ip_src;
+    ip_addr_t ip_src;
     //! IP destination address (in network format).
-    uint32_t ip_dst;
+    ip_addr_t ip_dst;
+
+    // Note: options section not supported yet
 } __attribute__ ((packed));
 void ipv4_packet_recv_handler(struct ip_t *ip, size_t len);
 
@@ -141,4 +143,63 @@ struct icmp_echo_reply_t {
 
 __attribute__ ((unused))
 static struct icmp_echo_reply_t icmp_echo_reply;
+
+
+/**
+ * udp definitions
+ */
+//! The udp service port type.
+typedef uint16_t port_t;
+
+//! The UDP packet structure.
+struct udp_t
+{
+    //! Source port
+    port_t port_src;
+
+    //! Destination port
+    port_t port_dst;
+
+    //! Length
+    uint16_t length;
+
+    //! Checksum
+    uint16_t checksum;
+
+    //! Payload
+    uint8_t payload[];
+} __attribute__ ((packed));
+
+//! The UDP Pseudo Header on ipv4
+struct udp_ipv4_pseudo_header_t {
+    //! Source IPv4 Address
+    ip_addr_t ip_src;
+
+    //! Destination IPv4 Address
+    ip_addr_t ip_dst;
+
+    //! Zeroes (always 0)
+    uint8_t zeros;
+
+    //! Protocol (always 0x11)
+    uint8_t protocol;
+
+    //! UDP Length (UDP header and data)
+    uint8_t udp_length;
+
+    //! The below items are the same as in udp_t
+    struct udp_t udp;
+} __attribute__ ((packed));
+void udp_packet_recv_handler(struct udp_t *udp, size_t len, struct ip_t *ip);
+void udp_echo_handler(struct udp_t *udp, size_t len, struct ip_t *ip);
+
+#define UDP_PAYLOAD_MAX_BYTES SLIP_DECODED_PACKET_MAX_BYTES
+struct udp_reply_t {
+    struct ip_t ip;
+    struct udp_t udp;
+    uint8_t payload[UDP_PAYLOAD_MAX_BYTES];
+} __attribute__ ((packed));
+__attribute__ ((unused))
+static struct udp_reply_t udp_reply;
+
 #endif //BF_AOS_SLIP_H

@@ -4,8 +4,8 @@
 
 #include "slip.h"
 
-// #define DEBUG_PACKET
-// #define TRACE_PACKET
+#define DEBUG_PACKET
+#define TRACE_PACKET
 
 void slip_receive(uint8_t *buf, size_t len)
 {
@@ -117,7 +117,7 @@ void slip_packet_recv_handler(void) {
     if (slip_decoded_packet.size < 20
         || (slip_decoded_packet.data[0] & 0xf0) != 0x40 || (slip_decoded_packet.data[0] & 0xf) < 5
         || inet_checksum(slip_decoded_packet.data, (uint16_t)(slip_decoded_packet.data[0] & 0xf) << 2) != 0) {
-        debug_printf("Not a valid IPv4 packet. Dropped.\n");
+        debug_printf("Not a valid IPv4 packet, or not an IPv4 packet. Dropped.\n");
         return;
     }
 
@@ -203,17 +203,34 @@ void ipv4_packet_recv_handler(struct ip_t *ip, size_t len) {
         return;
     }
 
+    uint8_t *payload = &slip_decoded_packet.data[ip->ihl << 2];
+    uint16_t payload_len = ip->length - (ip->ihl << 2);
     /* ICMP */
-    if (ip->protocol == 1 && ip->tos ==  0) {
+    if (ip->protocol == 0x01 && ip->tos ==  0) {
+
 #ifdef TRACE_PACKET
         debug_printf("ICMP packet detected. base = %u, size = %u, checksum: 0x%04x\n",
                      ip->ihl << 2,
                      ip->length - (ip->ihl << 2),
-                     inet_checksum(&slip_decoded_packet.data[ip->ihl << 2], ip->length - (ip->ihl << 2)));
+                     inet_checksum(payload, payload_len));
 #endif
-        icmp_packet_recv_handler((struct icmp_t *) &slip_decoded_packet.data[ip->ihl << 2], ip->length - (ip->ihl << 2), ip->ip_src);
+        if (inet_checksum(payload, payload_len)) {
+            debug_printf("checksum error, dropped this packet.\n");
+            return;
+        }
+        icmp_packet_recv_handler((struct icmp_t *) payload, payload_len, ip->ip_src);
+
+    } else if (ip->protocol == 0x11) {
+
+#ifdef TRACE_PACKET
+        debug_printf("UDP packet detected. src port = %u, dest port = %u, length = %u\n",
+                     ntohs(*(uint16_t *)payload), ntohs(*(uint16_t *)(payload + 2)), ntohs(*(uint16_t *)(payload + 4)));
+#endif
+        // TODO: verify checksum
+        udp_packet_recv_handler((struct udp_t *) payload, payload_len, ip);
+
     } else {
-        debug_printf("Protocols other than IP/ICMP not implemented yet.\n");
+        debug_printf("Protocol 0x%02x not implemented yet.\n", ip->protocol);
     }
 }
 
@@ -221,12 +238,13 @@ void icmp_packet_recv_handler(struct icmp_t *icmp, size_t len, ip_addr_t ip_src)
 #ifdef TRACE_PACKET
     debug_printf("ICMP handler: type = %u\n", icmp->type);
 #endif
-
+    // Note: we didn't convert the icmp->checksum to host byte order since we wouldn't really use it.
     switch (icmp->type) {
         case 0:
-            debug_printf("echo reply support not implemented yet\n");
+            debug_printf("echo reply support not implemented yet (which means you cannot ping from PandaBoard)\n");
             break;
         case 8:
+            // ping
             icmp_echo_request_handler(icmp, len, ip_src);
             break;
         default:
@@ -245,10 +263,6 @@ void icmp_echo_request_handler(struct icmp_t *icmp, size_t len, ip_addr_t ip_src
 
 #ifdef DEBUG_PACKET
     debug_printf("hdr_data: %02x %02x %02x %02x\n", icmp->hdr_data[0], icmp->hdr_data[1], icmp->hdr_data[2], icmp->hdr_data[3]);
-    debug_printf("payload:\n");
-    for (int i = 0; i < payload_length; ++i) {
-        debug_printf("%02x\n", icmp->payload[i]);
-    }
 #endif
 
     icmp_echo_reply.ip = (struct ip_t) {
@@ -282,4 +296,56 @@ void icmp_echo_request_handler(struct icmp_t *icmp, size_t len, ip_addr_t ip_src
     icmp_echo_reply.ip.checksum = checksum;
 
     slip_send((uint8_t *)&icmp_echo_reply, 20 + 8 + payload_length);
+}
+
+void udp_packet_recv_handler(struct udp_t *udp, size_t len, struct ip_t *ip) {
+    /*udp->port_src = ntohs(udp->port_src);
+    udp->port_dst = ntohs(udp->port_dst);
+    udp->length = ntohs(udp->length);
+    udp->checksum = ntohs(udp->checksum);*/
+
+    if (ntohs(udp->port_dst) == 8888) {
+        // echo server
+        udp_echo_handler(udp, len, ip);
+    } else {
+        debug_printf("No service on UDP Port %u, dropped this packet.\n", udp->port_dst);
+    }
+}
+
+void udp_echo_handler(struct udp_t *udp, size_t len, struct ip_t *ip) {
+    size_t payload_length = len - 8;
+
+    udp_reply.ip = (struct ip_t) {
+        .version = 4,
+        .ihl = 5,
+        .tos = 0x00, /* hope this doesn't matter */
+        .length = htons((uint16_t)(20 + 8 + payload_length)),
+        .id = htons(0xBEEF), /* some random identification */
+        .flag_off = htons(0x4000),
+        .ttl = 0x40, /* ttl = 64, hope this works */
+        .protocol = 0x11,
+        .checksum = 0x0000,
+        .ip_src = htonl(0x0a000201), /* hard-coded my ip: 10.0.2.1 */
+        .ip_dst = htonl(ip->ip_src)
+    };
+
+    udp_reply.udp = (struct udp_t) {
+        .port_src = udp->port_dst,
+        .port_dst = udp->port_src,
+        .length = udp->length,
+        .checksum = 0x0000
+    };
+
+    memcpy(udp_reply.payload, udp->payload, sizeof(uint8_t) * payload_length);
+
+    uint16_t checksum;
+    // fill udp checksum
+    // checksum = inet_checksum(&icmp_echo_reply.icmp, (uint16_t)(8 + payload_length));
+    udp_reply.udp.checksum = 0x0000; // optional for IPv4, skipped
+
+    // fill ip checksum
+    checksum = inet_checksum(&udp_reply.ip, 20);
+    udp_reply.ip.checksum = checksum;
+
+    slip_send((uint8_t *)&udp_reply, 20 + 8 + payload_length);
 }
