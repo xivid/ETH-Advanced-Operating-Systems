@@ -223,7 +223,7 @@ errval_t serial_init(lvaddr_t vbase, uint32_t irq) {
 }
 
 /** output a single character */
-static void serial_putchar(uint8_t c)
+void serial_putchar(uint8_t c)
 {
     // Wait until FIFO can hold more characters
     int maxit = 100000;

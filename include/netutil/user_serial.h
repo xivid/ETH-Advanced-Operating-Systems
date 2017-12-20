@@ -28,6 +28,9 @@
 #define UART4_IRQ (32+70)
 
 
+void serial_putchar(uint8_t c);
+
+
 /**
  * Blocking write to serial port.
  */

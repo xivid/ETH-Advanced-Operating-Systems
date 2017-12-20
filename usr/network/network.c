@@ -20,8 +20,6 @@ int main(int argc, char *argv[])
     struct aos_rpc *init_rpc = aos_rpc_get_init_channel();
     errval_t err;
 
-    slip_datagram = EMPTY_SLIP_DATAGRAM;
-    slip_escaping = false;
 
     debug_printf("Get uart4 device frame\n");
     struct capref cap_uart4;
@@ -44,12 +42,8 @@ int main(int argc, char *argv[])
     serial_init((lvaddr_t) uart4_vbase, UART4_IRQ);
 
 
-    debug_printf("Writing to serial\n");
-    struct slip_datagram_t send_datagram = {
-            .data = "hello host!\r\n\xc0",
-            .size = 14
-    };
-    slip_datagram_send(&send_datagram);
+    debug_printf("Testing greeting to host by serial\n");
+    slip_send((uint8_t *)"hello host!\r\n", 13);
 
 
     // Hang around
@@ -67,6 +61,6 @@ int main(int argc, char *argv[])
 
 void serial_input(uint8_t *buf, size_t len)
 {
-    slip_input(buf, len);
+    slip_receive(buf, len);
 }
 
