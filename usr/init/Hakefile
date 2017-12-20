@@ -16,6 +16,7 @@
                         "mem_alloc.c",
                         "urpc_server.c",
                         "lrpc_server.c",
+                        "terminal.c",
                         "distops/caplock.c",
                         "distops/capqueue.c",
                         "distops/deletestep.c",

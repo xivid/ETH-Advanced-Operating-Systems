@@ -26,6 +26,7 @@ void *marshal_str(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_process(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_pids(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_pname(struct capref cap, struct lmp_recv_msg *msg);
+void *marshal_retchar(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_init(struct capref cap);
 void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg);
@@ -38,6 +39,7 @@ errval_t send_ram(void *args);
 errval_t send_process(void *args);
 errval_t send_pids(void *args);
 errval_t send_pname(void *args);
+errval_t send_char(void *args);
 errval_t send_nameserver_ep(void *args);
 errval_t send_device_cap(void *args);
 

@@ -18,6 +18,8 @@
 #define INIT_DISPATCHER_VBASE   (INIT_ARGS_VBASE + ARGS_SIZE)
 #define MON_URPC_VBASE          (INIT_DISPATCHER_VBASE + DISPATCHER_SIZE)
 
+#define INIT_PROCESS_ID (0)
+
 #define N_LINES                 (MON_URPC_SIZE / 2 / 64)
 #define LINE_WORDS              (16)
 #define URPC_PAYLOAD_LEN        (10)
@@ -32,6 +34,7 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core);
 void urpc_spawn_handler(coreid_t core, void *name);
 void urpc_get_pids_handler(coreid_t core, domainid_t pid);
 void urpc_get_pname_handler(coreid_t core, domainid_t pid);
+void urpc_get_char_handler(coreid_t core);
 errval_t urpc_read_and_process_non_block(coreid_t core);
 
 #endif /* _URPC_SERVER_H */

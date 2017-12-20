@@ -1,4 +1,5 @@
 #include "lrpc_server.h"
+#include "terminal.h"
 
 errval_t recv_handler(void *arg);
 struct client *whois(struct capref cap);
@@ -34,6 +35,11 @@ struct pname_answer_t {
     struct lmp_chan sender_lmp;
     size_t length;
     char *name;
+};
+
+struct char_answer_t {
+    struct lmp_chan sender_lmp;
+    char retchar;
 };
 
 // Struct for marshalling the answer to the reguest of providing RAM.
@@ -158,6 +164,10 @@ errval_t recv_handler(void *arg)
         case AOS_RPC_ID_GET_PNAME:
             answer_args = marshal_pname(cap_endpoint, &msg);
             send_handler = send_pname;
+            break;
+        case AOS_RPC_ID_GET_CHAR:
+            answer_args = marshal_retchar(cap_endpoint, &msg);
+            send_handler = send_char;
             break;
         case AOS_RPC_ID_GET_NAMESERVER_EP:
             answer_args = marshal_nameserver_ep(cap_endpoint, &msg);
@@ -465,6 +475,44 @@ void *marshal_init(struct capref cap) {
     return (void*) &(potential->lmp);
 }
 
+void *marshal_retchar(struct capref cap_endpoint, struct lmp_recv_msg *msg)
+{
+    domainid_t comm_dest = (domainid_t)msg->words[1];
+    coreid_t target_core_id = pid_get_core_id(comm_dest);
+    char retchar;
+
+    if (target_core_id == my_core_id)
+    {
+        retchar = get_next_char_from_buffer();
+    }
+    else
+    {
+        // send URPC request
+        uint32_t message[URPC_PAYLOAD_LEN];
+        message[0] = 0;
+        message[1] = AOS_RPC_ID_GET_CHAR;
+        urpc_write(message, target_core_id);
+
+        // wait for and read response
+        urpc_read_until_ack(message, my_core_id);
+
+        retchar = message[0];
+    }
+
+    struct client *sender = whois(cap_endpoint);
+    if (sender == NULL)
+    {
+        debug_printf("usr/init/main.c answer char: could not identify client\n");
+        return NULL;
+    }
+
+    struct char_answer_t *args = malloc(sizeof(struct char_answer_t));
+    args->sender_lmp = sender->lmp;
+    args->retchar = retchar;
+
+    return (void*)args;
+}
+
 void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg) {
     struct client *sender = whois(cap);
     if (sender == NULL) {
@@ -505,7 +553,7 @@ void* marshal_device_cap(struct capref cap, struct lmp_recv_msg* msg) {
     args->sender_lmp = sender->lmp;
     args->err = err;
     args->device_cap = return_cap;
-    
+
     return (void*) args;
 }
 
@@ -569,7 +617,7 @@ errval_t send_process(void *args) {
 errval_t send_pids(void *args) {
     errval_t err_send;
     uintptr_t msg[9] = {0};
-    msg[0] = 1;  // ACK
+    msg[0] = AOS_RPC_ID_ACK;
 
     // get channel
     struct pids_answer_t *pid_args = (struct pids_answer_t *) args;
@@ -682,6 +730,24 @@ errval_t send_pname(void *args) {
     return SYS_ERR_OK;
 }
 
+errval_t send_char(void *args)
+{
+    // get channel
+    struct lmp_chan *lmp = (struct lmp_chan *)args;
+    // cast to void* and move pointer to after the lmp channel
+    args = (void *)ROUND_UP((uintptr_t)args + sizeof(struct lmp_chan), 4);
+    char retchar = *(char *)args;
+
+    errval_t err_send = lmp_chan_send2(lmp, LMP_FLAG_SYNC, NULL_CAP, AOS_RPC_ID_ACK, retchar);
+    if (err_is_fail(err_send))
+    {
+        DEBUG_ERR(err_send, "usr/init/main.c send char: could not do lmp chan send2");
+        return err_send;
+    }
+
+    return SYS_ERR_OK;
+}
+
 errval_t send_nameserver_ep(void *args) {
     struct nameserver_answer_t *ns_args = (struct nameserver_answer_t *) args;
     struct lmp_chan *lmp = &ns_args->sender_lmp;
@@ -699,11 +765,11 @@ errval_t send_nameserver_ep(void *args) {
 errval_t send_device_cap(void* args) {
     // get channel
     struct device_cap_answer_t* device_args = (struct device_cap_answer_t*) args;
-    
+
     struct lmp_chan* lmp = &device_args->sender_lmp;
     errval_t *err = &device_args->err;
     struct capref *cap = &device_args->device_cap;
-    
+
     errval_t err_send = lmp_chan_send2(lmp, LMP_FLAG_SYNC, *cap, (size_t)(err_is_fail(*err)? 0:1), (uintptr_t) *err);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/init/main.c send device cap: could not do lmp chan send2");

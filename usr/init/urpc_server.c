@@ -1,4 +1,5 @@
 #include "urpc_server.h"
+#include "terminal.h"
 
 static inline void dmb(void) { __asm volatile ("dmb"); }
 
@@ -65,6 +66,9 @@ void urpc_read_and_process(uint32_t *rx, coreid_t core)
                 break;
             case AOS_RPC_ID_GET_PNAME:
                 urpc_get_pname_handler(core, (domainid_t) rx[2]);
+                break;
+            case AOS_RPC_ID_GET_CHAR:
+                urpc_get_char_handler(core);
                 break;
             default:
                 debug_printf("Message type not supported by init %lu\n", rx[1]);
@@ -185,3 +189,12 @@ void urpc_get_pname_handler(coreid_t core, domainid_t pid) {
     // we don't send the '\0'
 }
 
+void urpc_get_char_handler(coreid_t core)
+{
+    uint32_t char_ack[URPC_PAYLOAD_LEN];
+    char_ack[0] = INIT_PROCESS_ID;
+    char_ack[1] = AOS_RPC_ID_ACK;
+    char_ack[2] = get_next_char_from_buffer();
+
+    urpc_write(char_ack, 1 - core);
+}
