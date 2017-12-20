@@ -151,14 +151,23 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc, lpaddr_t paddr, size_t byte
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc);
 
 /**
- * \brief Initialize a channel to nameserver
+ * \brief Initialize a channel to nameserver (see the nameserver protocol)
  * \param rpc Will store the channel to nameserver
  * \param cap A capability for nameserver's endpoint obtained from init
- * \param id Will store the unique client id (see the nameserver protocol)
+ * \param id Will store the unique client id
  */
 errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
         unsigned *id);
 
+/**
+ * \brief Register an endpoint with nameserver (see the nameserver protocol)
+ * \param rpc        The channel to nameserver
+ * \param id         The client id assigned by nameserver
+ * \param endpoint   The endpoint capability to register
+ * \param name       The service name to register
+ */
+errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
+        struct capref endpoint, char *name);
 /**
  * \brief Returns the RPC channel to init.
  */

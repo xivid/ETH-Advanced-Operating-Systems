@@ -26,7 +26,9 @@ errval_t ns_register(char *name, struct capref endpoint)
             return err;
         }
     }
-    return SYS_ERR_OK;
+
+    err = aos_rpc_nameserver_register(ns_rpc, ns_client_id, endpoint, name);
+    return err;
 }
 
 

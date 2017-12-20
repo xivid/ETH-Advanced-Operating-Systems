@@ -9,7 +9,10 @@
 struct ns_client_t {
     unsigned id;
     struct aos_rpc *rpc;
-    struct ns_client_t *next, *prev;
+    bool receiving;
+    char *cur_buffer;
+    unsigned cur_data_len;
+    unsigned cur_received;
 };
 
 struct ns_client_t *ns_find_client(unsigned id);

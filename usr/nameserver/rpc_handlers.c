@@ -82,6 +82,9 @@ errval_t ns_recv_listener_handler(void *v_args)
         case AOS_RPC_ID_NAMESERVER_SYN:
             answer_args = ns_marshal_init(cap);
             break;
+        case AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER:
+            answer_args = ns_marshal_register(cap, &lmp_msg);
+            break;
         default:
             debug_printf("unknown message sent to nameserver: %d\n",
                     lmp_msg.words[0]);

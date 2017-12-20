@@ -91,3 +91,47 @@ void *ns_marshal_init(struct capref cap) {
     answer_args[3] = (uintptr_t) id;
     return answer_args;
 }
+
+void *ns_marshal_register(struct capref endpoint, struct lmp_recv_msg *msg)
+{
+    // words for first msg: msg_type, client_id, len, string
+    // words for other msg: msg_type, client_id, string
+    unsigned id = (unsigned) msg->words[1];
+    struct ns_client_t *client = ns_find_client(id);
+    if (!client) {
+        debug_printf("ns_marshal_register error: client not found\n");
+        return NULL;
+    }
+
+    struct aos_rpc *client_rpc = client->rpc;
+    unsigned start_slot = 2;
+    unsigned bytes_to_read = 7 * sizeof(uintptr_t);
+    if (!client->receiving) {
+        // this is the first message
+        client->receiving = true;
+        client->cur_received = 0;
+        client->cur_data_len = (unsigned) msg->words[2];
+        client->cur_buffer = calloc(msg->words[2], sizeof(char));
+        start_slot += 1;
+        bytes_to_read -= sizeof(uintptr_t);
+    }
+
+    strncpy(&client->cur_buffer[client->cur_received],
+            (char *) &msg->words[start_slot], bytes_to_read);
+
+    client->cur_received += bytes_to_read;
+
+    if (client->cur_received >= client->cur_data_len) {
+        // the entire message was received
+        debug_printf("nameserver got a message: %s\n", client->cur_buffer);
+        client->receiving = false;
+        // TODO: add the message to service table
+    }
+
+    uintptr_t *answer_args = malloc(sizeof(uintptr_t) * MAX_LMP_ARGS);
+    answer_args[0] = (uintptr_t) client_rpc;
+    answer_args[1] = (uintptr_t) 0;
+    answer_args[2] = AOS_RPC_ID_ACK;
+    return answer_args;
+
+}

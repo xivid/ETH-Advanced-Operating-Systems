@@ -16,6 +16,7 @@ errval_t ns_send_listen_cap(void);
 
 // Marshal functions:
 void *ns_marshal_init(struct capref cap);
+void *ns_marshal_register(struct capref endpoint, struct lmp_recv_msg *msg);
 
 // Handlers and primitives:
 errval_t send(void *v_args, void *send_handler, void *recv_handler);

@@ -29,6 +29,9 @@ errval_t rcv_handler_for_ns_syn(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
+errval_t send_handler_with_cap(void  *v_args);
+errval_t send_and_receive_with_cap(void *rcv_handler, uintptr_t *args);
+
 
 errval_t send_handler (void* v_args)
 {
@@ -39,6 +42,25 @@ errval_t send_handler (void* v_args)
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
         err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, lmp->local_cap, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+        if (!err_is_fail(err))
+            return SYS_ERR_OK;
+        count++;
+    }
+    debug_printf("send_handler: too many failed attempts\n");
+    return err;
+}
+
+errval_t send_handler_with_cap(void  *v_args)
+{
+    uintptr_t *args = (uintptr_t*) v_args;
+    struct lmp_chan *lmp = (struct lmp_chan*) args[0];
+    struct capref cap = *((struct capref *) args[LMP_ARGS_SIZE]);
+
+    int count = 0;
+    errval_t err;
+    while (count < AOS_RPC_ATTEMPTS) {
+        err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, cap, args[1], args[2],
+                args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         count++;
@@ -91,6 +113,40 @@ errval_t send_and_receive (void* rcv_handler, uintptr_t* args)
     }
 
     err = lmp_chan_register_recv(&rpc->lmp, rpc->ws, MKCLOSURE(rcv_handler, args));
+    if (err_is_fail(err)) {
+        debug_printf("send_and_receive: lmp_chan_register_rcv failed\n");
+        return err;
+    }
+
+    // wait for send and receive ready:
+    err = event_dispatch(rpc->ws);
+    if (err_is_fail(err)) {
+        debug_printf("send_and_receive: first event_dispatch failed\n");
+        return err;
+    }
+
+    err = event_dispatch(rpc->ws);
+    if (err_is_fail(err)) {
+        debug_printf("send_and_receive: second event_dispatch failed\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
+errval_t send_and_receive_with_cap(void *rcv_handler, uintptr_t *args)
+{
+    struct aos_rpc *rpc = (struct aos_rpc*) args[0];
+
+    errval_t err = lmp_chan_register_send(&rpc->lmp, rpc->ws,
+            MKCLOSURE((void *)send_handler_with_cap, args));
+    if (err_is_fail(err)) {
+        debug_printf("send_and_receive: lmp_chan_register_send failed\n");
+        return err;
+    }
+
+    err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
+            MKCLOSURE(rcv_handler, args));
     if (err_is_fail(err)) {
         debug_printf("send_and_receive: lmp_chan_register_rcv failed\n");
         return err;
@@ -556,6 +612,41 @@ errval_t rcv_handler_for_ns_syn(void *v_args)
     }
     *id = lmp_msg.words[1];
 
+    return SYS_ERR_OK;
+}
+
+errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
+        struct capref endpoint, char *name)
+{
+    unsigned name_len = strlen(name), cur = 0;
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[0] = (uintptr_t) rpc;
+    args[1] = (uintptr_t) AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER;
+    args[2] = (uintptr_t) id;
+    args[3] = (uintptr_t) name_len;
+    args[LMP_ARGS_SIZE] = (uintptr_t) &endpoint;
+
+    bool first_msg = true;
+    unsigned start_slot = 4;
+    unsigned bytes_free = (LMP_ARGS_SIZE - start_slot) * sizeof(uintptr_t);
+
+    // send block, wait for an ack, send next block, ...
+    while (cur < name_len) {
+        strncpy((char *) &args[start_slot], &name[cur], bytes_free);
+
+        errval_t err = send_and_receive(rcv_handler_general, args);
+        if (err_is_fail(err)) {
+            debug_printf("aos_rpc_init: send_and_receive failed\n");
+            return err;
+        }
+
+        cur += bytes_free;
+        if (first_msg) {
+            first_msg = false;
+            start_slot -= 1;
+            bytes_free += sizeof(uintptr_t);
+        }
+    }
     return SYS_ERR_OK;
 }
 
