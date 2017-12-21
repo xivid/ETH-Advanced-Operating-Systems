@@ -4,7 +4,6 @@
 errval_t recv_handler(void *arg);
 struct client *whois(struct capref cap);
 struct client *nameserver_client = NULL;
-void char_forward(void *endpoint, char c);
 
 // Local data structs definitions for marshaling operations. Should not be
 // visible outside the current file.
@@ -191,10 +190,10 @@ errval_t recv_handler(void *arg)
             if (target_core_id == my_core_id) {
                 register_receiver_fn(&char_forward, whois(cap_endpoint));
             } else {
-                debug_printf("Sending back across cores\n");
                 uint32_t message[URPC_PAYLOAD_LEN];
                 message[0] = 0;
                 message[1] = AOS_RPC_ID_GET_CHAR;
+                message[2] = (uintptr_t) whois(cap_endpoint);
                 urpc_write(message, target_core_id);
 
                 urpc_read_until_ack(message, my_core_id);

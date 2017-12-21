@@ -33,6 +33,7 @@ void *marshal_get_nameserver_endpoint(struct capref cap,
         struct lmp_recv_msg *msg);
 void *marshal_register_nameserver(struct capref cap);
 void *marshal_set_nameserver_endpoint(struct capref cap);
+void char_forward(void *endpoint, char c);
 
 // Callbacks to process the marshaled answers and send the response.
 typedef errval_t (*send_func_t)(void *);

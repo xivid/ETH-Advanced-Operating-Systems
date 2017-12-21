@@ -1,4 +1,5 @@
 #include "urpc_server.h"
+#include "lrpc_server.h"
 #include "terminal.h"
 
 static inline void dmb(void) { __asm volatile ("dmb"); }
@@ -70,18 +71,17 @@ void urpc_read_and_process(uint32_t *rx, coreid_t core)
                 urpc_get_pname_handler(core, (domainid_t) rx[2]);
                 break;
             case AOS_RPC_ID_GET_CHAR:
-                urpc_get_char_handler(core, (domainid_t) rx[2]);
+                urpc_get_char_handler(core, (void *) rx[2]);
+                break;
+            case AOS_RPC_ID_RETURN_CHAR:
+                urpc_return_char_handler((char) rx[2], (void *)rx[3]);
                 break;
             default:
                 debug_printf("Message type not supported by init %lu\n", rx[1]);
                 return;
             }
         } else {
-            if (rx[1] == AOS_RPC_ID_RETURN_CHAR) {
-                // TODO: send char-ack back
-            } else {
-                debug_printf("Forwarding not implemented!\n");
-            }
+            debug_printf("Forwarding not implemented!\n");
         }
 
 
@@ -195,7 +195,7 @@ void urpc_get_pname_handler(coreid_t core, domainid_t pid) {
     // we don't send the '\0'
 }
 
-void urpc_get_char_handler(coreid_t core, domainid_t pid)
+void urpc_get_char_handler(coreid_t core, void *arg)
 {
     // write
     uint32_t char_ack[URPC_PAYLOAD_LEN];
@@ -203,18 +203,21 @@ void urpc_get_char_handler(coreid_t core, domainid_t pid)
     char_ack[1] = AOS_RPC_ID_ACK;
 
     urpc_write(char_ack, 1 - core);
-    uintptr_t dst = ((1-core) << 31) | pid;
-    register_receiver_fn(send_char_back, (void*)dst);
+    register_receiver_fn(send_char_back, arg);
 }
 
-void send_char_back(void *dst, char c)
+void urpc_return_char_handler(char c, void *arg)
 {
-    int core = (uintptr_t)dst >> 31;
+    char_forward(arg, c);
+}
 
+void send_char_back(void *arg, char c)
+{
     uint32_t sent_char[URPC_PAYLOAD_LEN];
-    sent_char[0] = (uintptr_t)dst & ~(1 << 31);
+    sent_char[0] = INIT_PROCESS_ID;
     sent_char[1] = AOS_RPC_ID_RETURN_CHAR;
     sent_char[2] = c;
-    urpc_write(sent_char, core);
+    sent_char[3] = (uintptr_t) arg;
+    urpc_write(sent_char, 1 - my_core_id);
 }
 
