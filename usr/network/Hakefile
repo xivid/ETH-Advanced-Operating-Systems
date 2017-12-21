@@ -13,7 +13,8 @@
 [ build application { target = "network",
                       cFiles = [
                         "network.c",
-                        "slip.c"
+                        "slip.c",
+                        "rpc_services.c"
                       ],
                       addLinkFlags = [ "-e _start"],
                       addLibraries = [ "netutil" ],
