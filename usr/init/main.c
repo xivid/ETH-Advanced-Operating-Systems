@@ -44,8 +44,6 @@ struct process_manager pm;
 struct capref ns_endpoint; /// The endpoint cap to nameserver process
 struct client *client_list;
 
-#define DEBUG_NETWORKING_REMOVE_ALL
-
 /* main */
 int main(int argc, char *argv[])
 {
@@ -131,29 +129,19 @@ int main(int argc, char *argv[])
         //test_remote_spawn();
     }
 
+
     if (my_core_id == 0) {
         // start nameserver
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
         err = spawn_load_by_name("/armv7/sbin/nameserver", si);
         if (err_is_fail(err)) {
             debug_printf("Failed spawning process nameserver\n");
-            return -1;
+            return 1;
         }
-
-        ns_endpoint = (struct capref) {
-            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
-            .slot = TASKCN_SLOT_SELFEP,
-        };
-
-        err = spawn_load_by_name("/armv7/sbin/hello", si);
-        if (err_is_fail(err)) {
-            debug_printf("Failed spawning process hello\n");
-            return -1;
-        }
-
-    } else {
-        ns_endpoint = NULL_CAP;
     }
+    // init the nameserver's endpoint with NULL_CAP
+    ns_endpoint = NULL_CAP;
+
 
     if (my_core_id == 0) {
         debug_printf("Starting network process\n");

@@ -29,8 +29,11 @@ void *marshal_pname(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_retchar(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_init(struct capref cap);
 void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg);
-void *marshal_nameserver_ep(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_device_cap(struct capref cap, struct lmp_recv_msg *msg);
+void *marshal_get_nameserver_endpoint(struct capref cap,
+        struct lmp_recv_msg *msg);
+void *marshal_register_nameserver(struct capref cap);
+void *marshal_set_nameserver_endpoint(struct capref cap);
 
 // Callbacks to process the marshaled answers and send the response.
 typedef errval_t (*send_func_t)(void *);

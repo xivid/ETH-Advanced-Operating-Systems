@@ -22,7 +22,7 @@ static errval_t ram_alloc_remote(struct capref *ret, size_t size, size_t alignme
     size_t actual_bytes;
     struct aos_rpc *rpc = get_init_rpc();
     thread_mutex_lock(&rpc->rpc_mutex);
-    errval_t err = aos_rpc_get_ram_cap( get_init_rpc(), size, alignment, ret,
+    errval_t err = aos_rpc_get_ram_cap(rpc, size, alignment, ret,
             &actual_bytes);
     thread_mutex_unlock(&rpc->rpc_mutex);
     return err;
