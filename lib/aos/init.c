@@ -109,7 +109,6 @@ static size_t lmp_terminal_read(char *buf, size_t len)
 
 static size_t syscall_terminal_read(char *buf, size_t len)
 {
-    debug_printf("Called syscall terminal read\n");
     for (int i = 0; i < len; i++) {
         errval_t err = sys_getchar(buf + i);
         assert(!err_is_fail(err));

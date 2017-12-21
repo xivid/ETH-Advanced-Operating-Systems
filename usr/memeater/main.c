@@ -147,7 +147,7 @@ static errval_t test_spawn_process(void)
     errval_t err;
     debug_printf("RPC: testing process spawn\n");
     domainid_t new_pid;
-    err = aos_rpc_process_spawn(init_rpc, "/armv7/sbin/hello", 0, &new_pid);
+    err = aos_rpc_process_spawn(init_rpc, "/armv7/sbin/hello", disp_get_core_id(), &new_pid);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "could not spawn a process using RPC\n");
         return err;

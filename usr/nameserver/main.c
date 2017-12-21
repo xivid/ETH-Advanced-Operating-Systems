@@ -6,7 +6,5 @@
 int main(int argc, char *argv[])
 {
     debug_printf("nameserver launched\n");
-    while (true) {
-    }
     return 0;
 }

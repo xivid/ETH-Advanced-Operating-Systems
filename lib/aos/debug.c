@@ -168,7 +168,7 @@ int debug_print_cap(char *buf, size_t len, struct capability *cap)
                         cap->u.frame.base, cap->u.frame.bytes);
 
     case ObjType_DevFrame:
-        return snprintf(buf, len, "Device Frame cap (0x%" PRIxGENPADDR ":%" PRIuGENSIZE ")",
+        return snprintf(buf, len, "Device Frame cap (0x%" PRIxGENPADDR ":0x%" PRIxGENSIZE ")",
                         cap->u.frame.base, cap->u.devframe.bytes);
 
     case ObjType_VNode_ARM_l1:

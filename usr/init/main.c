@@ -23,6 +23,7 @@
 #include <aos/kernel_cap_invocations.h>
 #include <aos/coreboot.h>
 #include <multiboot.h>
+#include <maps/omap44xx_map.h>
 
 #include <mm/mm.h>
 #include <spawn/spawn.h>
@@ -32,6 +33,8 @@
 #include "core_boot.h"
 #include "tests.h"
 
+#include <netutil/user_serial.h>
+
 
 /* init declarations */
 coreid_t my_core_id;
@@ -40,6 +43,8 @@ struct process_manager pm;
 
 struct capref ns_endpoint; /// The endpoint cap to nameserver process
 struct client *client_list;
+
+#define DEBUG_NETWORKING_REMOVE_ALL
 
 /* main */
 int main(int argc, char *argv[])
@@ -105,7 +110,6 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
 
-
         debug_printf("booting core 1\n");
         err = boot_core(1);
         if (err_is_fail(err)) {
@@ -121,13 +125,11 @@ int main(int argc, char *argv[])
     // however, the resources seems impossible to be overwritten under any circumstances.
     // So, I put this warning here just for reference in case some related problem occurs in the future.
 
+
     if (my_core_id == 1) {
         test_multi_spawn(1, "/armv7/sbin/shell");
         //test_remote_spawn();
     }
-
-    debug_printf("Message handler loop\n");
-
 
     if (my_core_id == 0) {
         // start nameserver
@@ -145,13 +147,25 @@ int main(int argc, char *argv[])
 
         err = spawn_load_by_name("/armv7/sbin/hello", si);
         if (err_is_fail(err)) {
-            debug_printf("Failed spawning process nameserver\n");
+            debug_printf("Failed spawning process hello\n");
             return -1;
         }
 
     } else {
         ns_endpoint = NULL_CAP;
     }
+
+    if (my_core_id == 0) {
+        debug_printf("Starting network process\n");
+        struct spawninfo *si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name("/armv7/sbin/network", si);
+        if (err_is_fail(err)) {
+            debug_printf("Failed spawning network process\n");
+            return -1;
+        }
+    }
+    
+    debug_printf("Message handler loop\n");
 
     // Hang around
     struct waitset *default_ws = get_default_waitset();

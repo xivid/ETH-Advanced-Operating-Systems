@@ -30,7 +30,7 @@ struct pids_answer_t {
     domainid_t *pids;
 };
 
-// Struct for marshalling the answer to the reguest of returning a process name.
+// Struct for marshalling the answer to the request of returning a process name.
 struct pname_answer_t {
     struct lmp_chan sender_lmp;
     size_t length;
@@ -42,13 +42,15 @@ struct char_answer_t {
     char retchar;
 };
 
-// Struct for marshalling the answer to the reguest of providing RAM.
+// Struct for marshalling the answer to the request of providing RAM.
 struct ram_answer_t {
     struct lmp_chan sender_lmp;
     errval_t err;
     struct capref ram_cap;
     size_t allocated_size;
 };
+
+// Struct for marshalling the answer to the request of providing device capability.
 struct device_cap_answer_t {
     struct lmp_chan sender_lmp;
     errval_t err;
@@ -133,10 +135,6 @@ errval_t recv_handler(void *arg)
     void *answer_args;
     // TODO: why not just passing in the lmp_chan*, instead of the cap_endpoint? It seems we don't really need the whois().
     switch (msg.words[0]) {
-        case AOS_RPC_ID_NUM:
-            answer_args = marshal_number(cap_endpoint, &msg);
-            send_handler = send_received;
-            break;
         case AOS_RPC_ID_INIT:
             answer_args = marshal_init(cap_endpoint);
             send_handler = send_received;
@@ -144,6 +142,10 @@ errval_t recv_handler(void *arg)
         case AOS_RPC_ID_RAM:
             answer_args = marshal_ram(cap_endpoint, &msg);
             send_handler = send_ram;
+            break;
+        case AOS_RPC_ID_NUM:
+            answer_args = marshal_number(cap_endpoint, &msg);
+            send_handler = send_received;
             break;
         case AOS_RPC_ID_CHAR:
             answer_args = marshal_char(cap_endpoint, &msg);
@@ -165,17 +167,18 @@ errval_t recv_handler(void *arg)
             answer_args = marshal_pname(cap_endpoint, &msg);
             send_handler = send_pname;
             break;
-        case AOS_RPC_ID_GET_CHAR:
-            answer_args = marshal_retchar(cap_endpoint, &msg);
-            send_handler = send_char;
-            break;
         case AOS_RPC_ID_GET_NAMESERVER_EP:
             answer_args = marshal_nameserver_ep(cap_endpoint, &msg);
             send_handler = send_nameserver_ep;
             break;
+        case AOS_RPC_ID_GET_CHAR:
+            answer_args = marshal_retchar(cap_endpoint, &msg);
+            send_handler = send_char;
+            break;
         case AOS_RPC_ID_GET_DEVICE_CAP:
             answer_args = marshal_device_cap(cap_endpoint, &msg);
             send_handler = send_device_cap;
+            break;
         default:
             debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
@@ -206,9 +209,6 @@ struct client *whois(struct capref cap)
             break;
         }
         cur = cur->next;
-    }
-    if (cur == NULL) {
-        debug_printf("could not identify the client\n");
     }
     return cur;
 }

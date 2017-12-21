@@ -13,6 +13,7 @@ static omap44xx_uart3_t port;
 
 static void serial_poll(omap44xx_uart3_t *uart)
 {
+    // debug_printf("In serial_poll\n");
     // Read while we can
     while(omap44xx_uart3_lsr_rx_fifo_e_rdf(uart)) {
         uint8_t c = omap44xx_uart3_rhr_rhr_rdf(uart);
@@ -22,6 +23,7 @@ static void serial_poll(omap44xx_uart3_t *uart)
 
 static void serial_interrupt(void *arg)
 {
+    // debug_printf("In serial_interrupt\n");
     // get type
     omap44xx_uart3_iir_t iir= omap44xx_uart3_iir_rd(&port);
 
@@ -208,9 +210,9 @@ errval_t serial_init(lvaddr_t vbase, uint32_t irq) {
 
     // paging_map_device returns an address pointing to the beginning of
     // a section, need to add the offset for within the section again
-    debug_printf("omap serial_init base = 0x%"PRIxLVADDR"\n", vbase);
+    // debug_printf("omap serial_init base = 0x%"PRIxLVADDR"\n", vbase);
     omap44xx_uart3_init(&port, vbase);
-    debug_printf("omap serial_init[%d]: done.\n", port);
+    // debug_printf("omap serial_init[%d]: done.\n", port);
 
     err = inthandler_setup_arm(serial_interrupt, NULL, irq);
     if (err_is_fail(err)) {
@@ -221,7 +223,7 @@ errval_t serial_init(lvaddr_t vbase, uint32_t irq) {
 }
 
 /** output a single character */
-static void serial_putchar(uint8_t c)
+void serial_putchar(uint8_t c)
 {
     // Wait until FIFO can hold more characters
     int maxit = 100000;

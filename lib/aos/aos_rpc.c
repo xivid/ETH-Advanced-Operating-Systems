@@ -26,7 +26,6 @@ errval_t rcv_handler_for_get_pids (void *v_args);
 errval_t rcv_handler_for_ns(void *v_args);
 errval_t rcv_handler_for_char(void *v_args);
 errval_t rcv_handler_for_device_cap(void *v_args);
-
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
 
@@ -296,23 +295,43 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
     return SYS_ERR_OK;
 }
 
+
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
                                coreid_t core, domainid_t *newpid)
 {
-    // TODO: what if string is bigger than 28 chars?
+    return aos_rpc_process_spawn_with_arguments(chan, name, core, newpid, NULL);
+}
 
-    uintptr_t args[LMP_ARGS_SIZE];
-    // order: 0-chan, 1-newpid, 2..8-the name
+errval_t aos_rpc_process_spawn_with_arguments(struct aos_rpc *chan,
+                                              char *name,
+                                              coreid_t core,
+                                              domainid_t *newpid,
+                                              const char *arguments)
+{
+    assert(name != NULL);
+    // TODO: we will put the length of process name into the least significant 3 bytes of args[2]
+    // assert(strlen(name) < (1 << 24));
+
+    size_t name_len = strlen(name);
+    size_t arg_len = (arguments == NULL) ? 0 : strlen(arguments);
+
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    // order: 0-chan, 1-type identifier, 2-core, 3-name_len, 4-arg_len, 5..8-the name
     args[0] = (uintptr_t) chan;
-    args[1] = (uintptr_t) AOS_RPC_ID_PROCESS;
+    args[1] = (uintptr_t) AOS_RPC_ID_PROCESS;  // msg->words[0] on server side
     args[2] = (uintptr_t) core;
-    args[3] = (uintptr_t) newpid;
+    args[3] = (uintptr_t) name_len;
+    args[4] = (uintptr_t) arg_len;
+    // additional information, passed to rcv_handler but not sent to server
+    args[LMP_ARGS_SIZE] = (uintptr_t) newpid;
 
     int str_size = strlen(name) + 1;
     int blocks = str_size / 4 + (str_size % 4 != 0);
     for (int j = 0; j < blocks; j++) {
         args[j+4] = ((uintptr_t *) name)[j];
     }
+    // TODO: define a struct rpc_send_msg { aos_rpc* rpc, size_t length, uint32_t* msg },
+    // and pass a instance to send/rcv_handlers
     errval_t err = send_and_receive(rcv_handler_for_process, args);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_process_spawn failed\n");
@@ -508,6 +527,7 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
         debug_printf("aos_rpc_get_device_cap: lmp chan alloc recv slot failed\n");
         return err;
     }
+
     err = send_and_receive(rcv_handler_for_device_cap, args);
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_get_device_cap: send and receive failed\n");
@@ -517,6 +537,7 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc,
     return SYS_ERR_OK;
 }
 
+
 errval_t rcv_handler_for_device_cap (void* v_args) {
     uintptr_t* args = (uintptr_t*) v_args;
     struct capref* cap = (struct capref*) args[LMP_ARGS_SIZE];
@@ -525,6 +546,7 @@ errval_t rcv_handler_for_device_cap (void* v_args) {
     errval_t err = receive_and_match_ack(args, &lmp_msg, cap, (void *) rcv_handler_for_device_cap);
     if (err_is_fail(err)) {
         return err;
+        *cap = NULL_CAP;
     }
 
     return (errval_t) lmp_msg.words[1];
