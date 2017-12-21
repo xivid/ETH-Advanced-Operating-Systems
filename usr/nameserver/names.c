@@ -25,6 +25,7 @@ ns_err_names_t ns_add_record(char *name, struct capref cap)
     new_node->cap = cap;
     new_node->next = names_list_head;
     names_list_head = new_node;
+    debug_printf("nameserver registered a new name: \"%s\"\n", name);
     return NS_ERR_OK;
 }
 
