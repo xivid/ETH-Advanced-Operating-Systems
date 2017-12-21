@@ -20,6 +20,7 @@
 
 #define AOS_RPC_ATTEMPTS            (10) // how many attempts do we want for sending/receiving before throwing an error
 #define LMP_ARGS_SIZE               (10)
+#define INIT_PROCESS_ID             (0)
 
 // IDs for different transmission types
 enum enum_rpc_msgtype {
