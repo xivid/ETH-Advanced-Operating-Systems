@@ -25,10 +25,14 @@
 
 int main(int argc, char *argv[])
 {
-    ns_err_names_t ns_err;
-    struct capref cap;
-
     debug_printf("hello started testing\n");
+    ns_err_names_t ns_err;
+    errval_t err;
+    struct capref cap;
+    do {
+        err = ns_init_channel(&ns_err);
+    } while (err != SYS_ERR_OK || ns_err != NS_ERR_OK);
+    debug_printf("hello got nameserver's cap\n");
 
     char *str = "a really-really-really-really-really-really long string, which is definitely longer than 28 bytes";
     ns_register(str, cap_initep, &ns_err);
@@ -43,7 +47,8 @@ int main(int argc, char *argv[])
     ns_lookup("not_registered_service", &cap, &ns_err);
     debug_printf("ns_lookup error: %d\n", ns_err);
 
-    debug_printf("hello done: %d\n", ns_err);
+    /* debug_printf("hello done: %d\n", ns_err); */
+    debug_printf("hello exiting\n");
 
     return 0;
 }

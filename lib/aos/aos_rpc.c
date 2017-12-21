@@ -271,13 +271,14 @@ errval_t rcv_handler_for_ram (void* v_args) {
 }
 
 errval_t aos_rpc_get_nameserver_ep(struct aos_rpc *init_chan,
-        struct capref *retcap)
+        struct capref *retcap, ns_err_names_t *ns_err)
 {
-    // arguments: [aos_rpc, msg_id, retcap]
-    uintptr_t args[3];
+    // arguments: [aos_rpc, msg_id, retcap, ns_err]
+    uintptr_t args[LMP_ARGS_SIZE + 2];
     args[0] = (uintptr_t) init_chan;
     args[1] = (uintptr_t) AOS_RPC_ID_GET_NAMESERVER_EP;
-    args[2] = (uintptr_t) retcap;
+    args[LMP_ARGS_SIZE] = (uintptr_t) retcap;
+    args[LMP_ARGS_SIZE + 1]= (uintptr_t) ns_err;
 
     assert(init_chan != NULL);
 
@@ -297,11 +298,19 @@ errval_t aos_rpc_get_nameserver_ep(struct aos_rpc *init_chan,
 }
 
 errval_t rcv_handler_for_ns(void *v_args) {
-    uintptr_t* args = (uintptr_t*) v_args;
-    struct capref* retcap = (struct capref*) args[2];
+    uintptr_t *args = (uintptr_t*) v_args;
+    struct capref *retcap = (struct capref*) args[LMP_ARGS_SIZE];
+    ns_err_names_t *ns_err = (ns_err_names_t *) args[LMP_ARGS_SIZE + 1];
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
 
-    return receive_and_match_ack(args, &lmp_msg, retcap, (void*) rcv_handler_for_ns);
+    errval_t err =  receive_and_match_ack(args, &lmp_msg, retcap,
+            (void*) rcv_handler_for_ns);
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    *ns_err = lmp_msg.words[1];
+    return SYS_ERR_OK;
 }
 
 errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
@@ -781,7 +790,7 @@ errval_t rcv_handler_for_ns_lookup(void *v_args)
 
     // On the last invocation of the this handler, the lookuped endpoint
     // will be written in the cap.
-    // Note: this is only valid if the return code is NS_ERR_NAME_OK.
+    // Note: this is only valid if the return code is NS_ERR_OK.
     errval_t err = receive_and_match_ack(args, &lmp_msg, cap,
             (void *) rcv_handler_for_ns_lookup);
     if (err_is_fail(err)) {

@@ -46,10 +46,11 @@ enum enum_rpc_msgtype {
 
 /// Defines all error and status codes related to nameserver
 typedef enum {
-    NS_ERR_NAME_OK = 0,
+    NS_ERR_OK = 0,
     NS_ERR_NAME_ALREADY_TAKEN,
     NS_ERR_NAME_WRONG_NAME,
     NS_ERR_NAME_NOT_FOUND,
+    NS_ERR_NAMESERVER_NOT_RUNNING,
 } ns_err_names_t;
 
 struct aos_rpc {
@@ -78,10 +79,14 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t bytes, size_t align,
                              struct capref *retcap, size_t *ret_bytes);
 
 /**
- * \brief request the nameserver endpoint capability from the init process
+ * \brief Request the nameserver endpoint capability from the init process
+ * \param init_chan Channel to init
+ * \param retcap    Will store the nameserver's endpoint
+ * \param ns_err    Will store the error code obtained from init
  */
 errval_t aos_rpc_get_nameserver_ep(struct aos_rpc *init_chan,
-        struct capref *retcap);
+        struct capref *retcap, ns_err_names_t *ns_err);
+
 /**
  * \brief get one character from the serial port
  */

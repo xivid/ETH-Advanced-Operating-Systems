@@ -127,7 +127,7 @@ uintptr_t *ns_receive_large_string(struct lmp_recv_msg *msg, bool *last_message,
 
     client->cur_received += bytes_to_read;
 
-    ns_err_names_t ns_err = NS_ERR_NAME_OK;
+    ns_err_names_t ns_err = NS_ERR_OK;
     if (client->cur_received >= client->cur_data_len) {
         // the entire message was received
         *last_message = true;

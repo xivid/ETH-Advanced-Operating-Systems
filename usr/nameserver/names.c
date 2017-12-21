@@ -25,6 +25,6 @@ ns_err_names_t ns_add_record(char *name, struct capref cap)
     new_node->cap = cap;
     new_node->next = names_list_head;
     names_list_head = new_node;
-    return NS_ERR_NAME_OK;
+    return NS_ERR_OK;
 }
 
