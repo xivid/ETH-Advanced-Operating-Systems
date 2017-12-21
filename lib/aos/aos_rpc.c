@@ -67,7 +67,7 @@ errval_t send_handler_with_cap(void  *v_args)
             return SYS_ERR_OK;
         count++;
     }
-    debug_printf("send_handler: too many failed attempts\n");
+    debug_printf("send_handler_with_cap: too many failed attempts\n");
     return err;
 }
 
