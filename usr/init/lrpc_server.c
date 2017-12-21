@@ -617,11 +617,6 @@ void *marshal_set_nameserver_endpoint(struct capref cap)
         debug_printf("Failed spawning process nameserver\n");
         return NULL;
     }
-    /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
-    /* if (err_is_fail(err)) { */
-    /*     debug_printf("Failed spawning process nameserver\n"); */
-    /*     return NULL; */
-    /* } */
     /////////////////////////////////////////////////////////////
     return (void *) &nameserver_client->lmp;
 }
