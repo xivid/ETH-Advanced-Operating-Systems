@@ -101,7 +101,7 @@ errval_t closedir(fs_dirhandle_t handle)
  * @brief reads the next directory entry
  *
  * @param handle    the handle to the directory
- * @param name      returned (malloced) name oft he file
+ * @param name      returned (malloced) name of the file
  *
  * @returns SYS_ERR_OK on successful reading the next entry
  *          FS_ERR_INVALID_FH if the directory handle  was invalid
