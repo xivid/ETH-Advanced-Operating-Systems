@@ -39,13 +39,16 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_SET_NAMESERVER_EP,
     AOS_RPC_ID_GET_NAMESERVER_EP,
     AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER,
+    AOS_RPC_ID_LOOKUP_EP_WITH_NAMESERVER,
     AOS_RPC_ID_FAIL,
 };
 
+/// Defines all error and status codes related to nameserver
 typedef enum {
     NS_ERR_NAME_OK = 0,
     NS_ERR_NAME_ALREADY_TAKEN,
     NS_ERR_NAME_WRONG_NAME,
+    NS_ERR_NAME_NOT_FOUND,
 } ns_err_names_t;
 
 struct aos_rpc {
@@ -177,6 +180,18 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
  */
 errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
         struct capref endpoint, char *name, ns_err_names_t *ns_err);
+
+/**
+ * \brief Lookup an endpoint using provided name
+ * \param rpc        The channel to nameserver
+ * \param id         The client id assigned by nameserver
+ * \param name       The service name to register
+ * \param endpoint   Will store the endpoint capability
+ * \param ns_err     Will store the error code obtained from the nameserver
+ */
+errval_t aos_rpc_nameserver_lookup(struct aos_rpc *rpc, unsigned id,
+        struct capref *endpoint, char *name, ns_err_names_t *ns_err);
+
 /**
  * \brief Returns the RPC channel to init.
  */
