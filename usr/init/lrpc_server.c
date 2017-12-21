@@ -4,6 +4,7 @@
 errval_t recv_handler(void *arg);
 struct client *whois(struct capref cap);
 struct client *nameserver_client = NULL;
+bool nameserver_cap_registered = false;
 
 // Local data structs definitions for marshaling operations. Should not be
 // visible outside the current file.
@@ -15,6 +16,7 @@ struct client *nameserver_client = NULL;
 struct nameserver_answer_t {
     struct lmp_chan sender_lmp;
     struct capref ns_endpoint;
+    ns_err_names_t ns_err;
 };
 
 // Struct for marshaling the answer to the request for spawning a process.
@@ -566,7 +568,13 @@ void *marshal_get_nameserver_endpoint(struct capref cap,
     struct nameserver_answer_t *args =
         malloc(sizeof(struct nameserver_answer_t));
     args->sender_lmp = sender->lmp;
-    args->ns_endpoint = ns_endpoint;
+    if (!nameserver_cap_registered) {
+        args->ns_endpoint = NULL_CAP;
+        args->ns_err = NS_ERR_NAMESERVER_NOT_RUNNING;
+    } else {
+        args->ns_endpoint = ns_endpoint;
+        args->ns_err = NS_ERR_OK;
+    }
 
     return (void*) args;
 }
@@ -606,17 +614,12 @@ void *marshal_set_nameserver_endpoint(struct capref cap)
         debug_printf("could not copy the cap into ns_endpoint\n");
         return NULL;
     }
-
+    nameserver_cap_registered = true;
     debug_printf("nameserver's endpoint was registered with init\n");
 
     /////////////////////////////////////////////////////////////
     // For testing reasons only. Remove me otherwise!
-    struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name("/armv7/sbin/hello", si);
-    if (err_is_fail(err)) {
-        debug_printf("Failed spawning process nameserver\n");
-        return NULL;
-    }
+    /* struct spawninfo *si = malloc(sizeof(struct spawninfo)); */
     /* err = spawn_load_by_name("/armv7/sbin/hello", si); */
     /* if (err_is_fail(err)) { */
     /*     debug_printf("Failed spawning process nameserver\n"); */
@@ -805,8 +808,8 @@ errval_t send_nameserver_ep(void *args) {
     struct nameserver_answer_t *ns_args = (struct nameserver_answer_t *) args;
     struct lmp_chan *lmp = &ns_args->sender_lmp;
 
-    errval_t err_send = lmp_chan_send1(lmp, LMP_FLAG_SYNC,
-            ns_args->ns_endpoint, 1);
+    errval_t err_send = lmp_chan_send2(lmp, LMP_FLAG_SYNC,
+            ns_args->ns_endpoint, AOS_RPC_ID_ACK, (uintptr_t) ns_args->ns_err);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/init/main.c send ram: could not do lmp chan send3");
         return err_send;
