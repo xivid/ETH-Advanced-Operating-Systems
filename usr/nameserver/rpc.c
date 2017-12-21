@@ -165,10 +165,9 @@ void *ns_marshal_lookup(struct lmp_recv_msg *msg)
     if (last_message) {
         struct capref *cap = ns_find_record(name);
         if (cap == NULL) {
-            debug_printf("ns: cap not found\n");
             answer_args[ERR_ID_SLOT] = (uintptr_t) NS_ERR_NAME_NOT_FOUND;
+            answer_args[CAP_SLOT] = (uintptr_t) 0;
         } else {
-            debug_printf("ns: cap found\n");
             answer_args[CAP_SLOT] = (uintptr_t) cap;
         }
     }

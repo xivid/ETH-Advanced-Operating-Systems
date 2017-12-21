@@ -102,20 +102,20 @@ int main(int argc, char *argv[])
 
 
     // WARNING: boot_core() must only be called AFTER core_boot_dump_resources()!
-    if (my_core_id == 0) {
-        err = register_getchar_interrupt_handler();
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "register_getchar_handler");
-            return EXIT_FAILURE;
-        }
+    /* if (my_core_id == 0) { */
+    /*     err = register_getchar_interrupt_handler(); */
+    /*     if (err_is_fail(err)) { */
+    /*         DEBUG_ERR(err, "register_getchar_handler"); */
+    /*         return EXIT_FAILURE; */
+    /*     } */
 
-        debug_printf("booting core 1\n");
-        err = boot_core(1);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed");
-            return EXIT_FAILURE;
-        }
-    }
+    /*     debug_printf("booting core 1\n"); */
+    /*     err = boot_core(1); */
+    /*     if (err_is_fail(err)) { */
+    /*         DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed"); */
+    /*         return EXIT_FAILURE; */
+    /*     } */
+    /* } */
 
     //! shell
     if (my_core_id == 1) {
@@ -133,6 +133,8 @@ int main(int argc, char *argv[])
             debug_printf("Failed spawning process nameserver\n");
             return 1;
         }
+
+        /* spawn_load_by_name("/armv7/sbin/calc_server", si); */
     }
     // init the nameserver's endpoint with NULL_CAP
     ns_endpoint = NULL_CAP;
@@ -157,7 +159,6 @@ int main(int argc, char *argv[])
         }
 
     }
-
 
     debug_printf("Message handler loop\n");
 

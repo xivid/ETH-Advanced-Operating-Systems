@@ -174,27 +174,27 @@ errval_t send_and_receive_with_cap(void *rcv_handler, uintptr_t *args)
     errval_t err = lmp_chan_register_send(&rpc->lmp, rpc->ws,
             MKCLOSURE((void *)send_handler_with_cap, args));
     if (err_is_fail(err)) {
-        debug_printf("send_and_receive: lmp_chan_register_send failed\n");
+        debug_printf("send_and_receive_with_cap: lmp_chan_register_send failed\n");
         return err;
     }
 
     err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
             MKCLOSURE(rcv_handler, args));
     if (err_is_fail(err)) {
-        debug_printf("send_and_receive: lmp_chan_register_rcv failed\n");
+        debug_printf("send_and_receive_with_cap: lmp_chan_register_rcv failed\n");
         return err;
     }
 
     // wait for send and receive ready:
     err = event_dispatch(rpc->ws);
     if (err_is_fail(err)) {
-        debug_printf("send_and_receive: first event_dispatch failed\n");
+        debug_printf("send_and_receive_with_cap: first event_dispatch failed\n");
         return err;
     }
 
     err = event_dispatch(rpc->ws);
     if (err_is_fail(err)) {
-        debug_printf("send_and_receive: second event_dispatch failed\n");
+        debug_printf("send_and_receive_with_cap: second event_dispatch failed\n");
         return err;
     }
 
