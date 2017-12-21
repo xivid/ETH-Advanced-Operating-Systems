@@ -3,11 +3,8 @@
 
 errval_t recv_handler(void *arg);
 struct client *whois(struct capref cap);
-<<<<<<< 910d3429c6b2e14f1c2f06aefef4255f304dd1d3
 struct client *nameserver_client = NULL;
-=======
 void char_forward(void *endpoint, char c);
->>>>>>> Make scanf behave normal
 
 // Local data structs definitions for marshaling operations. Should not be
 // visible outside the current file.
@@ -176,10 +173,6 @@ errval_t recv_handler(void *arg)
         case AOS_RPC_ID_GET_NAMESERVER_EP:
             answer_args = marshal_get_nameserver_endpoint(cap_endpoint, &msg);
             send_handler = send_nameserver_ep;
-            break;
-        case AOS_RPC_ID_GET_CHAR:
-            answer_args = marshal_retchar(cap_endpoint, &msg);
-            send_handler = send_char;
             break;
         case AOS_RPC_ID_GET_DEVICE_CAP:
             answer_args = marshal_device_cap(cap_endpoint, &msg);
