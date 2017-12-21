@@ -40,6 +40,12 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_FAIL,
 };
 
+typedef enum {
+    NS_ERR_NAME_OK = 0,
+    NS_ERR_NAME_ALREADY_TAKEN,
+    NS_ERR_NAME_WRONG_NAME,
+} ns_err_names_t;
+
 struct aos_rpc {
     struct lmp_chan lmp;
     struct waitset* ws;
@@ -165,9 +171,10 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
  * \param id         The client id assigned by nameserver
  * \param endpoint   The endpoint capability to register
  * \param name       The service name to register
+ * \param ns_err     Will store the error code obtained from the nameserver
  */
 errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
-        struct capref endpoint, char *name);
+        struct capref endpoint, char *name, ns_err_names_t *ns_err);
 /**
  * \brief Returns the RPC channel to init.
  */

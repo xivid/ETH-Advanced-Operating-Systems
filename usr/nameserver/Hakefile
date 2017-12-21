@@ -1,5 +1,5 @@
 [ build application { target = "nameserver",
-  		              cFiles = [ "main.c", "rpc.c", "rpc_handlers.c", "whois.c"],
+  		              cFiles = [ "main.c", "rpc.c", "rpc_handlers.c", "whois.c", "names.c"],
                       addLinkFlags = [ "-e _start"],
                       architectures = allArchitectures
                     }

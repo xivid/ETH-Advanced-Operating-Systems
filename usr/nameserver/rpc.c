@@ -1,5 +1,6 @@
 #include "rpc.h"
 #include "whois.h"
+#include "names.h"
 
 struct aos_rpc *listen_rpc = NULL;
 errval_t ns_init_rpc(void)
@@ -121,17 +122,21 @@ void *ns_marshal_register(struct capref endpoint, struct lmp_recv_msg *msg)
 
     client->cur_received += bytes_to_read;
 
+    ns_err_names_t ns_err = NS_ERR_NAME_OK;
     if (client->cur_received >= client->cur_data_len) {
         // the entire message was received
-        debug_printf("nameserver got a message: %s\n", client->cur_buffer);
+        ns_err = ns_add_record(client->cur_buffer, endpoint);
+
+        client->cur_buffer = NULL;
         client->receiving = false;
-        // TODO: add the message to service table
     }
+
 
     uintptr_t *answer_args = malloc(sizeof(uintptr_t) * MAX_LMP_ARGS);
     answer_args[0] = (uintptr_t) client_rpc;
     answer_args[1] = (uintptr_t) 0;
     answer_args[2] = AOS_RPC_ID_ACK;
+    answer_args[3] = (uintptr_t) ns_err;
     return answer_args;
 
 }

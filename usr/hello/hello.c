@@ -27,8 +27,9 @@ int main(int argc, char *argv[])
 {
     debug_printf("hello started testing\n");
     ns_init_channel();
-    ns_register("first_service", NULL_CAP);
-    debug_printf("hello done\n");
+    ns_err_names_t ns_err;
+    ns_register("first_service", NULL_CAP, &ns_err);
+    debug_printf("hello done: %d\n", ns_err);
 
     return 0;
 }

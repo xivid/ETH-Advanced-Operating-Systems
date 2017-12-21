@@ -16,7 +16,7 @@ errval_t ns_init_channel(void)
     return err;
 }
 
-errval_t ns_register(char *name, struct capref endpoint)
+errval_t ns_register(char *name, struct capref endpoint, ns_err_names_t *ns_err)
 {
     errval_t err;
     if (ns_rpc == NULL) {
@@ -27,9 +27,15 @@ errval_t ns_register(char *name, struct capref endpoint)
         }
     }
 
-    err = aos_rpc_nameserver_register(ns_rpc, ns_client_id, endpoint, name);
+    err = aos_rpc_nameserver_register(ns_rpc, ns_client_id, endpoint,
+            name, ns_err);
     return err;
 }
+
+// TODO: lookup
+// TODO: enum
+// TODO: deregister
+// TODO: deregister dead
 
 
 

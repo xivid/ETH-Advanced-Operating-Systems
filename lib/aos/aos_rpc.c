@@ -26,6 +26,7 @@ errval_t rcv_handler_for_get_pids (void *v_args);
 errval_t rcv_handler_for_ns(void *v_args);
 errval_t rcv_handler_for_char(void *v_args);
 errval_t rcv_handler_for_ns_syn(void *v_args);
+errval_t rcv_handler_for_ns_register(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -616,15 +617,16 @@ errval_t rcv_handler_for_ns_syn(void *v_args)
 }
 
 errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
-        struct capref endpoint, char *name)
+        struct capref endpoint, char *name, ns_err_names_t *ns_err)
 {
     unsigned name_len = strlen(name), cur = 0;
-    uintptr_t args[LMP_ARGS_SIZE + 1];
+    uintptr_t args[LMP_ARGS_SIZE + 2];
     args[0] = (uintptr_t) rpc;
     args[1] = (uintptr_t) AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER;
     args[2] = (uintptr_t) id;
     args[3] = (uintptr_t) name_len;
     args[LMP_ARGS_SIZE] = (uintptr_t) &endpoint;
+    args[LMP_ARGS_SIZE + 1] = (uintptr_t) ns_err;
 
     bool first_msg = true;
     unsigned start_slot = 4;
@@ -634,7 +636,7 @@ errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
     while (cur < name_len) {
         strncpy((char *) &args[start_slot], &name[cur], bytes_free);
 
-        errval_t err = send_and_receive(rcv_handler_general, args);
+        errval_t err = send_and_receive(rcv_handler_for_ns_register, args);
         if (err_is_fail(err)) {
             debug_printf("aos_rpc_init: send_and_receive failed\n");
             return err;
@@ -650,6 +652,22 @@ errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
     return SYS_ERR_OK;
 }
 
+errval_t rcv_handler_for_ns_register(void *v_args)
+{
+    uintptr_t* args = (uintptr_t*) v_args;
+    ns_err_names_t *ns_err = (ns_err_names_t *) args[LMP_ARGS_SIZE + 1];
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    struct capref cap;
+
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap,
+            (void *) rcv_handler_for_ns_syn);
+    if (err_is_fail(err)) {
+        return err;
+    }
+    *ns_err = lmp_msg.words[1];
+
+    return SYS_ERR_OK;
+}
 /**
  * \brief Returns the RPC channel to init.
  */
