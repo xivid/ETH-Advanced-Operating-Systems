@@ -16,7 +16,7 @@ errval_t spawn_load_by_name(void * binary_name, struct spawninfo * si) {
 }
 
 errval_t spawn_load_by_name_with_arguments(void * binary_name, struct spawninfo * si, const char *argstr) {
-    debug_printf("spawn_load_by_name: %s %s\n", binary_name, argstr == NULL ? "" : argstr);
+    debug_printf("spawning: %s %s\n", binary_name, argstr == NULL ? "" : argstr);
 
     errval_t err;
     /* 1 - Get the binary from multiboot image */

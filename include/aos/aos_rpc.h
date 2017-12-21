@@ -18,7 +18,7 @@
 #include <aos/aos.h>
 #include <fs/fs.h>
 
-#define AOS_RPC_ATTEMPTS            (4) // how many attempts do we want for sending/receiving before throwing an error
+#define AOS_RPC_ATTEMPTS            (10) // how many attempts do we want for sending/receiving before throwing an error
 #define LMP_ARGS_SIZE               (10)
 
 // IDs for different transmission types
@@ -33,6 +33,7 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_GET_PIDS,
     AOS_RPC_ID_GET_PNAME,
     AOS_RPC_ID_GET_CHAR,
+    AOS_RPC_ID_RETURN_CHAR,
     AOS_RPC_ID_GET_DEVICE_CAP,
     AOS_RPC_ID_NAMESERVER_SYN,
     AOS_RPC_ID_REGISTER_NAMESERVER_WITH_INIT,

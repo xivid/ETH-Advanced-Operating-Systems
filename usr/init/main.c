@@ -123,6 +123,7 @@ int main(int argc, char *argv[])
         //test_remote_spawn();
     }
 
+
     //! name server
     if (my_core_id == 0) {
         // start nameserver
@@ -135,6 +136,7 @@ int main(int argc, char *argv[])
     }
     // init the nameserver's endpoint with NULL_CAP
     ns_endpoint = NULL_CAP;
+
 
     //! networking
     if (my_core_id == 0) {
@@ -153,6 +155,7 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "cannot spawn parrot 7777");
             return EXIT_FAILURE;
         }
+
     }
 
 

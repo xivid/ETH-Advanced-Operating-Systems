@@ -34,40 +34,67 @@ errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 errval_t send_handler_with_cap(void  *v_args);
 errval_t send_and_receive_with_cap(void *rcv_handler, uintptr_t *args);
 
-
+static int send_retry_count = 0;
 errval_t send_handler (void* v_args)
 {
     uintptr_t *args = (uintptr_t*) v_args;
-    struct lmp_chan *lmp = (struct lmp_chan*) args[0];
-
-    int count = 0;
+    struct aos_rpc *rpc = (struct aos_rpc*) args[0];
+    struct lmp_chan *lmp = &rpc->lmp;
     errval_t err;
-    while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, lmp->local_cap, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
-        if (!err_is_fail(err))
-            return SYS_ERR_OK;
-        count++;
+    err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, lmp->local_cap, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+    if (err_is_ok(err)) {
+        return err;
     }
-    debug_printf("send_handler: too many failed attempts\n");
+
+    if (send_retry_count++ < AOS_RPC_ATTEMPTS) {
+        err = lmp_chan_register_send(&rpc->lmp, rpc->ws, MKCLOSURE((void *)send_handler, args));
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "send_handler: lmp_chan_register_send failed\n");
+            return err;
+        }
+        err = event_dispatch(rpc->ws);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "send_handler: first event_dispatch failed\n");
+            return err;
+        }
+    } else {
+        DEBUG_ERR(err, "send_handler: too many failed attempts\n");
+        return err;
+    }
+
     return err;
 }
 
 errval_t send_handler_with_cap(void  *v_args)
 {
     uintptr_t *args = (uintptr_t*) v_args;
-    struct lmp_chan *lmp = (struct lmp_chan*) args[0];
+    struct aos_rpc *rpc = (struct aos_rpc*) args[0];
+    struct lmp_chan *lmp = &rpc->lmp;
     struct capref cap = *((struct capref *) args[LMP_ARGS_SIZE]);
-
-    int count = 0;
     errval_t err;
-    while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, cap, args[1], args[2],
-                args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
-        if (!err_is_fail(err))
-            return SYS_ERR_OK;
-        count++;
+    err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, cap, args[1], args[2],
+                         args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+    if (err_is_ok(err)) {
+        return err;
     }
-    debug_printf("send_handler_with_cap: too many failed attempts\n");
+
+    if (send_retry_count++ < AOS_RPC_ATTEMPTS) {
+        err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, cap, args[1], args[2],
+                             args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "send_handler_with_cap: lmp_chan_register_send failed\n");
+            return err;
+        }
+        err = event_dispatch(rpc->ws);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "send_handler_with_cap: first event_dispatch failed\n");
+            return err;
+        }
+    } else {
+        DEBUG_ERR(err, "send_handler_with_cap: too many failed attempts\n");
+        return err;
+    }
+
     return err;
 }
 
@@ -106,26 +133,28 @@ errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, st
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args)
 {
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+    send_retry_count = 0;
 
     // set handlers
     errval_t err = lmp_chan_register_send(&rpc->lmp, rpc->ws, MKCLOSURE((void *)send_handler, args));
     if (err_is_fail(err)) {
-        debug_printf("send_and_receive: lmp_chan_register_send failed\n");
+        DEBUG_ERR(err, "send_and_receive: lmp_chan_register_send failed\n");
         return err;
     }
 
     err = lmp_chan_register_recv(&rpc->lmp, rpc->ws, MKCLOSURE(rcv_handler, args));
     if (err_is_fail(err)) {
-        debug_printf("send_and_receive: lmp_chan_register_rcv failed\n");
+        DEBUG_ERR(err, "send_and_receive: lmp_chan_register_rcv failed\n");
         return err;
     }
 
     // wait for send and receive ready:
     err = event_dispatch(rpc->ws);
     if (err_is_fail(err)) {
-        debug_printf("send_and_receive: first event_dispatch failed\n");
+        DEBUG_ERR(err, "send_and_receive: first event_dispatch failed\n");
         return err;
     }
+
 
     err = event_dispatch(rpc->ws);
     if (err_is_fail(err)) {
@@ -139,6 +168,7 @@ errval_t send_and_receive (void* rcv_handler, uintptr_t* args)
 errval_t send_and_receive_with_cap(void *rcv_handler, uintptr_t *args)
 {
     struct aos_rpc *rpc = (struct aos_rpc*) args[0];
+    send_retry_count = 0;
 
     errval_t err = lmp_chan_register_send(&rpc->lmp, rpc->ws,
             MKCLOSURE((void *)send_handler_with_cap, args));
@@ -616,7 +646,7 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
 
     errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_initep);
     if (err_is_fail(err)) {
-        debug_printf("aos_rpc_init: lmp_chan_accept failed\n");
+        DEBUG_ERR(err, "aos_rpc_init: lmp_chan_accept failed\n");
         return err;
     }
     thread_mutex_init(&rpc->rpc_mutex);
@@ -626,7 +656,7 @@ errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc)
     args[1] = AOS_RPC_ID_INIT;
     err = send_and_receive(rcv_handler_general, args);
     if (err_is_fail(err)) {
-        debug_printf("aos_rpc_init: send_and_receive failed\n");
+        DEBUG_ERR(err, "aos_rpc_init: send_and_receive failed\n");
         return err;
     }
     return SYS_ERR_OK;
@@ -639,7 +669,7 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
 
     errval_t err = lmp_chan_accept(&rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap);
     if (err_is_fail(err)) {
-        debug_printf("aos_rpc_init: lmp_chan_accept failed\n");
+        DEBUG_ERR(err, "aos_rpc_nameserver_syn: lmp_chan_accept failed\n");
         return err;
     }
     thread_mutex_init(&rpc->rpc_mutex);
@@ -651,7 +681,7 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
 
     err = send_and_receive(rcv_handler_for_ns_syn, args);
     if (err_is_fail(err)) {
-        debug_printf("aos_rpc_init: send_and_receive failed\n");
+        DEBUG_ERR(err, "aos_rpc_nameserver_syn: send_and_receive failed\n");
         return err;
     }
 

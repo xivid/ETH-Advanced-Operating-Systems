@@ -46,10 +46,11 @@ int main(int argc, char *argv[])
     debug_printf("Testing greeting to host by serial\n");
     slip_send((uint8_t *)"hello host!\r\n", 13);
 
-
-    debug_printf("Registering networking service to name server\n");
+    debug_printf("Setting up nameserver rpc channel\n");
     ns_init_channel();
     ns_err_names_t ns_err;
+
+    debug_printf("Registering networking service to name server\n");
     ns_register("networking", cap_selfep, &ns_err);
     if (ns_err != NS_ERR_NAME_OK) {
         DEBUG_ERR(err, "cannot register myself to name server as \"networking\"");
