@@ -26,7 +26,6 @@ void *marshal_str(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_process(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_pids(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_pname(struct capref cap, struct lmp_recv_msg *msg);
-void *marshal_retchar(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_init(struct capref cap);
 void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg);
 void *marshal_device_cap(struct capref cap, struct lmp_recv_msg *msg);

@@ -34,7 +34,7 @@ void urpc_read_until_ack(uint32_t *ack_response, coreid_t core);
 void urpc_spawn_handler(coreid_t core, void *name);
 void urpc_get_pids_handler(coreid_t core, domainid_t pid);
 void urpc_get_pname_handler(coreid_t core, domainid_t pid);
-void urpc_get_char_handler(coreid_t core);
+void urpc_get_char_handler(coreid_t core, domainid_t pid);
 errval_t urpc_read_and_process_non_block(coreid_t core);
 
 #endif /* _URPC_SERVER_H */

@@ -12,12 +12,7 @@ int main(int argc, char *argv[])
     char new_char;
     while (1) {
         scanf("%c", &new_char);
-        if (new_char != 0) {
-            printf("%c", new_char);
-            if (new_char == '\r') {
-                printf("\n");
-            }
-        }
+        printf("%c", new_char);
     }
     return 0;
 }

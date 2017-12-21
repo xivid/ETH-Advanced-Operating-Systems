@@ -123,8 +123,7 @@ int main(int argc, char *argv[])
     // however, the resources seems impossible to be overwritten under any circumstances.
     // So, I put this warning here just for reference in case some related problem occurs in the future.
 
-
-    if (my_core_id == 1) {
+    if (my_core_id == 0) { // TODO: change back to 1
         test_multi_spawn(1, "/armv7/sbin/shell");
         //test_remote_spawn();
     }
@@ -152,7 +151,7 @@ int main(int argc, char *argv[])
             return -1;
         }
     }
-    
+
     debug_printf("Message handler loop\n");
 
     // Hang around

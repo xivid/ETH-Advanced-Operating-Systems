@@ -99,7 +99,7 @@ static size_t lmp_terminal_read(char *buf, size_t len)
         for (int i = 0; i < len; i++) {
             errval_t err = aos_rpc_serial_getchar(channel, buf + i);
             assert(!err_is_fail(err));
-            if (buf[i] == 0) {
+            if (buf[i] == '\n') {
                 return i + 1;
             }
         }

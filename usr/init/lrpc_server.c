@@ -3,7 +3,11 @@
 
 errval_t recv_handler(void *arg);
 struct client *whois(struct capref cap);
+<<<<<<< 910d3429c6b2e14f1c2f06aefef4255f304dd1d3
 struct client *nameserver_client = NULL;
+=======
+void char_forward(void *endpoint, char c);
+>>>>>>> Make scanf behave normal
 
 // Local data structs definitions for marshaling operations. Should not be
 // visible outside the current file.
@@ -134,6 +138,7 @@ errval_t recv_handler(void *arg)
         return err;
     send_func_t send_handler;
     void *answer_args;
+    coreid_t target_core_id;
     // TODO: why not just passing in the lmp_chan*, instead of the cap_endpoint? It seems we don't really need the whois().
     switch (msg.words[0]) {
         case AOS_RPC_ID_INIT:
@@ -188,6 +193,20 @@ errval_t recv_handler(void *arg)
             answer_args = marshal_set_nameserver_endpoint(cap_endpoint);
             send_handler = send_received;
             break;
+        case AOS_RPC_ID_GET_CHAR:
+            target_core_id = pid_get_core_id((domainid_t)msg.words[1]);
+            if (target_core_id == my_core_id) {
+                register_receiver_fn(&char_forward, whois(cap_endpoint));
+            } else {
+                debug_printf("Sending back across cores\n");
+                uint32_t message[URPC_PAYLOAD_LEN];
+                message[0] = 0;
+                message[1] = AOS_RPC_ID_GET_CHAR;
+                urpc_write(message, target_core_id);
+
+                urpc_read_until_ack(message, my_core_id);
+            }
+            return SYS_ERR_OK;
         default:
             debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
@@ -488,42 +507,16 @@ void *marshal_init(struct capref cap) {
     return (void*) &(potential->lmp);
 }
 
-void *marshal_retchar(struct capref cap_endpoint, struct lmp_recv_msg *msg)
+void char_forward(void *client, char c)
 {
-    domainid_t comm_dest = (domainid_t)msg->words[1];
-    coreid_t target_core_id = pid_get_core_id(comm_dest);
-    char retchar;
-
-    if (target_core_id == my_core_id)
-    {
-        retchar = get_next_char_from_buffer();
-    }
-    else
-    {
-        // send URPC request
-        uint32_t message[URPC_PAYLOAD_LEN];
-        message[0] = 0;
-        message[1] = AOS_RPC_ID_GET_CHAR;
-        urpc_write(message, target_core_id);
-
-        // wait for and read response
-        urpc_read_until_ack(message, my_core_id);
-
-        retchar = message[0];
-    }
-
-    struct client *sender = whois(cap_endpoint);
-    if (sender == NULL)
-    {
-        debug_printf("usr/init/main.c answer char: could not identify client\n");
-        return NULL;
-    }
-
     struct char_answer_t *args = malloc(sizeof(struct char_answer_t));
-    args->sender_lmp = sender->lmp;
-    args->retchar = retchar;
+    args->sender_lmp = ((struct client*)client)->lmp;
+    args->retchar = c;
 
-    return (void*)args;
+    // struct lmp_chan *ret_chan = (struct lmp_chan *)args;
+    errval_t err = lmp_chan_register_send(&args->sender_lmp, get_default_waitset(),
+                                          MKCLOSURE((void *)send_char, args));
+    assert(!err_is_fail(err));
 }
 
 void *marshal_ram(struct capref cap, struct lmp_recv_msg *msg) {
@@ -802,11 +795,9 @@ errval_t send_pname(void *args) {
 
 errval_t send_char(void *args)
 {
-    // get channel
-    struct lmp_chan *lmp = (struct lmp_chan *)args;
-    // cast to void* and move pointer to after the lmp channel
-    args = (void *)ROUND_UP((uintptr_t)args + sizeof(struct lmp_chan), 4);
-    char retchar = *(char *)args;
+    struct char_answer_t *ans_args = (struct char_answer_t*)args;
+    struct lmp_chan *lmp = &ans_args->sender_lmp;
+    char retchar = ans_args->retchar;
 
     errval_t err_send = lmp_chan_send2(lmp, LMP_FLAG_SYNC, NULL_CAP, AOS_RPC_ID_ACK, retchar);
     if (err_is_fail(err_send))
