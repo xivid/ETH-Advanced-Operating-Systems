@@ -32,10 +32,21 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_PROCESS,
     AOS_RPC_ID_GET_PIDS,
     AOS_RPC_ID_GET_PNAME,
-    AOS_RPC_ID_GET_NAMESERVER_EP,
     AOS_RPC_ID_GET_CHAR,
     AOS_RPC_ID_GET_DEVICE_CAP,
+    AOS_RPC_ID_NAMESERVER_SYN,
+    AOS_RPC_ID_REGISTER_NAMESERVER_WITH_INIT,
+    AOS_RPC_ID_SET_NAMESERVER_EP,
+    AOS_RPC_ID_GET_NAMESERVER_EP,
+    AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER,
+    AOS_RPC_ID_FAIL,
 };
+
+typedef enum {
+    NS_ERR_NAME_OK = 0,
+    NS_ERR_NAME_ALREADY_TAKEN,
+    NS_ERR_NAME_WRONG_NAME,
+} ns_err_names_t;
 
 struct aos_rpc {
     struct lmp_chan lmp;
@@ -44,6 +55,7 @@ struct aos_rpc {
     // TODO: add state for your implementation
 };
 
+errval_t aos_rpc_ns(struct waitset* ws, struct aos_rpc *rpc, struct capref cap);
 /**
  * \brief send a number over the given channel
  */
@@ -146,7 +158,25 @@ errval_t aos_rpc_get_device_cap(struct aos_rpc *rpc, lpaddr_t paddr, size_t byte
  */
 errval_t aos_rpc_init(struct waitset* ws, struct aos_rpc *rpc);
 
+/**
+ * \brief Initialize a channel to nameserver (see the nameserver protocol)
+ * \param rpc Will store the channel to nameserver
+ * \param cap A capability for nameserver's endpoint obtained from init
+ * \param id Will store the unique client id
+ */
+errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
+        unsigned *id);
 
+/**
+ * \brief Register an endpoint with nameserver (see the nameserver protocol)
+ * \param rpc        The channel to nameserver
+ * \param id         The client id assigned by nameserver
+ * \param endpoint   The endpoint capability to register
+ * \param name       The service name to register
+ * \param ns_err     Will store the error code obtained from the nameserver
+ */
+errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
+        struct capref endpoint, char *name, ns_err_names_t *ns_err);
 /**
  * \brief Returns the RPC channel to init.
  */
