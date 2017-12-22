@@ -53,6 +53,10 @@ void parse(struct parseline* line)
 {
     struct token t = next_token(line);
 
+    if (t.length == 0) {
+        return;
+    }
+
     if (strncmp(line->line + t.start, "echo", t.length) == 0 && t.length == strlen("echo")) {
         echo(line);
     } else if (strncmp(line->line + t.start, "daemon", t.length) == 0 && t.length == strlen("daemon")) {
