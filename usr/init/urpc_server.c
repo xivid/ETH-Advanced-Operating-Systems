@@ -111,7 +111,7 @@ void urpc_spawn_handler(coreid_t core, void *name) {
 
     errval_t err = spawn_load_by_name(name, si);
     uint32_t process_ack[URPC_PAYLOAD_LEN];
-    process_ack[0] = 0;
+    process_ack[0] = INIT_PROCESS_ID;
     process_ack[1] = AOS_RPC_ID_ACK;
     process_ack[2] = si->domain_id;
     process_ack[3] = err;
@@ -124,7 +124,7 @@ void urpc_get_pids_handler(coreid_t core, domainid_t pid) {
     process_manager_get_all_pids(&pm, &arr, &length);
 
     uint32_t pname_ack[URPC_PAYLOAD_LEN];
-    pname_ack[0] = 0;
+    pname_ack[0] = INIT_PROCESS_ID;
     pname_ack[1] = AOS_RPC_ID_ACK;
     pname_ack[2] = length;
 

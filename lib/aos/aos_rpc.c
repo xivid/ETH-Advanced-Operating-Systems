@@ -417,7 +417,7 @@ errval_t aos_rpc_process_spawn_with_arguments(struct aos_rpc *chan,
     uintptr_t args[LMP_ARGS_SIZE + 1];
     // order: 0-chan, 1-type identifier, 2-core, 3-name_len, 4-arg_len, 5..8-the name
     args[0] = (uintptr_t) chan;
-    args[1] = (uintptr_t) AOS_RPC_ID_PROCESS;  // msg->words[0] on server side
+    args[1] = (uintptr_t) AOS_RPC_ID_PROCESS;
     args[2] = (uintptr_t) core;
     args[3] = (uintptr_t) name_len;
     args[4] = (uintptr_t) arg_len;
