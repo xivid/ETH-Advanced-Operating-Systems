@@ -3,6 +3,7 @@
 
 #include <aos/aos.h>
 #include <aos/aos_rpc.h>
+#include <fs/fat32.h>
 #include <aos/waitset.h>
 #include <aos/except.h>
 

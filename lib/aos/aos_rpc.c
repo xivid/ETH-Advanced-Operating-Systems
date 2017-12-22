@@ -1123,14 +1123,15 @@ errval_t aos_rpc_fat_open(struct aos_rpc* chan, char* path, void** handle) {
         debug_printf("aos_rpc_send_number failed\n");
         return err;
     }
-    *handle = (void*) unpackage_handle(*(void**)args[LMP_ARGS_SIZE+2], (size_t)args[LMP_ARGS_SIZE + 1]);
+    //*handle = (void*) unpackage_handle(*(void**)args[LMP_ARGS_SIZE+2], (size_t)args[LMP_ARGS_SIZE + 1]); TODO: commented out due to trouble
     return (errval_t)args[LMP_ARGS_SIZE + 3];
 }
 // close the file given with handle
 errval_t aos_rpc_fat_close(struct aos_rpc* chan, void* handle) {
     errval_t err;
     size_t* length = malloc(sizeof(size_t));
-    char* path = (char*)package_handle((struct fat32_handle*) handle, length);
+    //char* path = (char*)package_handle((struct fat32_handle*) handle, length);TODO: commented out due to trouble
+    char* path = "";//TODO: remove this when commenting in line above
     uintptr_t args[LMP_ARGS_SIZE + 2];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_FS_CLOSE;
@@ -1186,4 +1187,64 @@ errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** na
 errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info) {
 
     return LIB_ERR_NOT_IMPLEMENTED;
+}
+
+errval_t aos_rpc_mmchs(struct aos_rpc* chan, void* buf, size_t block_nr) {
+    errval_t err;
+    uintptr_t args[LMP_ARGS_SIZE + 4];
+    args[0] = (uintptr_t) chan;
+    args[1] = (uintptr_t) AOS_RPC_ID_MMCHS;
+    args[2] = (uintptr_t) block_nr;
+    args[LMP_ARGS_SIZE] = (uintptr_t) buf;
+    
+    err = send_and_receive(rcv_handler_for_mmchs, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_send_number failed\n");
+        return err;
+    }
+    buf = *(void**)args[LMP_ARGS_SIZE+2];
+    return (errval_t)args[LMP_ARGS_SIZE + 3];
+}
+
+errval_t rcv_handler_for_mmchs (void *v_args)
+{
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct capref cap;
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap, (void *)rcv_handler_for_mmchs);
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    bool first_message = args[LMP_ARGS_SIZE + 1] == 0;
+    char ** name = (char **) args[LMP_ARGS_SIZE + 2];
+
+    if (first_message) {
+        args[LMP_ARGS_SIZE+3] = lmp_msg.words[1]; // store error
+        *name = malloc((512) *sizeof(char));
+        if (*name == NULL) {
+            debug_printf("Malloc failed to allocate a string of the required size\n");
+            return LIB_ERR_MALLOC_FAIL;
+        }
+    }
+
+    char *copy_start = *name + args[LMP_ARGS_SIZE + 1];
+    int string_off = 2;//first_message ? 2 : 1;
+    int n_bytes_to_copy = MIN((9 - string_off) * 4, 512 - args[LMP_ARGS_SIZE+1]);
+    strncpy(copy_start, (char *)(lmp_msg.words + string_off), n_bytes_to_copy);
+    copy_start[n_bytes_to_copy] = 0;
+    args[LMP_ARGS_SIZE + 1] += n_bytes_to_copy;
+
+    if (512 - args[LMP_ARGS_SIZE + 1] != 0) {
+        struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+        err = lmp_chan_register_recv(&rpc->lmp, rpc->ws,
+                                     MKCLOSURE((void*) rcv_handler_for_mmchs, args));
+        if (err_is_fail(err)) {
+            debug_printf("can't set itself for the receive handler for the remaining bytes\n");
+            return err;
+        }
+    }
+
+    return SYS_ERR_OK;
 }

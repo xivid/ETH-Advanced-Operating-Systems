@@ -1,11 +1,13 @@
 #include <ctype.h> // include for isspace for example
 #include <fs/fat32.h>
 #include <aos/aos.h>
-#include "../../usr/drivers/omap44xx/mmchs/mmchs.h"
+#include <aos/aos_rpc.h>
+//#include "../../usr/drivers/omap44xx/mmchs/mmchs.h"
 
 #define BLOCK_SIZE 512
 static struct fat32_mount *singleton;
 static bool singleton_set;
+static struct aos_rpc* mmchs_rpc;
 errval_t load_cluster(size_t number, char* cluster);
 errval_t get_entry(size_t number, uint32_t* entry);
 errval_t find_dirent(char* name, struct fat32_handle* handle);
@@ -32,7 +34,9 @@ inline bool usable_attr(uint8_t DIR_Attr) {
 errval_t fat32_mount(const char* path, const char* uri) {
     errval_t err;
     if (!singleton_set) {
-        mmchs_init();
+        //mmchs_init(); // TODO: start up mmchs server here instead
+        struct capref cap;
+        err = aos_rpc_fs_init(mmchs_rpc, cap);
         singleton = malloc(sizeof(struct fat32_mount));
         if (singleton == NULL)
             return LIB_ERR_MALLOC_FAIL;
@@ -46,7 +50,8 @@ errval_t fat32_mount(const char* path, const char* uri) {
             return LIB_ERR_MALLOC_FAIL;
         }
         // read sector0
-        err = mmchs_read_block(singleton->sector0_offset, singleton->sector0);
+        //err = mmchs_read_block(singleton->sector0_offset, singleton->sector0);
+        err = aos_rpc_mmchs(mmchs_rpc, singleton->sector0, singleton->sector0_offset);
         if (err_is_fail(err)) {
             free(singleton->sector0);
             free(singleton);
@@ -136,7 +141,7 @@ errval_t load_cluster(size_t number, char* cluster) {
     errval_t err;
     size_t FirstSectorofCluster = singleton->sector0_offset + ((number -2) * singleton->SecPerClus) + singleton->FirstDataSector;
     for (uint32_t i = 0; i < singleton->SecPerClus; i++) {
-        err = mmchs_read_block(FirstSectorofCluster+i, (void*) cluster);
+        err = aos_rpc_mmchs(mmchs_rpc, (void*) cluster, FirstSectorofCluster+i);
         cluster += singleton->BytsPerSec;
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "load_cluster mmchs_read_block failed");
@@ -176,7 +181,7 @@ errval_t get_entry(size_t number, uint32_t* entry) {
         uint32_t *buffer = malloc(singleton->BytsPerSec);
         if (buffer == NULL)
             return LIB_ERR_MALLOC_FAIL;
-        err = mmchs_read_block(sector_on_drive, buffer);
+        err = aos_rpc_mmchs(mmchs_rpc, buffer, sector_on_drive);
         if (err_is_fail(err)) {
             free(buffer);
             return err;

@@ -17,7 +17,7 @@
 
 #include <aos/aos.h>
 #include <fs/fs.h>
-#include <fs/fat32.h>
+//#include <fs/fat32.h>
 #define AOS_RPC_ATTEMPTS            (10) // how many attempts do we want for sending/receiving before throwing an error
 #define LMP_ARGS_SIZE               (10)
 #define INIT_PROCESS_ID             (0)
@@ -55,6 +55,7 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_FS_CLOSEDIR,
     AOS_RPC_ID_FS_DIR_READ_NEXT,
     AOS_RPC_ID_FS_STAT,
+    AOS_RPC_ID_MMCHS
 };
 
 /// Defines all error and status codes related to nameserver
@@ -269,6 +270,7 @@ struct aos_rpc *aos_rpc_get_serial_channel(void);
 errval_t aos_rpc_fs_init(struct aos_rpc *rpc, struct capref cap);
 
 errval_t rcv_handler_for_handle (void *v_args);
+errval_t rcv_handler_for_mmchs (void *v_args);
 
 // rpc calls for fat32
 
@@ -292,5 +294,7 @@ errval_t aos_rpc_fat_closedir(struct aos_rpc* chan, void* handle);
 errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** name);
 // returns the stat fs_fileinfo of the open file/dir given by handle
 errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info);
+
+errval_t aos_rpc_mmchs(struct aos_rpc* chan, void* buf, size_t block_nr);
 
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H
