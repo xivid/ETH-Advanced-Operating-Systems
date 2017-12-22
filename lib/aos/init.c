@@ -209,7 +209,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     struct aos_rpc rpc_on_stack;
     err = aos_rpc_init(default_ws, &rpc_on_stack);
     if (err_is_fail(err)) {
-        debug_printf("lib aos init.c: first aos_rpc_init failed\n");
+        DEBUG_ERR(err, "lib aos init.c: first aos_rpc_init failed\n");
         return err;
     }
     set_init_rpc(&rpc_on_stack);

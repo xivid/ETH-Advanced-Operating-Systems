@@ -3,7 +3,7 @@
 errval_t send(void *v_args, void *send_handler, void *recv_handler)
 {
     uintptr_t *args = (uintptr_t *) v_args;
-    struct aos_rpc *rpc = (struct aos_rpc *) args[0];
+    struct aos_rpc *rpc = (struct aos_rpc *) args[RPC_SLOT];
     errval_t err = lmp_chan_register_send(&rpc->lmp, rpc->ws,
             MKCLOSURE(send_handler, v_args));
     if (err_is_fail(err)) {
@@ -37,7 +37,7 @@ errval_t ns_recv_ack_handler(void *v_args)
 {
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
     uintptr_t *args = (uintptr_t*) v_args;
-    struct aos_rpc *rpc = (struct aos_rpc *) args[0];
+    struct aos_rpc *rpc = (struct aos_rpc *) args[RPC_SLOT];
     struct lmp_chan *lmp = &rpc->lmp;
     errval_t err = lmp_chan_recv(lmp, &lmp_msg, NULL);
 
@@ -85,6 +85,9 @@ errval_t ns_recv_listener_handler(void *v_args)
         case AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER:
             answer_args = ns_marshal_register(cap, &lmp_msg);
             break;
+        case AOS_RPC_ID_LOOKUP_EP_WITH_NAMESERVER:
+            answer_args = ns_marshal_lookup(&lmp_msg);
+            break;
         default:
             debug_printf("unknown message sent to nameserver: %d\n",
                     lmp_msg.words[0]);
@@ -95,7 +98,7 @@ errval_t ns_recv_listener_handler(void *v_args)
         return EXIT_FAILURE;
     }
 
-    struct aos_rpc *reply_rpc = (struct aos_rpc *) answer_args[0];
+    struct aos_rpc *reply_rpc = (struct aos_rpc *) answer_args[RPC_SLOT];
 
     err = lmp_chan_register_send(&reply_rpc->lmp, get_default_waitset(),
             MKCLOSURE((void *) ns_send_handler, answer_args));
@@ -123,11 +126,11 @@ errval_t ns_recv_listener_handler(void *v_args)
 errval_t ns_send_handler(void *v_args)
 {
     uintptr_t *args = (uintptr_t*) v_args;
-    struct aos_rpc *rpc = (struct aos_rpc *) args[0];
+    struct aos_rpc *rpc = (struct aos_rpc *) args[RPC_SLOT];
     struct lmp_chan *lmp = &rpc->lmp;
     struct capref cap;
-    if (args[1]) {
-       cap  = *((struct capref *) args[1]);
+    if (args[CAP_SLOT]) {
+       cap  = *((struct capref *) args[CAP_SLOT]);
     } else {
         cap = NULL_CAP;
     }
@@ -135,12 +138,13 @@ errval_t ns_send_handler(void *v_args)
     int count = 0;
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send2(lmp, LMP_FLAG_SYNC, cap, args[2], args[3]);
+        err = lmp_chan_send2(lmp, LMP_FLAG_SYNC, cap, args[TYPE_SLOT],
+                args[ERR_ID_SLOT]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
-        /* debug_printf("error: %s\n", err_getstring(err)); */
+        debug_printf("got an error: %s\n", err_getstring(err));
         count++;
     }
-    debug_printf("ns_send_handler_with_cap: too many failed attempts\n");
+    debug_printf("ns_send_handler: too many failed attempts\n");
     return err;
 }

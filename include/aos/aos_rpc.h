@@ -18,8 +18,9 @@
 #include <aos/aos.h>
 #include <fs/fs.h>
 #include <fs/fat32.h>
-#define AOS_RPC_ATTEMPTS            (4) // how many attempts do we want for sending/receiving before throwing an error
+#define AOS_RPC_ATTEMPTS            (10) // how many attempts do we want for sending/receiving before throwing an error
 #define LMP_ARGS_SIZE               (10)
+#define INIT_PROCESS_ID             (0)
 
 // IDs for different transmission types
 enum enum_rpc_msgtype {
@@ -40,6 +41,7 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_SET_NAMESERVER_EP,
     AOS_RPC_ID_GET_NAMESERVER_EP,
     AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER,
+    AOS_RPC_ID_LOOKUP_EP_WITH_NAMESERVER,
     AOS_RPC_ID_FAIL,
     AOS_RPC_ID_FS_MOUNT,
     AOS_RPC_ID_FS_UNMOUNT,
@@ -53,10 +55,13 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_FS_STAT,
 };
 
+/// Defines all error and status codes related to nameserver
 typedef enum {
-    NS_ERR_NAME_OK = 0,
+    NS_ERR_OK = 0,
     NS_ERR_NAME_ALREADY_TAKEN,
     NS_ERR_NAME_WRONG_NAME,
+    NS_ERR_NAME_NOT_FOUND,
+    NS_ERR_NAMESERVER_NOT_RUNNING,
 } ns_err_names_t;
 
 struct aos_rpc {
@@ -85,10 +90,14 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t bytes, size_t align,
                              struct capref *retcap, size_t *ret_bytes);
 
 /**
- * \brief request the nameserver endpoint capability from the init process
+ * \brief Request the nameserver endpoint capability from the init process
+ * \param init_chan Channel to init
+ * \param retcap    Will store the nameserver's endpoint
+ * \param ns_err    Will store the error code obtained from init
  */
 errval_t aos_rpc_get_nameserver_ep(struct aos_rpc *init_chan,
-        struct capref *retcap);
+        struct capref *retcap, ns_err_names_t *ns_err);
+
 /**
  * \brief get one character from the serial port
  */
@@ -202,6 +211,18 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
  */
 errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
         struct capref endpoint, char *name, ns_err_names_t *ns_err);
+
+/**
+ * \brief Lookup an endpoint using provided name
+ * \param rpc        The channel to nameserver
+ * \param id         The client id assigned by nameserver
+ * \param name       The service name to register
+ * \param endpoint   Will store the endpoint capability
+ * \param ns_err     Will store the error code obtained from the nameserver
+ */
+errval_t aos_rpc_nameserver_lookup(struct aos_rpc *rpc, unsigned id,
+        struct capref *endpoint, char *name, ns_err_names_t *ns_err);
+
 /**
  * \brief Returns the RPC channel to init.
  */
@@ -249,4 +270,5 @@ errval_t aos_rpc_fat_closedir(struct aos_rpc* chan, void* handle);
 errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** name);
 // returns the stat fs_fileinfo of the open file/dir given by handle
 errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info);
+
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H

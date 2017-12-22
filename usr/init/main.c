@@ -100,6 +100,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+
     // WARNING: boot_core() must only be called AFTER core_boot_dump_resources()!
     if (my_core_id == 0) {
         err = register_getchar_interrupt_handler();
@@ -116,19 +117,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* perform_tests(); */
-
-    // test remote spawn hello.0 from memeater.1
-    // WARNING: in principle, we shouldn't send anything over urpc before core 1 has finished reading the resources initially described in urpc frame.
-    // however, the resources seems impossible to be overwritten under any circumstances.
-    // So, I put this warning here just for reference in case some related problem occurs in the future.
-
+    //! shell
     if (my_core_id == 1) {
         test_multi_spawn(1, "/armv7/sbin/shell");
         //test_remote_spawn();
     }
 
 
+    //! name server
     if (my_core_id == 0) {
         // start nameserver
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
@@ -137,11 +133,14 @@ int main(int argc, char *argv[])
             debug_printf("Failed spawning process nameserver\n");
             return 1;
         }
+
+        /* spawn_load_by_name("/armv7/sbin/calc_server", si); */
     }
     // init the nameserver's endpoint with NULL_CAP
     ns_endpoint = NULL_CAP;
 
 
+    //! networking
     if (my_core_id == 0) {
         debug_printf("Starting network process\n");
         struct spawninfo *si = malloc(sizeof(struct spawninfo));
@@ -150,6 +149,15 @@ int main(int argc, char *argv[])
             debug_printf("Failed spawning network process\n");
             return -1;
         }
+
+        debug_printf("Start a parrot on port 7777\n");
+        si = malloc(sizeof(struct spawninfo));
+        err = spawn_load_by_name_with_arguments("/armv7/sbin/parrot", si, "/armv7/sbin/parrot 7777");
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "cannot spawn parrot 7777");
+            return EXIT_FAILURE;
+        }
+
     }
 
     debug_printf("Message handler loop\n");

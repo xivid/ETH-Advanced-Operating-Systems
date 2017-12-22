@@ -18,8 +18,6 @@
 #define INIT_DISPATCHER_VBASE   (INIT_ARGS_VBASE + ARGS_SIZE)
 #define MON_URPC_VBASE          (INIT_DISPATCHER_VBASE + DISPATCHER_SIZE)
 
-#define INIT_PROCESS_ID (0)
-
 #define N_LINES                 (MON_URPC_SIZE / 2 / 64)
 #define LINE_WORDS              (16)
 #define URPC_PAYLOAD_LEN        (10)

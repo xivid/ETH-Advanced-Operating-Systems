@@ -29,6 +29,10 @@ module /armv7/sbin/shell
 
 # milestone 7 networking
 module /armv7/sbin/network
+module /armv7/sbin/parrot
+
+# a calculator server application
+module /armv7/sbin/calc_server
 
 # For pandaboard, use following values.
 mmap map 0x40000000 0x40000000 13 # Devices
