@@ -53,19 +53,19 @@ void parse(struct parseline* line)
 {
     struct token t = next_token(line);
 
-    if (strncmp(line->line + t.start, "echo", t.length) == 0) {
+    if (strncmp(line->line + t.start, "echo", t.length) == 0 && t.length == strlen("echo")) {
         echo(line);
-    } else if (strncmp(line->line + t.start, "daemon", t.length) == 0) {
+    } else if (strncmp(line->line + t.start, "daemon", t.length) == 0 && t.length == strlen("daemon")) {
         launch_process(line, true);
-    } else if (strncmp(line->line + t.start, "run", t.length) == 0) {
+    } else if (strncmp(line->line + t.start, "run", t.length) == 0 && t.length == strlen("run")) {
         launch_process(line, false);
-    } else if (strncmp(line->line + t.start, "ls", t.length) == 0) {
+    } else if (strncmp(line->line + t.start, "ls", t.length) == 0 && t.length == strlen("ls")) {
         list_directory(line);
-    } else if (strncmp(line->line + t.start, "ps", t.length) == 0) {
+    } else if (strncmp(line->line + t.start, "ps", t.length) == 0 && t.length == strlen("ps")) {
         list_processes(line);
-    } else if (strncmp(line->line + t.start, "help", t.length) == 0) {
+    } else if (strncmp(line->line + t.start, "help", t.length) == 0 && t.length == strlen("help")) {
         printf("RTFM.\n");
-    } else if (strncmp(line->line + t.start, "HELP!", t.length) == 0) {
+    } else if (strncmp(line->line + t.start, "HELP!", t.length) == 0 && t.length == strlen("HELP!")) {
         print_help(line);
     } else {
         error(line, t, NULL);
