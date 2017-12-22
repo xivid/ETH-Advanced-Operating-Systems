@@ -102,20 +102,20 @@ int main(int argc, char *argv[])
 
 
     // WARNING: boot_core() must only be called AFTER core_boot_dump_resources()!
-    /* if (my_core_id == 0) { */
-    /*     err = register_getchar_interrupt_handler(); */
-    /*     if (err_is_fail(err)) { */
-    /*         DEBUG_ERR(err, "register_getchar_handler"); */
-    /*         return EXIT_FAILURE; */
-    /*     } */
+    if (my_core_id == 0) {
+        err = register_getchar_interrupt_handler();
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "register_getchar_handler");
+            return EXIT_FAILURE;
+        }
 
-    /*     debug_printf("booting core 1\n"); */
-    /*     err = boot_core(1); */
-    /*     if (err_is_fail(err)) { */
-    /*         DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed"); */
-    /*         return EXIT_FAILURE; */
-    /*     } */
-    /* } */
+        debug_printf("booting core 1\n");
+        err = boot_core(1);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "usr/init/main.c: boot_core(1) failed");
+            return EXIT_FAILURE;
+        }
+    }
 
     //! shell
     if (my_core_id == 1) {

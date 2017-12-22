@@ -126,7 +126,7 @@ errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, st
     }
 
     if (lmp_msg->words[0] != AOS_RPC_ID_ACK) {
-        debug_printf("Expected answer to be of type ACK\n");
+        debug_printf("Expected answer to be of type ACK, got %i\n", lmp_msg->words[0]);
         return FLOUNDER_ERR_RPC_MISMATCH;
     }
     return SYS_ERR_OK;
@@ -350,7 +350,7 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
     uintptr_t args[LMP_ARGS_SIZE + 1];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_GET_CHAR;
-    args[2] = (uintptr_t) 0; // The core dest
+    args[2] = (uintptr_t) INIT_PROCESS_ID;
 
     args[LMP_ARGS_SIZE] = (uintptr_t) retc;
 
@@ -443,12 +443,12 @@ errval_t rcv_handler_for_process(void *v_args)
 {
     uintptr_t* args = (uintptr_t*) v_args;
     struct capref cap;
-    domainid_t *new_pid = (domainid_t *) args[3];
+    domainid_t* new_pid = (domainid_t*)args[LMP_ARGS_SIZE];
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
 
     errval_t err = receive_and_match_ack(args, &lmp_msg, &cap, (void*) rcv_handler_for_process);
     if (err_is_fail(err)) {
-        *new_pid = 0;
+        *new_pid = -1;
     } else {
         *new_pid = (domainid_t) lmp_msg.words[1];
     }
