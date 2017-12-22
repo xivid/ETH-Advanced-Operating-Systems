@@ -41,8 +41,8 @@ int ns_add_client(struct capref cap, struct aos_rpc **rpc, unsigned *id)
                 client_array[i] = NULL;
             }
         }
-        debug_printf("nameserver: extended client array from %u to %u\n",
-                client_array_size, new_size);
+        /* debug_printf("nameserver: extended client array from %u to %u\n", */
+                /* client_array_size, new_size); */
         client_array_size = new_size;
         *id = client_count;
     } else {

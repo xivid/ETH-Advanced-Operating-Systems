@@ -85,8 +85,14 @@ errval_t ns_recv_listener_handler(void *v_args)
         case AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER:
             answer_args = ns_marshal_register(cap, &lmp_msg);
             break;
+        case AOS_RPC_ID_DEREGISTER_EP_WITH_NAMESERVER:
+            answer_args = ns_marshal_deregister(&lmp_msg);
+            break;
         case AOS_RPC_ID_LOOKUP_EP_WITH_NAMESERVER:
             answer_args = ns_marshal_lookup(&lmp_msg);
+            break;
+        case AOS_RPC_ID_NAMESERVER_ENUM:
+            answer_args = ns_marshal_enum(&lmp_msg);
             break;
         default:
             debug_printf("unknown message sent to nameserver: %d\n",
@@ -138,8 +144,8 @@ errval_t ns_send_handler(void *v_args)
     int count = 0;
     errval_t err;
     while (count < AOS_RPC_ATTEMPTS) {
-        err = lmp_chan_send2(lmp, LMP_FLAG_SYNC, cap, args[TYPE_SLOT],
-                args[ERR_ID_SLOT]);
+        err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, cap, args[2], args[3],
+                args[4], args[5], args[6], args[7], args[8], args[9], args[10]);
         if (!err_is_fail(err))
             return SYS_ERR_OK;
         debug_printf("got an error: %s\n", err_getstring(err));

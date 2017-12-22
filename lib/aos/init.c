@@ -51,7 +51,7 @@ void libc_exit(int status)
 
         // XXX: Leak all other domain allocations
     } else {
-        debug_printf("libc_exit NYI!\n");
+        /* debug_printf("libc_exit NYI!\n"); */
     }
 
     thread_exit(status);
@@ -219,7 +219,6 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     *rpc_on_heap = rpc_on_stack;
     set_init_rpc(rpc_on_heap);
 
-    debug_printf("barrelfish_init_onthread(): initialized rpc\n");
     _libc_terminal_write_func = lmp_terminal_write;
     _libc_terminal_read_func = lmp_terminal_read;
     st->can_use_slab = true;
