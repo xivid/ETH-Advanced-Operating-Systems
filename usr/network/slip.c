@@ -110,8 +110,6 @@ void debug_print_packet(uint8_t *data, size_t size) {
 void slip_packet_recv_handler(void) {
 #ifdef TRACE_PACKET
     debug_printf("SLIP Packet received and decoded, size = %u:\n", slip_decoded_packet.size);
-#endif
-#ifdef DEBUG_PACKET
     debug_print_packet(slip_decoded_packet.data, slip_decoded_packet.size);
 #endif
 
@@ -130,9 +128,10 @@ void slip_packet_recv_handler(void) {
 
 void slip_send(uint8_t *buf, size_t size) {
 #ifdef TRACE_PACKET
-    debug_printf("SLIP sending packet with size = %u, before encoding:\n", size);
+    debug_printf("SLIP sending packet with size = %u\n", size);
 #endif
 #ifdef DEBUG_PACKET
+    debug_printf("before encoding:\n");
     debug_print_packet(buf, size);
 #endif
 
