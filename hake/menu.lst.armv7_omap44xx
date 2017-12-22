@@ -34,6 +34,9 @@ module /armv7/sbin/parrot
 # a calculator server application
 module /armv7/sbin/calc_server
 
+# a nameserver client
+module /armv7/sbin/ns_client
+
 # For pandaboard, use following values.
 mmap map 0x40000000 0x40000000 13 # Devices
 mmap map 0x80000000 0x40000000  1

@@ -154,7 +154,18 @@ void *ns_marshal_register(struct capref endpoint, struct lmp_recv_msg *msg)
         answer_args[ERR_ID_SLOT] = (uintptr_t) ns_err;
     }
     return (void *) answer_args;
+}
 
+void *ns_marshal_deregister(struct lmp_recv_msg *msg)
+{
+    bool last_message = false;
+    char *name = NULL;
+    uintptr_t *answer_args = ns_receive_large_string(msg, &last_message, &name);
+    if (last_message) {
+        ns_err_names_t ns_err = ns_delete_record(name);
+        answer_args[ERR_ID_SLOT] = (uintptr_t) ns_err;
+    }
+    return (void *) answer_args;
 }
 
 void *ns_marshal_lookup(struct lmp_recv_msg *msg)
@@ -173,4 +184,50 @@ void *ns_marshal_lookup(struct lmp_recv_msg *msg)
     }
     return (void *) answer_args;
 
+}
+
+void *ns_marshal_enum(struct lmp_recv_msg *msg)
+{
+    unsigned id = (unsigned) msg->words[1];
+    struct ns_client_t *client = ns_find_client(id);
+    if (!client) {
+        debug_printf("ns_marshal_register error: client not found\n");
+        return NULL;
+    }
+
+    uintptr_t *answer_args = malloc(MAX_LMP_ARGS * sizeof(uintptr_t));
+    answer_args[RPC_SLOT] = (uintptr_t) client->rpc;
+    answer_args[CAP_SLOT] = 0;
+    answer_args[TYPE_SLOT] = AOS_RPC_ID_ACK;
+    answer_args[ERR_ID_SLOT] = NS_ERR_OK;
+
+    unsigned start_slot = ERR_ID_SLOT + 1;
+    unsigned bytes_free = (MAX_LMP_ARGS - start_slot) * sizeof(uintptr_t);
+    if (!client->receiving) {
+        // this is the first message
+        client->receiving = true;
+        client->cur_buffer = ns_enum_records(&client->cur_data_len);
+        answer_args[start_slot] = client->cur_data_len;
+        start_slot += 1;
+        bytes_free -= sizeof(uintptr_t);
+        client->cur_received = 0;
+    }
+
+    if (client->cur_data_len <= client->cur_received) {
+        // the client should stop sending requests after getting the entire
+        // string
+        return NULL;
+    }
+
+    strncpy((char *) &answer_args[start_slot],
+            &client->cur_buffer[client->cur_received], bytes_free);
+    client->cur_received += bytes_free;
+
+    if (client->cur_data_len <= client->cur_received) {
+        // this was the last message
+        client->receiving = false;
+        client->cur_buffer = NULL;
+    }
+
+    return answer_args;
 }
