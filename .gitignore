@@ -10,6 +10,7 @@
 # ctags
 tags
 
+.DS_Store
 .settings
 /.dist-buildwrapper
 /build
