@@ -121,7 +121,9 @@ bool test_dynamic_slots(int count) {
 bool test_remote_spawn(void) {
     errval_t err;
     struct spawninfo *si = malloc(sizeof(struct spawninfo));
-    err = spawn_load_by_name_with_arguments("/armv7/sbin/memeater", si, "memeater Lorem ipsum dolor sit \"amet, consectetur\" adipiscing \"elit\"    ");
+    const char *memeater_argv[1];
+    memeater_argv[0] = "memeater Lorem ipsum dolor sit \"amet, consectetur\" adipiscing \"elit\"    ";
+    err = spawn_load_by_name_with_arguments("/armv7/sbin/memeater", si, 1, memeater_argv);
     if (err_is_fail(err)) {
         debug_printf("Failed spawning process memeater\n");
         return false;

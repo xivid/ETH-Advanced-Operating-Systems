@@ -1,6 +1,7 @@
 [ build application { target = "shell",
                       cFiles = [ "shell.c" ],
-                      addLinkFlags = [ "-e _start"],
+                      addLinkFlags = [ "-e _start" ],
+                      addLibraries = [ "fs" ],
                       architectures = allArchitectures
                     }
 ]

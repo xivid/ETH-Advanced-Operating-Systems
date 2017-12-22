@@ -12,9 +12,8 @@ struct name_node_t {
 
 struct capref *ns_find_record(char *name);
 ns_err_names_t ns_add_record(char *name, struct capref cap);
-
-// TODO: ns_delete_record
-// TODO: ns_enum_records
+char *ns_enum_records(unsigned *len);
+ns_err_names_t ns_delete_record(char *name);
 
 
 

@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 {
     errval_t err;
     ns_err_names_t ns_err;
-    debug_printf("calc-server started\n");
+    printf("calc-server started\n");
     err = set_up_listen_channel();
     if (err_is_fail(err)) {
         debug_printf("calc_server failed setting up a listening channel\n");

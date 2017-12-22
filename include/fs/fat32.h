@@ -64,24 +64,28 @@ struct fat32_mount {
     // data offset, first sector with data, first sector of cluster 2
     size_t FirstDataSector;
 };
+size_t cluster_size(void);
 
 errval_t fat32_mount(const char *path, const char *uri);
 errval_t fat32_unmount(void);
 
 // opens a handle to path
-errval_t fat32_open(char* path, void** handle);
+errval_t fat32_open(char* path, void** hand);
 // closes given handle
-errval_t fat32_close(void* handle);
+errval_t fat32_close(void* hand);
 // reads at most bytes many bytes into buffer from the handle, returns the buffer and bytes_read
-errval_t fat32_read(void* handle, void* buffer, size_t bytes, size_t* bytes_read);
-errval_t fat32_seek(void* handle, enum fs_seekpos whence, off_t offset);
+errval_t fat32_read(void* hand, void* buffer, size_t bytes, size_t* bytes_read);
+errval_t fat32_seek(void* hand, enum fs_seekpos whence, off_t offset);
 // opens a directory to path and returns the handle
-errval_t fat32_opendir(char *path, void** handle);
+errval_t fat32_opendir(char *path, void** hand);
 // closes a directory at handle
-errval_t fat32_closedir(void* handle);
+errval_t fat32_closedir(void* hand);
 // reads the next directory entry and returns the name
-errval_t fat32_dir_read_next(void* handle, char** name);
+errval_t fat32_dir_read_next(void* hand, char** name);
 // returns the fileinfo for the file at handle
-errval_t fat32_stat(void* handle, struct fs_fileinfo* info);
+errval_t fat32_stat(void* hand, struct fs_fileinfo* info);
 
+void* package_handle(struct fat32_handle* handle, size_t* length);
+struct fat32_handle* unpackage_handle(void* buffer, size_t length);
+void handle_close(struct fat32_handle* handle);
 #endif

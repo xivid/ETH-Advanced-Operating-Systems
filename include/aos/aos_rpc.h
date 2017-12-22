@@ -17,7 +17,7 @@
 
 #include <aos/aos.h>
 #include <fs/fs.h>
-
+//#include <fs/fat32.h>
 #define AOS_RPC_ATTEMPTS            (10) // how many attempts do we want for sending/receiving before throwing an error
 #define LMP_ARGS_SIZE               (10)
 #define INIT_PROCESS_ID             (0)
@@ -41,11 +41,24 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_SET_NAMESERVER_EP,
     AOS_RPC_ID_GET_NAMESERVER_EP,
     AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER,
+    AOS_RPC_ID_DEREGISTER_EP_WITH_NAMESERVER,
     AOS_RPC_ID_LOOKUP_EP_WITH_NAMESERVER,
+    AOS_RPC_ID_NAMESERVER_ENUM,
     AOS_RPC_ID_FAIL,
     AOS_RPC_ID_UDP_BIND,
     AOS_RPC_ID_UDP_DELIVER,
     AOS_RPC_ID_UDP_FORWARD,
+    AOS_RPC_ID_FS_MOUNT,
+    AOS_RPC_ID_FS_UNMOUNT,
+    AOS_RPC_ID_FS_OPEN,
+    AOS_RPC_ID_FS_CLOSE,
+    AOS_RPC_ID_FS_READ,
+    AOS_RPC_ID_FS_SEEK,
+    AOS_RPC_ID_FS_OPENDIR,
+    AOS_RPC_ID_FS_CLOSEDIR,
+    AOS_RPC_ID_FS_DIR_READ_NEXT,
+    AOS_RPC_ID_FS_STAT,
+    AOS_RPC_ID_MMCHS
 };
 
 /// Defines all error and status codes related to nameserver
@@ -55,6 +68,7 @@ typedef enum {
     NS_ERR_NAME_WRONG_NAME,
     NS_ERR_NAME_NOT_FOUND,
     NS_ERR_NAMESERVER_NOT_RUNNING,
+    NS_ERR_TOO_MANY_REQUESTS,
 } ns_err_names_t;
 
 /// Defines all error and status codes related to network rpc
@@ -222,6 +236,16 @@ errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
         struct capref endpoint, char *name, ns_err_names_t *ns_err);
 
 /**
+ * \brief Deregister an endpoint with nameserver (see the nameserver protocol)
+ * \param rpc        The channel to nameserver
+ * \param id         The client id assigned by nameserver
+ * \param name       The service name to deregister
+ * \param ns_err     Will store the error code obtained from the nameserver
+ */
+errval_t aos_rpc_nameserver_deregister(struct aos_rpc *rpc, unsigned id,
+        char *name, ns_err_names_t *ns_err);
+
+/**
  * \brief Lookup an endpoint using provided name
  * \param rpc        The channel to nameserver
  * \param id         The client id assigned by nameserver
@@ -232,6 +256,15 @@ errval_t aos_rpc_nameserver_register(struct aos_rpc *rpc, unsigned id,
 errval_t aos_rpc_nameserver_lookup(struct aos_rpc *rpc, unsigned id,
         struct capref *endpoint, char *name, ns_err_names_t *ns_err);
 
+/**
+ * \brief Enum all names registered with nameserver
+ * \param rpc        The channel to nameserver
+ * \param id         The client id assigned by nameserver
+ * \param str        Will store the nameserver's answer
+ * \param ns_err     Will store the error code obtained from the nameserver
+ */
+errval_t aos_rpc_nameserver_enum(struct aos_rpc *rpc, unsigned id,
+        char **str, ns_err_names_t *ns_err);
 /**
  * \brief Returns the RPC channel to init.
  */
@@ -252,6 +285,12 @@ struct aos_rpc *aos_rpc_get_process_channel(void);
  */
 struct aos_rpc *aos_rpc_get_serial_channel(void);
 
+
+errval_t aos_rpc_fs_init(struct aos_rpc *rpc, struct capref cap);
+
+errval_t rcv_handler_for_handle (void *v_args);
+errval_t rcv_handler_for_mmchs (void *v_args);
+
 // rpc calls for fat32
 
 // mount mount fat32 drive is mounted to path, given also the uri of the mount command
@@ -265,7 +304,7 @@ errval_t aos_rpc_fat_close(struct aos_rpc* chan, void* handle);
 // read the file given in handle to buffer, read maximum of bytes, returns bytes_read with the actual read number
 errval_t aos_rpc_fat_read(struct aos_rpc* chan, void* handle, void* buffer, size_t bytes, size_t* bytes_read);
 // move read pointer of open file at handle, move by offset, new offset is given in handle->current_offset
-errval_t aos_rpc_fat_seek(struct aos_rpc* chan, void* handle, enum fs_seekpos whence, off_t offset);
+errval_t aos_rpc_fat_seek(struct aos_rpc* chan, void* handle, enum fs_seekpos whence, off_t offset, off_t* result);
 // open directory "path", return opened directory via handle
 errval_t aos_rpc_fat_opendir(struct aos_rpc* chan, const char *path, void** handle);
 // close the directory given by handle
@@ -274,7 +313,7 @@ errval_t aos_rpc_fat_closedir(struct aos_rpc* chan, void* handle);
 errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** name);
 // returns the stat fs_fileinfo of the open file/dir given by handle
 errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info);
-
+errval_t aos_rpc_mmchs(struct aos_rpc* chan, void* buf, size_t block_nr);
 
 /**
  * Networking rpc calls
@@ -291,5 +330,6 @@ errval_t aos_rpc_net_udp_deliver(struct aos_rpc *rpc, uint32_t ip_src,
 errval_t aos_rpc_net_udp_forward(struct aos_rpc *rpc, uint32_t ip_dst,
                                  uint16_t port_src, uint16_t port_dst,
                                  uint8_t *payload, uint16_t length, net_err_names_t *net_err);
+
 
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H
