@@ -4,8 +4,8 @@
  */
 
 #include <aos/aos_rpc.h>
-#include <fs/dirent.h>
 #include <ctype.h>
+#include <fs/dirent.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -30,8 +30,10 @@ next_token(struct parseline* line);
 void echo(struct parseline* line);
 void launch_process(struct parseline* line, bool headless);
 void list_directory(struct parseline* line);
+void list_processes(struct parseline* line);
+void print_help(struct parseline* line);
 void parse(struct parseline* line);
-void error(struct parseline* line, struct token t);
+void error(struct parseline* line, struct token t, const char* hint);
 
 int main(int argc, char* argv[])
 {
@@ -59,14 +61,27 @@ void parse(struct parseline* line)
         launch_process(line, false);
     } else if (strncmp(line->line + t.start, "ls", t.length) == 0) {
         list_directory(line);
-        printf("Sorry, not implemented yet.\n");
+    } else if (strncmp(line->line + t.start, "ps", t.length) == 0) {
+        list_processes(line);
     } else if (strncmp(line->line + t.start, "help", t.length) == 0) {
         printf("RTFM.\n");
     } else if (strncmp(line->line + t.start, "HELP!", t.length) == 0) {
-        // TODO: print a useful help
+        print_help(line);
     } else {
-        error(line, t);
+        error(line, t, NULL);
     }
+}
+
+void print_help(struct parseline* line)
+{
+    printf("Available commands:\n");
+    printf(" daemon (0|1) path_to_program : Launch a program in the background.\n");
+    printf(" run    (0|1) path_to_program : Launch a program in the foreground.\n");
+    printf(" ps                           : List all processes.\n");
+    printf(" ls     [path]                : List the directory contents at path.\n");
+    printf(" echo   [string ...]          : Output the given strings.\n");
+    printf(" help                         : Display the useless help.\n");
+    printf(" HELP!                        : Display this help.\n");
 }
 
 void launch_process(struct parseline* line, bool headless)
@@ -78,7 +93,7 @@ void launch_process(struct parseline* line, bool headless)
         core = line->line[t.start] - '0';
     }
     if (core != 0 && core != 1) {
-        printf("Error: invalid core number given\n");
+        error(line, t, "Expected the core number");
         return;
     }
 
@@ -135,6 +150,62 @@ void list_directory(struct parseline* line)
     }
 }
 
+void list_processes(struct parseline* line)
+{
+    struct token t = next_token(line);
+    if (t.length != 0) {
+        error(line, t, "No args expected");
+        return;
+    }
+
+    domainid_t* process_ids;
+    size_t n_processes;
+    struct aos_rpc* channel = aos_rpc_get_process_channel();
+    errval_t err = aos_rpc_process_get_all_pids(channel, &process_ids, &n_processes);
+    if (err_is_fail(err)) {
+        printf("\nERROR: aos_rpc_process_get_all_pids failed\n");
+        return;
+    }
+
+    coreid_t other_coreid = (1 - disp_get_core_id()) << 24;
+    domainid_t* process_ids_remote;
+    size_t remote_processes;
+    err = aos_rpc_process_get_all_pids_on_core(channel, &process_ids_remote,
+        &remote_processes, other_coreid);
+    if (err_is_fail(err)) {
+        printf("\nERROR: aos_rpc_process_get_all_pids_on_core failed\n");
+        return;
+    }
+
+    printf("------------------------------------------\n");
+    printf("              process  table              \n");
+    printf("------------------------------------------\n");
+    printf("%8s\t%5s\tname\n", "core", "pid");
+    printf("------------------------------------------\n");
+
+    for (int i = 0; i < n_processes; i++) {
+        char* pname;
+        err = aos_rpc_process_get_name(channel, process_ids[i], &pname);
+        if (err_is_fail(err)) {
+            printf("\nERROR: aos_rpc_process_get_name fails\n");
+            return;
+        }
+        printf("%8d\t%5d\t%s\n", process_ids[i] >> 24, process_ids[i] & 0xFFFFFF, pname);
+    }
+
+    for (int i = 0; i < remote_processes; i++) {
+        char* pname;
+        err = aos_rpc_process_get_name_on_core(channel, process_ids_remote[i], &pname, other_coreid);
+        if (err_is_fail(err)) {
+            printf("\nERROR: aos_rpc_process_get_name_on_core fails\n");
+            return;
+        }
+        printf("%8d\t%5d\t%s\n", process_ids_remote[i] >> 24, process_ids_remote[i] & 0xFFFFFF, pname);
+    }
+
+    printf("------------------------------------------\n");
+}
+
 void echo(struct parseline* line)
 {
     struct token t = next_token(line);
@@ -145,9 +216,13 @@ void echo(struct parseline* line)
     printf("\n");
 }
 
-void error(struct parseline* line, struct token t)
+void error(struct parseline* line, struct token t, const char* hint)
 {
-    printf("Offending token: %.*s\n", t.length, line->line + t.start);
+    if (hint == NULL) {
+        printf("Offending token: %.*s\n", t.length, line->line + t.start);
+    } else {
+        printf("Offending token: %.*s (%s)\n", t.length, line->line + t.start, hint);
+    }
 }
 
 struct token
