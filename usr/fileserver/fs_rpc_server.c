@@ -1,5 +1,7 @@
 #include "rpc.h"
 
+errval_t fs_send_received(void *arg);
+
 errval_t send(void *v_args, void *send_handler, void *recv_handler)
 {
     uintptr_t *args = (uintptr_t *) v_args;
@@ -54,7 +56,7 @@ errval_t fs_recv_listener_handler(void *v_args)
     void *answer_args;
     send_func_t send_handler;
     switch (msg.words[0]) {
-        case AOS_RPC_INIT:
+        case AOS_RPC_ID_INIT:
             answer_args = fs_marshal_init(cap);
             send_handler = fs_send_received;
         case AOS_RPC_ID_FS_MOUNT:
@@ -90,7 +92,7 @@ errval_t fs_recv_listener_handler(void *v_args)
             send_handler = fs_send_error;
             break;
         case AOS_RPC_ID_FS_DIR_READ_NEXT:
-            answer_args = fs_marshal_next_dir(cap, &msg);
+            answer_args = fs_marshal_dir_read_next(cap, &msg);
             send_handler = fs_send_next_dir_name;
             break;
         case AOS_RPC_ID_FS_STAT:
@@ -99,14 +101,14 @@ errval_t fs_recv_listener_handler(void *v_args)
             break;
         default:
             debug_printf("unknown message sent to nameserver: %d\n",
-                    lmp_msg.words[0]);
+                    msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
     }
     if (answer_args == NULL) {
-        debug_printf(fs_recv_listener_handler: answer_args is NULL\n");
+        debug_printf("fs_recv_listener_handler: answer_args is NULL\n");
         return EXIT_FAILURE;
     }
-    else if(answer_args == -1) {
+    else if((size_t)answer_args == -1) {
         answer_args = (void*)&whois(cap)->lmp;
         send_handler = fs_send_received;
     }
@@ -177,7 +179,7 @@ errval_t fs_send_handle(void* args) {
 
     struct lmp_chan* lmp = &handle_args->sender_lmp;
     errval_t *err = &handle_args->err;
-    struct fat32_handle* handle = &handle_args->handle;
+    struct fat32_handle* handle = (struct fat32_handle*) handle_args->handle;
     size_t* length = malloc(sizeof(size_t));
     void* buffer = package_handle(handle, length);
     char* buf = (char*) buffer;
@@ -195,7 +197,7 @@ errval_t fs_send_handle(void* args) {
     }
     // send 32 bytes until there's no full 
     while (current < *length) {
-        memcpy(&msg[1], (void*)buf[current], MIN(32, *length-current);
+        memcpy(&msg[1], (void*)&buf[current], MIN(32, *length-current));
         err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
         if (err_is_fail(err_send)) {
             DEBUG_ERR(err_send, "usr/fs/fs_rpc_server.c send handle: could not do lmp chan send5");
@@ -218,7 +220,7 @@ errval_t fs_send_read(void* args) {
     size_t length = read_args->bytes_read;
 
     uintptr_t msg[9] = {0};
-    msg[0] = (size_t)(err_is_fail(*err)? 0:1)
+    msg[0] = (size_t)(err_is_fail(*err)? 0:1);
     msg[1] = (uintptr_t) *err;
     msg[2] = length;
 
@@ -226,7 +228,7 @@ errval_t fs_send_read(void* args) {
     // put into msg[3..8], 6 words <=> 24 bytes
     strncpy((char *)&msg[3], buffer, 24);
 
-    err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
+    errval_t err_send = lmp_chan_send9(lmp, LMP_FLAG_SYNC, NULL_CAP, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7], msg[8]);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/fs/fs_rpc_server.c fs send read: could not do lmp_chan_send9");
         return err_send;
@@ -293,11 +295,11 @@ errval_t fs_send_stat(void* args) {
 
     struct lmp_chan* lmp = &stat_args->sender_lmp;
     errval_t *err = &stat_args->err;
-    fs_fileinfo* info = &stat_args->info;
+    struct fs_fileinfo* info = stat_args->info;
     size_t size = info->size;
     uintptr_t dir = (uintptr_t) info->type;
 
-    errval_t err_send = lmp_chan_send3(lmp, LMP_FLAG_SYNC, NULL_CAP, (size_t)(err_is_fail(*err)? 0:1), (uintptr_t) *err, size, dir);
+    errval_t err_send = lmp_chan_send4(lmp, LMP_FLAG_SYNC, NULL_CAP, (size_t)(err_is_fail(*err)? 0:1), (uintptr_t) *err, size, dir);
     if (err_is_fail(err_send)) {
         DEBUG_ERR(err_send, "usr/fs/fs_rpc_server.c send handle: could not do lmp chan send3");
         return err_send;
@@ -305,4 +307,30 @@ errval_t fs_send_stat(void* args) {
     free(info);
 
     return SYS_ERR_OK;
+}
+
+errval_t fs_send_handler(void *v_args)
+{
+    uintptr_t *args = (uintptr_t*) v_args;
+    struct aos_rpc *rpc = (struct aos_rpc *) args[RPC_SLOT];
+    struct lmp_chan *lmp = &rpc->lmp;
+    struct capref cap;
+    if (args[CAP_SLOT]) {
+       cap  = *((struct capref *) args[CAP_SLOT]);
+    } else {
+        cap = NULL_CAP;
+    }
+
+    int count = 0;
+    errval_t err;
+    while (count < AOS_RPC_ATTEMPTS) {
+        err = lmp_chan_send2(lmp, LMP_FLAG_SYNC, cap, args[TYPE_SLOT],
+                args[ERR_ID_SLOT]);
+        if (!err_is_fail(err))
+            return SYS_ERR_OK;
+        debug_printf("got an error: %s\n", err_getstring(err));
+        count++;
+    }
+    debug_printf("ns_send_handler: too many failed attempts\n");
+    return err;
 }

@@ -4,7 +4,7 @@
 
 int main(int argc, char *argv[])
 {
-    errval_t err;
+    errval_t err = SYS_ERR_OK;
     debug_printf("fileserver launched\n");
     //err = ns_init_rpc();
     if (err_is_fail(err)) {

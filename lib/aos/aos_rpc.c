@@ -1022,14 +1022,15 @@ errval_t aos_rpc_fat_open(struct aos_rpc* chan, char* path, void** handle) {
         debug_printf("aos_rpc_send_number failed\n");
         return err;
     }
-    *handle = (void*) unpackage_handle(*(void**)args[LMP_ARGS_SIZE+2], (size_t)args[LMP_ARGS_SIZE + 1]);
+    //*handle = (void*) unpackage_handle(*(void**)args[LMP_ARGS_SIZE+2], TODO: comment in (size_t)args[LMP_ARGS_SIZE + 1]);
     return (errval_t)args[LMP_ARGS_SIZE + 3];
 }
 // close the file given with handle
 errval_t aos_rpc_fat_close(struct aos_rpc* chan, void* handle) {
     errval_t err;
     size_t* length = malloc(sizeof(size_t));
-    char* path = (char*)package_handle((struct fat32_handle*) handle, length);
+    //char* path = (char*)package_handle((struct fat32_handle*) handle, length); TODO: comment in
+    char* path = (char*) handle;
     uintptr_t args[LMP_ARGS_SIZE + 2];
     args[0] = (uintptr_t) chan;
     args[1] = (uintptr_t) AOS_RPC_ID_FS_CLOSE;

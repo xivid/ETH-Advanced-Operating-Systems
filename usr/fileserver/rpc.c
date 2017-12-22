@@ -1,6 +1,8 @@
 #include "rpc.h"
 
 struct aos_rpc *listen_rpc = NULL;
+struct client *client_list;
+
 errval_t fs_init_rpc(void)
 {
     errval_t err;
@@ -68,7 +70,7 @@ errval_t fs_send_listen_cap(void) {
     args[1] = (uintptr_t) &listen_rpc->lmp.local_cap;
     args[2] = (uintptr_t) AOS_RPC_ID_SET_NAMESERVER_EP;
 
-    errval_t err = send(args, ns_send_handler, ns_recv_ack_handler);
+    errval_t err = send(args, fs_send_handler, fs_recv_ack_handler);
     if (err_is_fail(err)) {
         debug_printf("send register failed\n");
         return err;
@@ -76,7 +78,32 @@ errval_t fs_send_listen_cap(void) {
     return SYS_ERR_OK;
 }
 
-struct client *client_list;
+errval_t fs_recv_ack_handler(void *v_args)
+{
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    uintptr_t *args = (uintptr_t*) v_args;
+    struct aos_rpc *rpc = (struct aos_rpc *) args[RPC_SLOT];
+    struct lmp_chan *lmp = &rpc->lmp;
+    errval_t err = lmp_chan_recv(lmp, &lmp_msg, NULL);
+
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS &&
+            lmp_err_is_transient(err) && err_is_fail(err)) {
+        err = lmp_chan_recv(lmp, &lmp_msg, NULL);
+        count++;
+    }
+    if (err_is_fail(err)) {
+        debug_printf("ns_recv_ack_handler: too many failed attempts\n");
+        return err;
+    }
+
+    if (lmp_msg.words[0] != AOS_RPC_ID_ACK) {
+        debug_printf("ns_recv_ack_handler: expected answer to be ACK\n");
+        return FLOUNDER_ERR_RPC_MISMATCH;
+    }
+    return SYS_ERR_OK;
+}
+
 // ugly solution as we have this code in lrpc_server.c already...
 struct client *whois(struct capref cap)
 {
@@ -102,16 +129,16 @@ struct client *whois(struct capref cap)
 void *fs_marshal_unmount(struct capref cap) {
     errval_t err = fat32_unmount();
     struct error_answer_t* args = malloc(sizeof(struct error_answer_t));
-    args->sender_lmp = &whois(cap)->lmp;
-    args->err = fat32_unmount();
-    return (void*) answer;
+    args->sender_lmp = whois(cap)->lmp;
+    args->err = err;
+    return (void*) args;
 }
 
 struct arg_collector* mount_args = NULL;
 void *fs_marshal_mount(struct capref endpoint, struct lmp_recv_msg *msg) {
-    struct *arg_collector args = mount_args;
+    struct arg_collector* args = mount_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len1 = (size_t)msg->words[1];
         args->len2 = (size_t)msg->words[2];
@@ -122,20 +149,20 @@ void *fs_marshal_mount(struct capref endpoint, struct lmp_recv_msg *msg) {
         read=3;
     }
     while (read<9 && (args->stat1 < args->len1)) {
-        args->arg1[args->stat1] = (char)msg->words[read];
-        args->stat1++;
+        strncpy(&args->arg1[args->stat1], (char*)msg->words[read], 4);
+        args->stat1+=4;
         read++;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        args->arg2[args->stat2] = (char)msg->words[read];
-        args->stat2++;
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
+        args->stat2+=4;
         read++;
     }
     if ((args->stat1 < args->len1) || (args->stat2 < args->len2)) {
-        return (void*)-1
+        return (void*)-1;
     }
     struct error_answer_t* answer = malloc(sizeof(struct error_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->err = fat32_mount(args->arg1, args->arg2);
     
     free(args->arg1);
@@ -148,9 +175,9 @@ void *fs_marshal_mount(struct capref endpoint, struct lmp_recv_msg *msg) {
 
 struct arg_collector* open_args = NULL;
 void *fs_marshal_open(struct capref endpoint, struct lmp_recv_msg *msg) {
-    struct *arg_collector args = open_args;
+    struct arg_collector* args = open_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len1 = (size_t)msg->words[1];
         args->arg1 = malloc(args->len1);
@@ -158,17 +185,16 @@ void *fs_marshal_open(struct capref endpoint, struct lmp_recv_msg *msg) {
         read=2;
     }
     while (read<9 && (args->stat1 < args->len1)) {
-        strncpy(args->arg1[args->stat1], (char*)msg->words[read], 4);
+        strncpy(&args->arg1[args->stat1], (char*)msg->words[read], 4);
         args->stat1+=4;
         read++;
     }
     if ((args->stat1 < args->len1)) {
-        return (void*)-1
+        return (void*)-1;
     }
     struct handle_answer_t* answer = malloc(sizeof(struct handle_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->err = fat32_open(args->arg1, answer->handle);
-    answer->handle = handle;
     
     free(args->arg1);
     free(args);
@@ -178,9 +204,9 @@ void *fs_marshal_open(struct capref endpoint, struct lmp_recv_msg *msg) {
 }
 struct arg_collector* close_args = NULL;
 void *fs_marshal_close(struct capref endpoint, struct lmp_recv_msg *msg) {
-    struct *arg_collector args = close_args;
+    struct arg_collector* args = close_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len2 = (size_t)msg->words[1];
         args->arg2 = malloc(args->len2);
@@ -188,17 +214,17 @@ void *fs_marshal_close(struct capref endpoint, struct lmp_recv_msg *msg) {
         read=2;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        strncpy(args->arg2[args->stat2], (char*)msg->words[read], 4);
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
         args->stat2+=4;
         read++;
     }
     if (args->stat2 < args->len2) {
-        return (void*)-1
+        return (void*)-1;
     }
     void* buffer = (void*)args->arg2;
     struct fat32_handle* handle = unpackage_handle(buffer, args->len2);
     struct error_answer_t* answer = malloc(sizeof(struct error_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->err = fat32_close(handle);
     
     free(args->arg2);
@@ -209,28 +235,28 @@ void *fs_marshal_close(struct capref endpoint, struct lmp_recv_msg *msg) {
 }
 struct arg_collector* read_args = NULL;
 void *fs_marshal_read(struct capref endpoint, struct lmp_recv_msg *msg) {
-    struct *arg_collector args = read_args;
+    struct arg_collector* args = read_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len1 = (size_t)msg->words[1];
         args->len2 = (size_t)msg->words[2];
-        args->args2 = malloc(args->len2);
+        args->arg2 = malloc(args->len2);
         args->stat2 = 0;
         read=3;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        strncpy(args->arg2[args->stat2], (char*)msg->words[read], 4);
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
         args->stat2+=4;
         read++;
     }
     if (args->stat2 < args->len2) {
-        return (void*)-1
+        return (void*)-1;
     }
     void* buffer = (void*)args->arg2;
     struct fat32_handle* handle = unpackage_handle(buffer, args->len2);
     struct read_answer_t* answer = malloc(sizeof(struct read_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->buffer = malloc(args->len1);
     answer->err = fat32_read(handle, answer->buffer, args->len1, &answer->bytes_read);
     
@@ -243,9 +269,9 @@ void *fs_marshal_read(struct capref endpoint, struct lmp_recv_msg *msg) {
 }
 struct arg_collector* seek_args = NULL;
 void *fs_marshal_seek(struct capref endpoint, struct lmp_recv_msg *msg) {
-    struct *arg_collector args = seek_args;
+    struct arg_collector* args = seek_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len2 = (size_t)msg->words[1];
         args->len1 = (size_t)msg->words[2];
@@ -255,19 +281,19 @@ void *fs_marshal_seek(struct capref endpoint, struct lmp_recv_msg *msg) {
         read=4;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        strncpy(args->arg2[args->stat2], (char*)msg->words[read], 4);
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
         args->stat2+=4;
         read++;
     }
     if (args->stat2 < args->len2) {
-        return (void*)-1
+        return (void*)-1;
     }
     enum fs_seekpos whence = (enum fs_seekpos)args->len1;
     off_t offset = (off_t) args->stat1;
     void* buffer = (void*)args->arg2;
     struct fat32_handle* handle = unpackage_handle(buffer, args->len2);
     struct seek_answer_t* answer = malloc(sizeof(struct handle_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->err = fat32_seek(handle, whence, offset);
     answer->offset = handle->file_pos;
     free(args->arg2);
@@ -278,36 +304,36 @@ void *fs_marshal_seek(struct capref endpoint, struct lmp_recv_msg *msg) {
 }
 struct arg_collector* opendir_args = NULL;
 void *fs_marshal_opendir(struct capref endpoint, struct lmp_recv_msg *msg) {
-    struct *arg_collector args = opendir_args;
+    struct arg_collector* args = opendir_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len1 = (size_t)msg->words[1];
         args->len2 = (size_t)msg->words[2];
         args->arg1 = malloc(args->len1);
-        args->args2 = malloc(args->len2);
+        args->arg2 = malloc(args->len2);
         args->stat1 = 0;
         args->stat2 = 0;
         read=3;
     }
     while (read<9 && (args->stat1 < args->len1)) {
-        strncpy(args->arg1[args->stat1], (char*)msg->words[read], 4);
+        strncpy(&args->arg1[args->stat1], (char*)msg->words[read], 4);
         args->stat1+=4;
         read++;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        strncpy(args->arg2[args->stat2], (char*)msg->words[read], 4);
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
         args->stat2+=4;
         read++;
     }
     if ((args->stat1 < args->len1) || (args->stat2 < args->len2)) {
-        return (void*)-1
+        return (void*)-1;
     }
     void* buffer = (void*)args->arg2;
     struct fat32_handle* handle = unpackage_handle(buffer, args->len2);
     struct handle_answer_t* answer = malloc(sizeof(struct handle_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
-    answer->err = fat32_opendir(args->arg1, &handle);
+    answer->sender_lmp = whois(endpoint)->lmp;
+    answer->err = fat32_opendir(args->arg1, (void**)&handle);
     answer->handle = handle;
     
     free(args->arg1);
@@ -319,9 +345,9 @@ void *fs_marshal_opendir(struct capref endpoint, struct lmp_recv_msg *msg) {
 }
 struct arg_collector* closedir_args = NULL;
 void *fs_marshal_closedir(struct capref endpoint, struct lmp_recv_msg *msg) {
-struct *arg_collector args = closedir_args;
+    struct arg_collector* args = closedir_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len2 = (size_t)msg->words[1];
         args->arg2 = malloc(args->len2);
@@ -329,17 +355,17 @@ struct *arg_collector args = closedir_args;
         read=2;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        strncpy(args->arg2[args->stat2], (char*)msg->words[read], 4);
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
         args->stat2+=4;
         read++;
     }
     if (args->stat2 < args->len2) {
-        return (void*)-1
+        return (void*)-1;
     }
     void* buffer = (void*)args->arg2;
     struct fat32_handle* handle = unpackage_handle(buffer, args->len2);
     struct error_answer_t* answer = malloc(sizeof(struct error_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->err = fat32_closedir(handle);
     
     free(args->arg2);
@@ -350,9 +376,9 @@ struct *arg_collector args = closedir_args;
 }
 struct arg_collector* read_next_args = NULL;
 void *fs_marshal_dir_read_next(struct capref endpoint, struct lmp_recv_msg *msg) {
-struct *arg_collector args = read_next_args;
+    struct arg_collector* args = read_next_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len2 = (size_t)msg->words[1];
         args->arg2 = malloc(args->len2);
@@ -360,17 +386,17 @@ struct *arg_collector args = read_next_args;
         read=2;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        strncpy(args->arg2[args->stat2], (char*)msg->words[read], 4);
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
         args->stat2+=4;
         read++;
     }
     if (args->stat2 < args->len2) {
-        return (void*)-1
+        return (void*)-1;
     }
     void* buffer = (void*)args->arg2;
     struct fat32_handle* handle = unpackage_handle(buffer, args->len2);
     struct next_dir_name_answer_t* answer = malloc(sizeof(struct next_dir_name_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->err = fat32_dir_read_next(handle, &answer->name);
     
     free(args->arg2);
@@ -381,9 +407,9 @@ struct *arg_collector args = read_next_args;
 }
 struct arg_collector* stat_args = NULL;
 void *fs_marshal_stat(struct capref endpoint, struct lmp_recv_msg *msg) {
-struct *arg_collector args = stat_args;
+    struct arg_collector* args = stat_args;
     size_t read = 1; // how many messages used up already
-    if (args = NULL) {
+    if (args == NULL) {
         args = malloc(sizeof(struct arg_collector));
         args->len2 = (size_t)msg->words[1];
         args->arg2 = malloc(args->len2);
@@ -391,17 +417,17 @@ struct *arg_collector args = stat_args;
         read=2;
     }
     while (read<9 && (args->stat2 < args->len2)) {
-        strncpy(args->arg2[args->stat2], (char*)msg->words[read], 4);
+        strncpy(&args->arg2[args->stat2], (char*)msg->words[read], 4);
         args->stat2+=4;
         read++;
     }
     if (args->stat2 < args->len2) {
-        return (void*)-1
+        return (void*)-1;
     }
     void* buffer = (void*)args->arg2;
     struct fat32_handle* handle = unpackage_handle(buffer, args->len2);
-    struct error_answer_t* answer = malloc(sizeof(struct error_answer_t));
-    answer->sender_lmp = &whois(endpoint)->lmp;
+    struct stat_answer_t* answer = malloc(sizeof(struct error_answer_t));
+    answer->sender_lmp = whois(endpoint)->lmp;
     answer->err = fat32_stat(handle, answer->info);
     
     free(args->arg2);

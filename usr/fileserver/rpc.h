@@ -8,6 +8,10 @@
 
 // [aos_rpc, capability, message_type, id (optional)]
 #define MAX_LMP_ARGS 4
+#define    RPC_SLOT 0
+#define    CAP_SLOT 1
+#define   TYPE_SLOT 2
+#define ERR_ID_SLOT 3
 
 // Functions to communicate with init:
 errval_t fs_init_rpc(void);
@@ -25,7 +29,7 @@ void *fs_marshal_opendir(struct capref endpoint, struct lmp_recv_msg *msg);
 void *fs_marshal_closedir(struct capref endpoint, struct lmp_recv_msg *msg);
 void *fs_marshal_dir_read_next(struct capref endpoint, struct lmp_recv_msg *msg);
 void *fs_marshal_stat(struct capref endpoint, struct lmp_recv_msg *msg);
-void *fs_marshal_init(struct capref cap)
+void *fs_marshal_init(struct capref cap);
 
 // Handlers and primitives:
 errval_t send(void *v_args, void *send_handler, void *recv_handler);
@@ -38,6 +42,7 @@ errval_t fs_send_handle(void *args);
 errval_t fs_send_read(void *args);
 errval_t fs_send_next_dir_name(void *args);
 errval_t fs_send_stat(void *args);
+errval_t fs_send_handler(void *v_args);
 
 struct client {
     // TODO: store the capref directly? (can avoid ugly comparison in whois())
@@ -50,8 +55,9 @@ struct client {
 
 struct client *whois(struct capref cap);
 extern struct client *client_list;
-extern struct aos_rpc *listen_rpc;
+//extern struct aos_rpc *listen_rpc;
 
+typedef errval_t (*send_func_t)(void *);
 
 // used by mount close, closedir 
 struct error_answer_t {
@@ -83,14 +89,14 @@ struct next_dir_name_answer_t {
 struct stat_answer_t {
     struct lmp_chan sender_lmp;
     errval_t err;
-    struct fs_fileinfo* info
+    struct fs_fileinfo* info;
 };
 // for seek
 struct seek_answer_t {
     struct lmp_chan sender_lmp;
     errval_t err;
     size_t offset;
-}
+};
 
 struct arg_collector {
     char* arg1;
@@ -99,6 +105,6 @@ struct arg_collector {
     size_t stat1;
     size_t len2;
     size_t stat2;
-}
+};
 
 #endif
