@@ -53,3 +53,4 @@ bin/
 *.aux
 *.log
 *.out
+*.gz

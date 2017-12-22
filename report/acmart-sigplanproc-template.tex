@@ -177,6 +177,23 @@ Text of abstract \ldots.
 
 \section{Memory management and capabilities}
 
+Memory management is mostly a tradeoff between wasted space and fragmentation.
+Fragmentation occurs when the amount of requested memory is available but not
+in a contiguous range.  On one extreme, if you always hand out the requested memory
+and break it off from the next available block (either using best possible fit or worst
+possible fit) it is possible to construct an allocation pattern for which this sceme
+heavily fragments the memory space and is either not able to return the size'
+or has to do expensive compaction before. The other extreme case is a constant size
+allocator (let's say it always returns 4k of memory). This sceme has the advantage that
+there is no fragementation, but on the flipside this is very wasteful if the requesting
+caller only wants a few bytes for each allocation. It is also a problem if a size larger
+than the block size is requested. We chose an approach that lies somewhere in between
+the two. We always return a piece of memory that has a size which is the smallest power
+of two that is larger or equal to the requested size. Like this the wasted space is upper
+bounded by the used space.
+
+A constraint we faced was that the call we implemented also took an alignment parameter.
+
 \section{Processes, threads, and dispatch}
 
 \section{Page fault handling}
