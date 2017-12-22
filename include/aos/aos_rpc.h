@@ -17,7 +17,7 @@
 
 #include <aos/aos.h>
 #include <fs/fs.h>
-
+#include <fs/fat32.h>
 #define AOS_RPC_ATTEMPTS            (4) // how many attempts do we want for sending/receiving before throwing an error
 #define LMP_ARGS_SIZE               (10)
 
@@ -41,6 +41,16 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_GET_NAMESERVER_EP,
     AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER,
     AOS_RPC_ID_FAIL,
+    AOS_RPC_ID_FS_MOUNT,
+    AOS_RPC_ID_FS_UNMOUNT,
+    AOS_RPC_ID_FS_OPEN,
+    AOS_RPC_ID_FS_CLOSE,
+    AOS_RPC_ID_FS_READ,
+    AOS_RPC_ID_FS_SEEK,
+    AOS_RPC_ID_FS_OPENDIR,
+    AOS_RPC_ID_FS_CLOSEDIR,
+    AOS_RPC_ID_FS_DIR_READ_NEXT,
+    AOS_RPC_ID_FS_STAT,
 };
 
 typedef enum {
@@ -212,6 +222,11 @@ struct aos_rpc *aos_rpc_get_process_channel(void);
  */
 struct aos_rpc *aos_rpc_get_serial_channel(void);
 
+
+errval_t aos_rpc_fs_init(struct aos_rpc *rpc, struct capref cap);
+
+errval_t rcv_handler_for_handle (void *v_args);
+
 // rpc calls for fat32
 
 // mount mount fat32 drive is mounted to path, given also the uri of the mount command
@@ -225,7 +240,7 @@ errval_t aos_rpc_fat_close(struct aos_rpc* chan, void* handle);
 // read the file given in handle to buffer, read maximum of bytes, returns bytes_read with the actual read number
 errval_t aos_rpc_fat_read(struct aos_rpc* chan, void* handle, void* buffer, size_t bytes, size_t* bytes_read);
 // move read pointer of open file at handle, move by offset, new offset is given in handle->current_offset
-errval_t aos_rpc_fat_seek(struct aos_rpc* chan, void* handle, enum fs_seekpos whence, off_t offset);
+errval_t aos_rpc_fat_seek(struct aos_rpc* chan, void* handle, enum fs_seekpos whence, off_t offset, off_t* result);
 // open directory "path", return opened directory via handle
 errval_t aos_rpc_fat_opendir(struct aos_rpc* chan, const char *path, void** handle);
 // close the directory given by handle
@@ -234,5 +249,4 @@ errval_t aos_rpc_fat_closedir(struct aos_rpc* chan, void* handle);
 errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** name);
 // returns the stat fs_fileinfo of the open file/dir given by handle
 errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info);
-
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H

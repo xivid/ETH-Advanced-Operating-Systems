@@ -6,20 +6,30 @@
 #define BLOCK_SIZE 512
 static struct fat32_mount *singleton;
 static bool singleton_set;
+errval_t load_cluster(size_t number, char* cluster);
+errval_t get_entry(size_t number, uint32_t* entry);
+errval_t find_dirent(char* name, struct fat32_handle* handle);
+errval_t load_next_dir(struct fat32_handle *handle, char** name, struct fat32_handle* result);
+errval_t load_cluster_from_handle(struct fat32_handle* handle, uint32_t number);
+errval_t load_next_cluster_from_handle(struct fat32_handle* handle);
+void extract_name(struct fat32_dirent* dirent, char** name);
+errval_t handle_copy(struct fat32_handle* orig, struct fat32_handle* copy);
+errval_t move_cluster_number(uint32_t old_num, size_t offset, uint32_t* new_num);
+errval_t resolve_path(char* path, struct fat32_handle* handle);
 
-inline static size_t cluster_size() {
+inline size_t cluster_size(void) {
     return singleton->BytsPerSec*singleton->SecPerClus;
 }
-inline static bool isEOF(size_t x) {
+inline bool isEOF(size_t x) {
     return x >= 0x0ffffff8;
 }
-inline static bool usable_attr(uint8_t DIR_Attr) {
+inline bool usable_attr(uint8_t DIR_Attr) {
     return (DIR_Attr & 0xE);
     // 0xE is the addition of 0x02 (hidden files), 0x04 (system files), 0x08 (volume id)
     // none of these flags should be set for a file/directory which is found
 }
 
-static errval_t fat32_mount(const char* path, const char* uri, struct fat32_mount *st) {
+errval_t fat32_mount(const char* path, const char* uri) {
     errval_t err;
     if (!singleton_set) {
         mmchs_init();
@@ -61,7 +71,7 @@ static errval_t fat32_mount(const char* path, const char* uri, struct fat32_moun
         // read number of fat data structures on the volumen (usually 2)
         singleton->NumFATs = singleton->sector0[16];
         assert(singleton->NumFATs > 0);
-        singleton->FATSz32 = *(uint32_t *)&mount->boot_sector[36];
+        singleton->FATSz32 = *(uint32_t *)&singleton->sector0[36];
         singleton->FirstDataSector = singleton->RsvdSecCnt + (singleton->NumFATs * singleton->FATSz32); // note: RootDirSectors is always 0 for FAT32
         // allocate root handle
         singleton->root = malloc(sizeof(struct fat32_handle));
@@ -117,26 +127,26 @@ static errval_t fat32_mount(const char* path, const char* uri, struct fat32_moun
         }
         
     }
-    st = singleton;
     singleton_set = true;
+    return SYS_ERR_OK;
 }
 // loads cluster "number" to cluster
 // cluster has to be a pointer to 
-static errval_t load_cluster(size_t number, char* cluster) {
+errval_t load_cluster(size_t number, char* cluster) {
     errval_t err;
     size_t FirstSectorofCluster = singleton->sector0_offset + ((number -2) * singleton->SecPerClus) + singleton->FirstDataSector;
     for (uint32_t i = 0; i < singleton->SecPerClus; i++) {
-        err = mmchs_read_block(FirstSectorofCluster+index, cluster);
+        err = mmchs_read_block(FirstSectorofCluster+i, (void*) cluster);
         cluster += singleton->BytsPerSec;
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "load_cluster mmchs_read_block failed");
             return err;
         }
     }
-    return err;
+    return SYS_ERR_OK;
 }
 
-static errval_t move_cluster_number(uint32_t old_num, size_t offset, uint32_t* new_num) {
+errval_t move_cluster_number(uint32_t old_num, size_t offset, uint32_t* new_num) {
     errval_t err;
     uint32_t current = old_num;
     uint32_t next;
@@ -148,16 +158,16 @@ static errval_t move_cluster_number(uint32_t old_num, size_t offset, uint32_t* n
         if (isEOF(next)) {
             return FS_ERR_NOTFOUND;
         }
-        entry = next;
+        current = next;
     }
-    *new_num = entry;
+    *new_num = current;
     return SYS_ERR_OK;
 }
 
-static errval_t get_entry(size_t number, uint32_t* entry) {
+errval_t get_entry(size_t number, uint32_t* entry) {
     errval_t err;
     number = number *4; // for FAT32 this is the offset
-    size_t sector_in_array = offset / singleton->BytsPerSec;
+    size_t sector_in_array = number / singleton->BytsPerSec;
     size_t offset_in_fat = (number % singleton->BytsPerSec) / 4;
     size_t sector_on_drive = singleton->sector0_offset + singleton->RsvdSecCnt + sector_in_array;
     
@@ -175,7 +185,7 @@ static errval_t get_entry(size_t number, uint32_t* entry) {
     }
     // set entry to the right value and only return relevant 7 bytes
     *entry = 0x0fffffff & (singleton->fat[sector_in_array][offset_in_fat]);
-    return err;
+    return SYS_ERR_OK;
 }
 
 errval_t fat32_unmount(void) {
@@ -185,8 +195,8 @@ errval_t fat32_unmount(void) {
     free(singleton->sector0);
     free(singleton->root);
     for (uint32_t i = 0; i < singleton->FATSz32; i++) {
-        if (mount->fat[i] != NULL)
-            free(singleton->fat[i];
+        if (singleton->fat[i] != NULL)
+            free(singleton->fat[i]);
     }
     free(singleton->fat);
     free(singleton->path);
@@ -194,7 +204,7 @@ errval_t fat32_unmount(void) {
     return SYS_ERR_OK;
 }
 
-static errval_t handle_copy(struct fat32_handle* orig, struct fat32_handle* copy) {
+errval_t handle_copy(struct fat32_handle* orig, struct fat32_handle* copy) {
     copy->name = strdup(orig->name);
     copy->isdir = orig->isdir;
     copy->size = orig->size;
@@ -210,16 +220,16 @@ static errval_t handle_copy(struct fat32_handle* orig, struct fat32_handle* copy
     }
     return SYS_ERR_OK;
 }
-static void handle_close(struct fat32_handle* handle) {
+void handle_close(struct fat32_handle* handle) {
     if (handle->in_memory)
-        free(handle->cluster_data;
+        free(handle->cluster_data);
     if (handle->name != NULL)
         free(handle->name);
     free(handle);
 }
 
 // somewhat similar to resolve_path() of ramfs, space for handle has to be allocated
-static errval_t resolve_path(char* path, struct fat32_handle* handle) {
+errval_t resolve_path(char* path, struct fat32_handle* handle) {
     errval_t err;
     size_t pos = 0;
     if (path[0]==FS_PATH_SEP)
@@ -270,12 +280,13 @@ static errval_t resolve_path(char* path, struct fat32_handle* handle) {
 }
 
 // search for name in handle, returns the result in handle, similar to ramfs
-static errval_t find_dirent(char* name, fat32_handle* handle) {
+errval_t find_dirent(char* name, struct fat32_handle* handle) {
     if (!handle->isdir)
         return FS_ERR_NOTDIR;
     struct fat32_handle* next_dir = malloc(sizeof(struct fat32_handle));
     if (next_dir == NULL)
         return LIB_ERR_MALLOC_FAIL;
+    errval_t err = SYS_ERR_OK;
     while (!err_is_fail(err)) {
         char* next_dir_name = NULL;
         err = load_next_dir(handle, &next_dir_name, next_dir);
@@ -306,7 +317,7 @@ static errval_t find_dirent(char* name, fat32_handle* handle) {
 }
 
 // returns the next name and next entry (via result handle) starting from handle
-static errval_t load_next_dir(struct fat32_handle *handle, char** name, struct fat32_handle* result) {
+errval_t load_next_dir(struct fat32_handle *handle, char** name, struct fat32_handle* result) {
     if (!handle->isdir)
         return FS_ERR_NOTDIR;
     errval_t err;
@@ -317,7 +328,7 @@ static errval_t load_next_dir(struct fat32_handle *handle, char** name, struct f
     }
     struct fat32_dirent dirent;
     while(true) {
-        if (handle->current_offset >= (cluster_size()/sizeof(struct fat32_dirent)) {
+        if (handle->current_offset >= (cluster_size()/sizeof(struct fat32_dirent))) {
             err = load_next_cluster_from_handle(handle);
             if(err_is_fail(err))
                 return err;
@@ -359,17 +370,17 @@ static errval_t load_next_dir(struct fat32_handle *handle, char** name, struct f
 }
 
 // extracts the name from the directory entry and returns it in a initially unallocated char** name
-static void extract_name(struct fat32_dirent* dirent, char** name) {
+void extract_name(struct fat32_dirent* dirent, char** name) {
     *name = malloc(13); // max length of 11 + implicit "." + null terminator
     size_t progress = 0;
     // first part is at most 8 characters
-    while ((progress <= 7) && (!isspace(dirent->DIR_Name[progress])) {
+    while ((progress <= 7) && (!isspace(dirent->DIR_Name[progress]))) {
         progress++;
     }
     strncpy(*name, dirent->DIR_Name, progress);
     
     size_t progress2 = 0;
-    while ((progress2 <= 2) && (!isspace(dirent->DIR_Extension[progress2])) {
+    while ((progress2 <= 2) && (!isspace(dirent->DIR_Extension[progress2]))) {
         progress2++;
     }
     progress2++;
@@ -380,7 +391,7 @@ static void extract_name(struct fat32_dirent* dirent, char** name) {
     (*name)[progress + 1 + progress2] = '\0';
 }
 
-static errval_t load_cluster_from_handle(struct fat32_handle* handle, uint32_t number) {
+errval_t load_cluster_from_handle(struct fat32_handle* handle, uint32_t number) {
     errval_t err;
     if (handle->in_memory && handle->current_clust == number)
         return SYS_ERR_OK;
@@ -399,20 +410,21 @@ static errval_t load_cluster_from_handle(struct fat32_handle* handle, uint32_t n
 }
 
 // loads the next cluster after the one in handle
-static errval_t load_next_cluster_from_handle(struct fat32_handle* handle) {
+errval_t load_next_cluster_from_handle(struct fat32_handle* handle) {
     errval_t err;
     uint32_t entry;
-    err = get_entry(handle->handle->current_clust, &entry);
+    err = get_entry(handle->current_clust, &entry);
     if (err_is_fail(err)) {
         return err;
     }
     if (isEOF(entry))
         return FS_ERR_NOTFOUND;
-    return load_cluster_from_handle(entry);
+    return load_cluster_from_handle(handle, entry);
 }
 
 // opens a handle to path
-static errval_t fat32_open(char* path, struct fat32_handle* handle) {
+errval_t fat32_open(char* path, void** hand) {
+    struct fat32_handle* handle = (struct fat32_handle*) *hand;
     errval_t err;
     handle = malloc(sizeof(struct fat32_handle));
     if (handle == NULL)
@@ -420,20 +432,20 @@ static errval_t fat32_open(char* path, struct fat32_handle* handle) {
     err = resolve_path(path, handle);
     if (err_is_fail(err)) {
         handle_close(handle);
-        handle == NULL;
         return err;
     }
     else if (handle->isdir) {
         handle_close(handle);
-        handle == NULL;
         return FS_ERR_NOTFILE;
     }
+    *hand = (void*) handle;
     return SYS_ERR_OK;
     
 }
 
 // closes given handle
-static errval_t fat32_close(struct fat32_handle handle) {
+errval_t fat32_close(void* hand) {
+    struct fat32_handle* handle = (struct fat32_handle*) hand;
     if (handle->isdir) {
         return FS_ERR_NOTFILE;
     }
@@ -441,7 +453,8 @@ static errval_t fat32_close(struct fat32_handle handle) {
     return SYS_ERR_OK;
 }
 // reads at most bytes many bytes into buffer from the handle, returns the buffer and bytes_read
-static errval_t fat32_read(struct fat32_handle handle, void* buffer, size_t bytes, size_t* bytes_read) {
+errval_t fat32_read(void* hand, void* buffer, size_t bytes, size_t* bytes_read) {
+    struct fat32_handle* handle = (struct fat32_handle*) hand;
     if (handle->isdir) {
         return FS_ERR_NOTFILE;
     }
@@ -487,35 +500,35 @@ static errval_t fat32_read(struct fat32_handle handle, void* buffer, size_t byte
         if (to_copy > cluster_size()) {
             cluster_size();
         }
-        memcpy(&buffer[*bytes_read], handle->cluster_data, to_copy);
+        memcpy((void*)&((char*)buffer)[*bytes_read], handle->cluster_data, to_copy);
         *bytes_read += to_copy;
     }
     handle->current_offset = to_copy;
     
     handle->file_pos += *bytes_read;
-
+    hand = (void*) handle;
     return SYS_ERR_OK;
 }
-static errval_t fat32_seek(struct fat32_handle handle, enum fs_seekpos whence, off_t offset) {
-    struct fs_fileinfo info;
+errval_t fat32_seek(void* hand, enum fs_seekpos whence, off_t offset) {
+    struct fat32_handle* handle = (struct fat32_handle*) hand;
     errval_t err;
     
     if (handle->isdir)
         return FS_ERR_NOTFILE;
     
-    size_t file_pos;
+    off_t file_pos;
     
     switch (whence) {
     case FS_SEEK_SET:
         assert(offset >= 0);
-        file_pos = (size_t) offset;
+        file_pos = offset;
         break;
     case FS_SEEK_CUR:
         assert(offset >= 0);
-        file_pos = (size_t) (handle->file_pos + offset);
+        file_pos = (handle->file_pos + offset);
         break;
     case FS_SEEK_END:
-        file_pos = (size_t) (handle->size + offset);
+        file_pos = ((off_t)handle->size + offset);
         break;
     default:
         return FS_ERR_INDEX_BOUNDS;
@@ -523,12 +536,12 @@ static errval_t fat32_seek(struct fat32_handle handle, enum fs_seekpos whence, o
     if (file_pos < 0 || file_pos > handle->size)
         return FS_ERR_INDEX_BOUNDS;
     
-    size_t difference = file_pos - ((size_t) handle->file_pos);
+    int32_t difference = file_pos - ((size_t) handle->file_pos);
     bool did_inner = false; // did we have to change the cluster
     size_t jump_cluster_num;
     size_t base_cluster_num;
     if (difference > 0) {
-        if (difference > (cluster_size() - handle->current_offset) {
+        if (difference > (cluster_size() - handle->current_offset)) {
             did_inner = true;
             difference -= (cluster_size() - handle->current_offset);
             jump_cluster_num = difference/cluster_size(); // rounds off
@@ -568,10 +581,12 @@ static errval_t fat32_seek(struct fat32_handle handle, enum fs_seekpos whence, o
         handle->current_offset += difference;
     }
     handle->file_pos = (off_t) file_pos;
+    hand = (void*) handle;
     return SYS_ERR_OK;
 }
 // opens a directory to path and returns the handle
-static errval_t fat32_opendir(char *path, struct fat32_handle* handle) {
+errval_t fat32_opendir(char *path, void** hand) {
+    struct fat32_handle* handle = (struct fat32_handle*) *hand;
     errval_t err;
     handle = malloc(sizeof(struct fat32_handle));
     if (handle==NULL)
@@ -585,10 +600,12 @@ static errval_t fat32_opendir(char *path, struct fat32_handle* handle) {
         handle_close(handle);
         return FS_ERR_NOTDIR;
     }
+    *hand = (void*) handle;
     return SYS_ERR_OK;
 }
 // closes a directory at handle
-static errval_t fat32_closedir(struct fat32_handle* handle) {
+errval_t fat32_closedir(void* hand) {
+    struct fat32_handle* handle = (struct fat32_handle*) hand;
     if (!handle->isdir) {
         return FS_ERR_NOTDIR;
     }
@@ -596,7 +613,8 @@ static errval_t fat32_closedir(struct fat32_handle* handle) {
     return SYS_ERR_OK;
 }
 // reads the next directory entry and returns the name
-static errval_t fat32_dir_read_next(struct fat32_handle* handle, char** name) {
+errval_t fat32_dir_read_next(void* hand, char** name) {
+    struct fat32_handle* handle = (struct fat32_handle*) hand;
     if (!handle->isdir) {
         return FS_ERR_NOTDIR;
     }
@@ -605,10 +623,58 @@ static errval_t fat32_dir_read_next(struct fat32_handle* handle, char** name) {
     return err;
 }
 // returns the fileinfo for the file at handle
-static errval_t fat32_stat(struct fat32_handle* handle, struct fs_fileinfo* info) {
+errval_t fat32_stat(void* hand, struct fs_fileinfo* info) {
+    struct fat32_handle* handle = (struct fat32_handle*) hand;
     assert(info != NULL);
     info->type = handle->isdir ? FS_DIRECTORY : FS_FILE;
     info->size = handle->size;
 
     return SYS_ERR_OK;
+}
+
+// utility funciton that fills all fat32_handle data into a void buffer and returns the length
+void* package_handle(struct fat32_handle* handle, size_t* length) {
+    // we subtract the char* name pointer and the char* cluster_data pointer, add cluster_size for the cluster_data 
+    *length = sizeof(struct fat32_handle)-sizeof(char*)*2;
+    if (handle->in_memory)
+        *length += cluster_size();
+    char* buffer = malloc(*length);
+    
+    size_t offset = 0;
+    strncpy(&buffer[offset], handle->name, 13);
+    offset+=13;
+    // copies isdir, size, first_clust, current_clust, file_pos, in_memory
+    size_t next_chunk = 2*sizeof(bool)+sizeof(size_t)+sizeof(uint32_t)*2+sizeof(off_t);
+    memcpy((void*)&buffer[offset], (void*)&handle->isdir, next_chunk);
+    offset+=next_chunk;
+    memcpy((void*)&buffer[offset], (void*)&handle->current_offset, sizeof(size_t));
+    offset+=sizeof(size_t);
+    if (handle->in_memory) {
+        assert(handle->cluster_data != NULL);
+        memcpy((void*)&buffer[offset], (void*)handle->cluster_data, cluster_size());
+        offset+=cluster_size();
+    }
+    assert(offset==*length);
+    handle_close(handle); // free the handle
+    return (void*) buffer;
+}
+// utility function that returns a fat32_handle given a handle packaged as void buffer
+struct fat32_handle* unpackage_handle(void* buffer, size_t length) {
+    char* buf = (char*) buffer;
+    struct fat32_handle* handle = malloc(sizeof(struct fat32_handle));
+    handle->name = malloc(13);
+    strncpy(handle->name, &buf[0], 13);
+    size_t offset = 13;
+    size_t next_chunk = 2*sizeof(bool)+sizeof(size_t)+sizeof(uint32_t)*2+sizeof(off_t);
+    memcpy((void*)&handle->isdir, (void*)&buf[offset], next_chunk);
+    offset+=next_chunk;
+    memcpy((void*)&handle->current_offset, (void*)&buf[offset], sizeof(size_t));
+    offset+=sizeof(size_t);
+    if (handle->in_memory) {
+        handle->cluster_data = malloc(cluster_size());
+        memcpy((void*)handle->cluster_data, (void*)&buf[offset], cluster_size());
+        offset+=cluster_size();
+    }
+    assert(offset=length);
+    return handle;
 }

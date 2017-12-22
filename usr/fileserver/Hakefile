@@ -1,0 +1,6 @@
+[ build application { target = "fileserver",
+  		              cFiles = [ "main.c", "rpc.c", "fs_rpc_server.c"],
+                      addLinkFlags = [ "-e _start"],
+                      architectures = allArchitectures
+                    }
+]

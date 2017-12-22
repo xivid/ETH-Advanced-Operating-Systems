@@ -11,7 +11,7 @@
 #include <aos/aos_rpc.h>
 
 #include "fopen_fat32.h"
-#include <fs/fat32.h>
+//#include <fs/fat32.h>
 #include <fs/fs.h>
 #include <fs/dirent.h>
 #include "fs_internal.h"
@@ -202,14 +202,13 @@ static off_t fs_libc_lseek(int fd, off_t offset, int whence)
         default:
             return -1;
         }
-
-        err = aos_rpc_fat_seek(&fat32_instance, fh, fs_whence, offset);
+        off_t* result = malloc(sizeof(result));
+        err = aos_rpc_fat_seek(&fat32_instance, fh, fs_whence, offset, result);
         if(err_is_fail(err)) {
             DEBUG_ERR(err, "vfs_seek");
             return -1;
         }
-        struct fat32_handle* fat_handle = (struct fat32_handle*) fh;
-        return fat_handle->file_pos;
+        return *result;
     }
     break;
 
@@ -269,12 +268,22 @@ errval_t init_fat32_rpc(void) {
     if (aos_init) {
         return SYS_ERR_OK;
     }
+    struct aos_rpc* rpc = malloc(sizeof(struct aos_rpc*));
     struct waitset* ws = get_default_waitset();
-    errval_t err = aos_rpc_init(ws, &fat32_instance);
+    errval_t err = aos_rpc_init(ws, rpc);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "init_fat32_rpc failed");
         return err;
     }
+    domainid_t new_pid;
+    aos_rpc_process_spawn(rpc, "/armv7/sbin/fileserver", disp_get_core_id(), &new_pid);
+    struct capref cap; // TODO: where do I get this from?
+    err = aos_rpc_fs_init(&fat32_instance, cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "init_fat32_rpc failed");
+        return err;
+    }
+    
     aos_init = true;
     return SYS_ERR_OK;
 }

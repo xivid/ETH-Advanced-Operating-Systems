@@ -18,11 +18,8 @@
         "fopen.c",
         "ramfs.c",
         "dirent.c",
-        "fopen_fat32.c"
+        "fopen_fat32.c",
+        "fat32.c"
     ]
-  },
-  build library {
-    target = "fat32",
-    cFiles = [ "fat32.c" ]
   }
 ]
