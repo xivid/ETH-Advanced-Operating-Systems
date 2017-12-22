@@ -152,7 +152,11 @@ int main(int argc, char *argv[])
 
         debug_printf("Start a parrot on port 7777\n");
         si = malloc(sizeof(struct spawninfo));
-        err = spawn_load_by_name_with_arguments("/armv7/sbin/parrot", si, "/armv7/sbin/parrot 7777");
+        char *binary_name = "/armv7/sbin/parrot";
+        const char *parrot_args[2];
+        parrot_args[0] = binary_name;
+        parrot_args[1] = "7777";
+        err = spawn_load_by_name_with_arguments(binary_name, si, 2, parrot_args);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "cannot spawn parrot 7777");
             return EXIT_FAILURE;
