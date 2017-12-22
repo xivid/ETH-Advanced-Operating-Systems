@@ -137,7 +137,7 @@ errval_t recv_handler(void *arg)
     send_func_t send_handler;
     void *answer_args;
     coreid_t target_core_id;
-    // TODO: why not just passing in the lmp_chan*, instead of the cap_endpoint? It seems we don't really need the whois().
+
     switch (msg.words[0]) {
         case AOS_RPC_ID_INIT:
             answer_args = marshal_init(cap_endpoint);

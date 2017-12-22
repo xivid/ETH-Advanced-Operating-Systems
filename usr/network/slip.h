@@ -14,6 +14,13 @@
 #include <netutil/checksum.h>
 
 
+//! IP address type
+typedef uint32_t ip_addr_t;
+
+//! Port type
+typedef uint16_t port_t;
+
+
 /**
  * slip definitions
  */
@@ -71,9 +78,6 @@ void slip_send(uint8_t *buf, size_t size);
 /**
  * ip definitions
  */
-
-//! IP address type
-typedef uint32_t ip_addr_t;
 
 //! The IP packet structure.
 struct ip_t
@@ -148,8 +152,6 @@ static struct icmp_echo_reply_t icmp_echo_reply;
 /**
  * udp definitions
  */
-//! The udp service port type.
-typedef uint16_t port_t;
 
 //! The UDP packet structure.
 struct udp_t

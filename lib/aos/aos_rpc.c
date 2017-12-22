@@ -29,6 +29,7 @@ errval_t rcv_handler_for_device_cap(void *v_args);
 errval_t rcv_handler_for_ns_syn(void *v_args);
 errval_t rcv_handler_for_ns_register(void *v_args);
 errval_t rcv_handler_for_ns_lookup(void *v_args);
+errval_t rcv_handler_for_net(void *v_args);
 
 errval_t send_and_receive (void* rcv_handler, uintptr_t* args);
 
@@ -698,6 +699,31 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
     return SYS_ERR_OK;
 }
 
+errval_t aos_rpc_network_init(struct waitset* ws, struct aos_rpc *network_rpc, struct capref cap_ep_network)
+{
+    errval_t err;
+
+    network_rpc->ws = ws;
+    err = lmp_chan_accept(&network_rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_ep_network);
+    if (err_is_fail(err)) {
+        debug_printf("lmp_chan_accept network_rpc->lmp failed\n");
+        return err;
+    }
+    thread_mutex_init(&network_rpc->rpc_mutex);
+
+    // initial handshake with network manager
+    uintptr_t args[LMP_ARGS_SIZE];
+    args[0] = (uintptr_t) network_rpc;
+    args[1] = AOS_RPC_ID_INIT;
+    err = send_and_receive(rcv_handler_general, args);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "aos_rpc_get_network_channel: send_and_receive failed\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
 errval_t rcv_handler_for_ns_syn(void *v_args)
 {
     uintptr_t* args = (uintptr_t*) v_args;
@@ -862,6 +888,7 @@ struct aos_rpc *aos_rpc_get_serial_channel(void)
     return get_init_rpc();
 }
 
+
 // mount mount fat32 drive is mounted to path, given also the uri of the mount command
 errval_t aos_rpc_fat_mount(struct aos_rpc* chan, const char* path, const char* uri) {
 
@@ -911,4 +938,146 @@ errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** na
 errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info) {
 
     return LIB_ERR_NOT_IMPLEMENTED;
+}
+
+
+
+/**
+ * Networking rpc calls
+ */
+// bind a port, so that when a udp message arrives at this port, network will send the client a lmp message
+errval_t aos_rpc_net_udp_bind(struct aos_rpc* rpc, uint16_t port, net_err_names_t *net_err)
+{
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[LMP_ARGS_SIZE] = (uintptr_t) net_err;
+
+    args[0] = (uintptr_t) rpc;
+    args[1] = (uintptr_t) AOS_RPC_ID_UDP_BIND;
+    args[2] = (uintptr_t) port;  // msg->words[1] on receiver side
+
+    errval_t err = send_and_receive(rcv_handler_for_net, args);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_net_udp_bind failed\n");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
+// when a new udp datagram arrives, notify the binding client with this call
+errval_t aos_rpc_net_udp_deliver(struct aos_rpc *rpc, uint32_t ip_src,
+                                 uint16_t port_src, uint16_t port_dst,
+                                 uint8_t *payload, uint16_t length, net_err_names_t *net_err)
+{
+    errval_t err;
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[LMP_ARGS_SIZE] = (uintptr_t) net_err;
+
+    args[0] = (uintptr_t) rpc;
+    args[1] = (uintptr_t) AOS_RPC_ID_UDP_DELIVER;  // msg->words[0] on receiver
+    args[2] = (uintptr_t) ip_src;
+    args[3] = (uintptr_t) ((port_src << 16) | port_dst);
+
+    const size_t header_length = 5;
+    const uint16_t available_longs = (LMP_ARGS_SIZE - header_length);
+    // send full packets
+    const size_t num_packets = (size_t)length / (available_longs * 4);
+    for (int i = 0; i < num_packets; i++) {
+        // [ this length (16b) | remaining (16b) ]
+        args[header_length - 1] = ((uint32_t)(available_longs * 4) << 16) | (uint16_t)(length - available_longs * (i + 1) * 4);
+        // chars
+        for (int j = 0; j < available_longs; j++) {
+            args[j + header_length] = ((uintptr_t *) payload)[available_longs * i + j];
+        }
+        err = send_and_receive(rcv_handler_for_net, args);
+        if (err_is_fail(err)) {
+            debug_printf("aos_rpc_net_udp_deliver failed\n");
+            return err;
+        }
+    }
+
+    // send the remaining partial packet
+    size_t remaining_bytes = (size_t)length % (available_longs * 4);
+    if (remaining_bytes != 0) {
+        args[header_length - 1] = (remaining_bytes << 16);
+
+        for (int j = 0; j < remaining_bytes; ++j) {
+            ((uint8_t *)(&args[header_length]))[j] = payload[available_longs * num_packets * 4 + j];
+        }
+
+        err = send_and_receive(rcv_handler_for_net, args);
+        if (err_is_fail(err)) {
+            debug_printf("aos_rpc_net_udp_deliver last failed\n");
+            return err;
+        }
+    }
+
+    return SYS_ERR_OK;
+}
+
+// send a udp message to a given ip:port via network
+errval_t aos_rpc_net_udp_forward(struct aos_rpc *rpc, uint32_t ip_dst,
+                                 uint16_t port_src, uint16_t port_dst,
+                                 uint8_t *payload, uint16_t length, net_err_names_t *net_err)
+{
+    errval_t err;
+    uintptr_t args[LMP_ARGS_SIZE + 1];
+    args[LMP_ARGS_SIZE] = (uintptr_t) net_err;
+
+    args[0] = (uintptr_t) rpc;
+    args[1] = (uintptr_t) AOS_RPC_ID_UDP_FORWARD;
+    args[2] = (uintptr_t) ip_dst;
+    args[3] = (uintptr_t) ((port_src << 16) | port_dst);
+
+    const size_t header_length = 5;
+    const uint16_t available_longs = (LMP_ARGS_SIZE - header_length);
+    // send full packets
+    const size_t num_packets = (size_t)length / (available_longs * 4);
+    for (int i = 0; i < num_packets; i++) {
+        // [ this length (16b) | remaining (16b) ]
+        args[header_length - 1] = ((uint32_t)(available_longs * 4) << 16) | (uint16_t)(length - available_longs * (i + 1) * 4);
+        // chars
+        for (int j = 0; j < available_longs; j++) {
+            args[j + header_length] = ((uintptr_t *) payload)[available_longs * i + j];
+        }
+        err = send_and_receive(rcv_handler_for_net, args);
+        if (err_is_fail(err)) {
+            debug_printf("aos_rpc_net_udp_forward failed\n");
+            return err;
+        }
+    }
+
+    // send the remaining partial packet
+    size_t remaining_bytes = (size_t)length % (available_longs * 4);
+    if (remaining_bytes != 0) {
+        args[header_length - 1] = (remaining_bytes << 16);
+
+        for (int j = 0; j < remaining_bytes; ++j) {
+            ((uint8_t *)(&args[header_length]))[j] = payload[available_longs * num_packets * 4 + j];
+        }
+
+        err = send_and_receive(rcv_handler_for_net, args);
+        if (err_is_fail(err)) {
+            debug_printf("aos_rpc_net_udp_forward last failed\n");
+            return err;
+        }
+    }
+
+    return SYS_ERR_OK;
+}
+
+errval_t rcv_handler_for_net(void *v_args)
+{
+    uintptr_t* args = (uintptr_t*) v_args;
+    net_err_names_t *net_err = (net_err_names_t *) args[LMP_ARGS_SIZE + 1];
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    struct capref cap;
+
+    errval_t err = receive_and_match_ack(args, &lmp_msg, &cap,
+                                         (void *) rcv_handler_for_net);
+    if (err_is_fail(err)) {
+        return err;
+    }
+    *net_err = (net_err_names_t) lmp_msg.words[1];
+
+    return SYS_ERR_OK;
 }

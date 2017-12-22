@@ -42,6 +42,9 @@ enum enum_rpc_msgtype {
     AOS_RPC_ID_REGISTER_EP_WITH_NAMESERVER,
     AOS_RPC_ID_LOOKUP_EP_WITH_NAMESERVER,
     AOS_RPC_ID_FAIL,
+    AOS_RPC_ID_UDP_BIND,
+    AOS_RPC_ID_UDP_DELIVER,
+    AOS_RPC_ID_UDP_FORWARD,
 };
 
 /// Defines all error and status codes related to nameserver
@@ -52,6 +55,15 @@ typedef enum {
     NS_ERR_NAME_NOT_FOUND,
     NS_ERR_NAMESERVER_NOT_RUNNING,
 } ns_err_names_t;
+
+/// Defines all error and status codes related to network rpc
+typedef enum {
+    NET_ERR_OK = 0,
+    NET_ERR_SERVER_FAULT,
+    NET_ERR_CHANNEL_ALREADY_EXISTS,
+    NET_ERR_PORT_ALREADY_TAKEN,
+    NET_ERR_PACKET_TOO_LARGE
+} net_err_names_t;
 
 struct aos_rpc {
     struct lmp_chan lmp;
@@ -191,6 +203,13 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
         unsigned *id);
 
 /**
+ * \brief Initialize a channel to network manager
+ * \param rpc Will store the channel to network
+ * \param cap A capability for network's endpoint obtained from init
+ */
+errval_t aos_rpc_network_init(struct waitset* ws, struct aos_rpc *rpc, struct capref cap_ep_network);
+
+/**
  * \brief Register an endpoint with nameserver (see the nameserver protocol)
  * \param rpc        The channel to nameserver
  * \param id         The client id assigned by nameserver
@@ -254,5 +273,22 @@ errval_t aos_rpc_fat_closedir(struct aos_rpc* chan, void* handle);
 errval_t aos_rpc_fat_dir_read_next(struct aos_rpc* chan, void* handle, char** name);
 // returns the stat fs_fileinfo of the open file/dir given by handle
 errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo* info);
+
+
+/**
+ * Networking rpc calls
+ */
+// bind a port, so that when a udp message arrives at this port, network will send the client a lmp message
+errval_t aos_rpc_net_udp_bind(struct aos_rpc* rpc, uint16_t port, net_err_names_t *net_err);
+
+// when a new udp datagram arrives, notify the binding client with this call
+errval_t aos_rpc_net_udp_deliver(struct aos_rpc *rpc, uint32_t ip_src,
+                                 uint16_t port_src, uint16_t port_dst,
+                                 uint8_t *payload, uint16_t length, net_err_names_t *net_err);
+
+// send a udp message to a given ip:port via network
+errval_t aos_rpc_net_udp_forward(struct aos_rpc *rpc, uint32_t ip_dst,
+                                 uint16_t port_src, uint16_t port_dst,
+                                 uint8_t *payload, uint16_t length, net_err_names_t *net_err);
 
 #endif // _LIB_BARRELFISH_AOS_MESSAGES_H

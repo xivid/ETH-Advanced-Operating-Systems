@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
             debug_printf("Failed spawning network process\n");
             return -1;
         }
-
+/*
         debug_printf("Start a parrot on port 7777\n");
         si = malloc(sizeof(struct spawninfo));
         err = spawn_load_by_name_with_arguments("/armv7/sbin/parrot", si, "/armv7/sbin/parrot 7777");
@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "cannot spawn parrot 7777");
             return EXIT_FAILURE;
         }
-
+*/
     }
 
     debug_printf("Message handler loop\n");
