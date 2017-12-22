@@ -19,6 +19,7 @@ errval_t send_handler (void *v_args);
 
 errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, struct capref *cap, void *rcv_handler);
 errval_t rcv_handler_general (void *v_args);
+errval_t rcv_handler_network_register(void *v_args);
 errval_t rcv_handler_for_ram (void *v_args);
 errval_t rcv_handler_for_process (void *v_args);
 errval_t rcv_handler_for_get_process_name (void *v_args);
@@ -43,9 +44,16 @@ errval_t send_handler (void* v_args)
     struct aos_rpc *rpc = (struct aos_rpc*) args[0];
     struct lmp_chan *lmp = &rpc->lmp;
     errval_t err;
+
+    /*char buf[256];
+    debug_print_capref(buf, 256, lmp->local_cap);
+    debug_printf("send_handler: from %s\n", buf)*/
+
     err = lmp_chan_send9(lmp, LMP_FLAG_SYNC, lmp->local_cap, args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
     if (err_is_ok(err)) {
         return err;
+    } else {
+        DEBUG_ERR(err, "send_handler first send fails");
     }
 
     if (send_retry_count++ < AOS_RPC_ATTEMPTS) {
@@ -110,6 +118,37 @@ errval_t rcv_handler_general (void* v_args)
     return receive_and_match_ack(args, &lmp_msg, &cap, (void *) rcv_handler_general);
 }
 
+// checks that the message was acknowledged with an ACK, and reregister
+errval_t rcv_handler_network_register(void *v_args)
+{
+    uintptr_t* args = (uintptr_t*) v_args;
+    struct capref cap;
+    struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
+    errval_t err;
+
+    err = receive_and_match_ack(args, &lmp_msg, &cap, (void *) rcv_handler_network_register);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "receive_and_match_ack fails");
+    }
+
+    struct aos_rpc* rpc = (struct aos_rpc*) args[0];
+
+    // register again for receiving
+    err = lmp_chan_alloc_recv_slot(&rpc->lmp);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "rcv_handler_network_register: lmp chan alloc recv slot failed");
+        return err;
+    }
+    /*err = lmp_chan_register_recv(&rpc->lmp, get_default_waitset(), MKCLOSURE((void*)rcv_handler_network_register, args));
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "rcv_handler_network_register: lmp chan register recv failed");
+        return err;
+    }*/
+
+    return err;
+}
+
+
 errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, struct capref *cap, void *rcv_handler)
 {
     struct aos_rpc* rpc = (struct aos_rpc*) args[0];
@@ -129,6 +168,7 @@ errval_t receive_and_match_ack(uintptr_t *args, struct lmp_recv_msg *lmp_msg, st
         debug_printf("Expected answer to be of type ACK, got %i\n", lmp_msg->words[0]);
         return FLOUNDER_ERR_RPC_MISMATCH;
     }
+
     return SYS_ERR_OK;
 }
 
@@ -150,19 +190,22 @@ errval_t send_and_receive (void* rcv_handler, uintptr_t* args)
         return err;
     }
 
+    // debug_printf("send and receive: both registered\n");
+
     // wait for send and receive ready:
     err = event_dispatch(rpc->ws);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "send_and_receive: first event_dispatch failed\n");
         return err;
     }
-
+    // debug_printf("send and receive: send done\n");
 
     err = event_dispatch(rpc->ws);
     if (err_is_fail(err)) {
         debug_printf("send_and_receive: second event_dispatch failed\n");
         return err;
     }
+    // debug_printf("send and receive: receive done\n");
 
     return SYS_ERR_OK;
 }
@@ -699,30 +742,6 @@ errval_t aos_rpc_nameserver_syn(struct aos_rpc *rpc, struct capref cap,
     return SYS_ERR_OK;
 }
 
-errval_t aos_rpc_network_init(struct waitset* ws, struct aos_rpc *network_rpc, struct capref cap_ep_network)
-{
-    errval_t err;
-
-    network_rpc->ws = ws;
-    err = lmp_chan_accept(&network_rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_ep_network);
-    if (err_is_fail(err)) {
-        debug_printf("lmp_chan_accept network_rpc->lmp failed\n");
-        return err;
-    }
-    thread_mutex_init(&network_rpc->rpc_mutex);
-
-    // initial handshake with network manager
-    uintptr_t args[LMP_ARGS_SIZE];
-    args[0] = (uintptr_t) network_rpc;
-    args[1] = AOS_RPC_ID_INIT;
-    err = send_and_receive(rcv_handler_general, args);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "aos_rpc_get_network_channel: send_and_receive failed\n");
-        return err;
-    }
-
-    return SYS_ERR_OK;
-}
 
 errval_t rcv_handler_for_ns_syn(void *v_args)
 {
@@ -945,6 +964,39 @@ errval_t aos_rpc_fat_stat(struct aos_rpc* chan, void* handle, struct fs_fileinfo
 /**
  * Networking rpc calls
  */
+
+
+errval_t aos_rpc_network_init(struct waitset* ws, struct aos_rpc *network_rpc, struct capref cap_ep_network)
+{
+    errval_t err;
+
+    network_rpc->ws = ws;
+    err = lmp_chan_accept(&network_rpc->lmp, DEFAULT_LMP_BUF_WORDS, cap_ep_network);
+    if (err_is_fail(err)) {
+        debug_printf("lmp_chan_accept network_rpc->lmp failed\n");
+        return err;
+    }
+    thread_mutex_init(&network_rpc->rpc_mutex);
+
+    err = lmp_chan_alloc_recv_slot(&network_rpc->lmp);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "aos_rpc_network_init: lmp chan alloc recv slot failed");
+        return EXIT_FAILURE;
+    }
+
+    // initial handshake with network manager
+    uintptr_t args[LMP_ARGS_SIZE];
+    args[0] = (uintptr_t) network_rpc;
+    args[1] = AOS_RPC_ID_INIT;
+    err = send_and_receive(rcv_handler_network_register, args);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "aos_rpc_get_network_channel: send_and_receive failed\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
 // bind a port, so that when a udp message arrives at this port, network will send the client a lmp message
 errval_t aos_rpc_net_udp_bind(struct aos_rpc* rpc, uint16_t port, net_err_names_t *net_err)
 {
@@ -956,10 +1008,14 @@ errval_t aos_rpc_net_udp_bind(struct aos_rpc* rpc, uint16_t port, net_err_names_
     args[2] = (uintptr_t) port;  // msg->words[1] on receiver side
 
     errval_t err = send_and_receive(rcv_handler_for_net, args);
+    // debug_printf("aos_rpc_net_udp_bind send and receive done\n");
+
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_net_udp_bind failed\n");
         return err;
     }
+
+    // debug_printf("aos_rpc_net_udp_bind returning\n");
     return SYS_ERR_OK;
 }
 
@@ -968,6 +1024,7 @@ errval_t aos_rpc_net_udp_deliver(struct aos_rpc *rpc, uint32_t ip_src,
                                  uint16_t port_src, uint16_t port_dst,
                                  uint8_t *payload, uint16_t length, net_err_names_t *net_err)
 {
+    // debug_printf("aos_rpc_net_udp_deliver: length = %u\n", length);
     errval_t err;
     uintptr_t args[LMP_ARGS_SIZE + 1];
     args[LMP_ARGS_SIZE] = (uintptr_t) net_err;
@@ -994,21 +1051,25 @@ errval_t aos_rpc_net_udp_deliver(struct aos_rpc *rpc, uint32_t ip_src,
             return err;
         }
     }
+    //debug_printf("first packet send_and_receive one, av = %u, remaining_bytes = %lu\n",
+    //             available_longs, (size_t)length % (available_longs * 4));
 
     // send the remaining partial packet
     size_t remaining_bytes = (size_t)length % (available_longs * 4);
     if (remaining_bytes != 0) {
+        // debug_printf("has remaining bytes\n");
         args[header_length - 1] = (remaining_bytes << 16);
 
         for (int j = 0; j < remaining_bytes; ++j) {
             ((uint8_t *)(&args[header_length]))[j] = payload[available_longs * num_packets * 4 + j];
         }
-
+        // debug_printf("copied\n");
         err = send_and_receive(rcv_handler_for_net, args);
         if (err_is_fail(err)) {
             debug_printf("aos_rpc_net_udp_deliver last failed\n");
             return err;
         }
+        // debug_printf("remaining bytes sent and acked\n");
     }
 
     return SYS_ERR_OK;
@@ -1067,17 +1128,23 @@ errval_t aos_rpc_net_udp_forward(struct aos_rpc *rpc, uint32_t ip_dst,
 
 errval_t rcv_handler_for_net(void *v_args)
 {
+    // debug_printf("in rcv_handler_for_net\n");
     uintptr_t* args = (uintptr_t*) v_args;
-    net_err_names_t *net_err = (net_err_names_t *) args[LMP_ARGS_SIZE + 1];
+    net_err_names_t *net_err = (net_err_names_t *) args[LMP_ARGS_SIZE];
     struct lmp_recv_msg lmp_msg = LMP_RECV_MSG_INIT;
     struct capref cap;
 
     errval_t err = receive_and_match_ack(args, &lmp_msg, &cap,
                                          (void *) rcv_handler_for_net);
     if (err_is_fail(err)) {
+        debug_printf("in rcv_handler_for_net: fail\n");
         return err;
     }
+
+    // debug_printf("in rcv_handler_for_net: net_err = %d\n", (net_err_names_t) lmp_msg.words[1]);
     *net_err = (net_err_names_t) lmp_msg.words[1];
 
+
+    // debug_printf("in rcv_handler_for_net: returning\n");
     return SYS_ERR_OK;
 }

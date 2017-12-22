@@ -314,9 +314,10 @@ void udp_packet_recv_handler(struct udp_t *udp, size_t len, struct ip_t *ip) {
         struct aos_rpc *udp_server = get_udp_server_channel(port);
         net_err_names_t net_err;
         if (udp_server != NULL) {
+            debug_printf("delivering to udp server on %u\n", port);
             err = aos_rpc_net_udp_deliver(udp_server, ip->ip_src,
                                           ntohs(udp->port_src), ntohs(udp->port_dst),
-                                          udp->payload, ntohs(udp->length), &net_err);
+                                          udp->payload, ntohs(udp->length) - (uint16_t)8, &net_err);
             if (err_is_fail(err)) {
                 DEBUG_ERR(err, "aos_rpc_net_udp_deliver failed");
             }
@@ -324,7 +325,7 @@ void udp_packet_recv_handler(struct udp_t *udp, size_t len, struct ip_t *ip) {
                 debug_printf("deliver failed, net_err = %u\n", net_err);
             }
         } else {
-            debug_printf("No service on UDP Port %u, dropped this packet.\n", udp->port_dst);
+            debug_printf("No service on UDP Port %u, dropped this packet.\n", port);
         }
     }
 }

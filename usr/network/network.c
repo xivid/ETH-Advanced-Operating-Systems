@@ -15,6 +15,7 @@
 #include <netutil/user_serial.h>
 #include <maps/omap44xx_map.h>
 
+struct aos_rpc *listen_rpc = NULL;
 struct client *client_list = NULL;
 int network_rpc_send_retry_count = 0;
 struct udp_server *udp_server_list = NULL;
@@ -52,6 +53,7 @@ int main(int argc, char *argv[])
     slip_send((uint8_t *)"hello host!\r\n", 13);
 
     //! step 5 - set up my own rpc server
+    debug_printf("Setting up a open-receiving rpc channel\n");
     err = init_rpc_server();
     if (err_is_fail(err)) {
         debug_printf("Failed setting up a listening rpc channel\n");
@@ -59,7 +61,7 @@ int main(int argc, char *argv[])
     }
 
     //! step 6 - connect to nameserver
-    debug_printf("Setting up nameserver rpc channel\n");
+    debug_printf("Setting up rpc channel to nameserver\n");
     ns_err_names_t ns_err;
     do {
         err = ns_init_channel(&ns_err);
@@ -67,8 +69,8 @@ int main(int argc, char *argv[])
 
     //! step 7 - register a service to nameserver
     debug_printf("Registering networking service to name server\n");
-    ns_register("network", cap_selfep, &ns_err);
-    if (ns_err != NS_ERR_OK) {
+    err = ns_register("network", listen_rpc->lmp.local_cap, &ns_err);
+    if (err_is_fail(err) || ns_err != NS_ERR_OK) {
         DEBUG_ERR(err, "cannot register myself to name server as \"networking\"");
         return EXIT_FAILURE;
     }

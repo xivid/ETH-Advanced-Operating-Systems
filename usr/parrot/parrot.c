@@ -36,11 +36,12 @@ struct rpc_answer_t {
     net_err_names_t err;
 };
 
+struct aos_rpc *listen_rpc = NULL;
 errval_t init_rpc_server(void);
 errval_t lmp_recv_handler(void *v_args);
 errval_t lmp_send_handler(void *v_args);
 static int send_retry_count = 0;
-struct rpc_answer_t *marshal_udp_deliver(struct capref cap, struct lmp_recv_msg *msg);
+struct rpc_answer_t *marshal_udp_deliver(struct lmp_recv_msg *msg, struct lmp_chan *lmp);
 
 bool pending_reply = false;
 #define UDP_PAYLOAD_MAX_BYTES 1006
@@ -57,10 +58,10 @@ struct aos_rpc *network_rpc;
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2) {
+    /*if (argc < 2) {
         debug_printf("Usage: %s [port]\n", argv[0]);
         return EXIT_FAILURE;
-    }
+    }*/
 
     errval_t err;
     net_err_names_t net_err;
@@ -77,7 +78,17 @@ int main(int argc, char *argv[])
     } while (err != SYS_ERR_OK || ns_err != NS_ERR_OK);
     debug_printf("obtained cap_ep_network\n");
 
-    //! step 2 - establish rpc channel with network manager
+
+    //! step 2 - set up my own rpc server
+    debug_printf("Setting up a open-receiving rpc channel\n");
+    err = init_rpc_server();
+    if (err_is_fail(err)) {
+        debug_printf("Failed setting up a listening rpc channel\n");
+        return EXIT_FAILURE;
+    }
+
+
+    //! step 3 - establish network_rpc channel
     debug_printf("Getting rpc channel to network manager\n");
     network_rpc = malloc(sizeof(struct aos_rpc));
     err = aos_rpc_network_init(get_default_waitset(), network_rpc, cap_ep_network);
@@ -86,8 +97,8 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    //! step 3 - register to the network manager to bind on the specified port
-    uint16_t port = (uint16_t) strtol(argv[1], (char **)NULL, 10);
+    //! step 4 - register to the network manager to bind on the specified port
+    uint16_t port = 7777; //(uint16_t) strtol(argv[1], (char **)NULL, 10);
     debug_printf("Binding to port %u\n", port);
     err = aos_rpc_net_udp_bind(network_rpc, port, &net_err);
     if (err_is_fail(err)) {
@@ -97,10 +108,10 @@ int main(int argc, char *argv[])
     if (net_err != NET_ERR_OK) {
         debug_printf("Unable to bind to port %u, net_err = %d\n", port, net_err);
     }
-    debug_printf("parrot started on port %s\n", argv[1]);
 
-    //! step 4 - wait for events
-    debug_printf("Parrot %s enters message handler loop\n", argv[1]);
+
+    //! step 5 - wait for events
+    debug_printf("parrot listening on port %d\n", port);
     // Hang around
     struct waitset *default_ws = get_default_waitset();
     while (true) {
@@ -131,31 +142,33 @@ int main(int argc, char *argv[])
 
 errval_t init_rpc_server(void) {
     errval_t err;
-    /* // What's this?
-    err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
+    // What's this?
+    /*err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "cap retype of dispatcher to selfep failed");
         return EXIT_FAILURE;
-    }
-    */
-    struct lmp_chan *lmp = (struct lmp_chan *) malloc(sizeof(struct lmp_chan));
+    }*/
+
+    listen_rpc = malloc(sizeof(struct aos_rpc));
+    // struct lmp_chan *lmp = (struct lmp_chan *) malloc(sizeof(struct lmp_chan));
 
     // by setting NULL_CAP as endpoint, we make this lmp an "open-receive" channel
-    err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
+    err = lmp_chan_accept(&listen_rpc->lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "lmp chan accept (open-receive) failed");
         return err;
     }
 
     // allocate slot for receiving a cap
-    err = lmp_chan_alloc_recv_slot(lmp);
+    err = lmp_chan_alloc_recv_slot(&listen_rpc->lmp);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "lmp chan alloc recv slot failed");
         return err;
     }
 
     // the "reply-wait" operation
-    err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void *) lmp_recv_handler, lmp));
+    err = lmp_chan_register_recv(&listen_rpc->lmp, get_default_waitset(),
+                                 MKCLOSURE((void *) lmp_recv_handler, &listen_rpc->lmp));
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "lmp chan register recv failed");
         return err;
@@ -163,7 +176,74 @@ errval_t init_rpc_server(void) {
     return SYS_ERR_OK;
 }
 
+errval_t lmp_recv_handler(void *arg)
+{
+    struct lmp_chan *lmp = (struct lmp_chan *) arg;
+    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    struct capref cap_endpoint;
+    errval_t err = lmp_chan_recv(lmp, &msg, &cap_endpoint);
+    int count = 0;
+    while (count < AOS_RPC_ATTEMPTS &&
+           lmp_err_is_transient(err) && err_is_fail(err)) {
+        err = lmp_chan_recv(lmp, &msg, &cap_endpoint);
+        count++;
+    }
+    if (err_is_fail(err)) {
+        debug_printf("lmp_recv_handler: too many failed attempts\n");
+        return err;
+    }
 
+    // TODO: client is always network, don't set up a new one every time
+    struct lmp_chan *client_lmp = malloc(sizeof(struct lmp_chan));
+    err = lmp_chan_accept(client_lmp, DEFAULT_LMP_BUF_WORDS, cap_endpoint);
+    if (err_is_fail(err)) {
+        debug_printf("lmp_recv_handler: lmp chan accept failed\n");
+        return err;
+    }
+
+    // register again for receiving
+    err = lmp_chan_alloc_recv_slot(lmp);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "lmp_recv_handler: lmp chan alloc recv slot failed");
+        return err;
+    }
+    err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void*) lmp_recv_handler, arg));
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "lmp_recv_handler: lmp chan register recv failed");
+        return err;
+    }
+
+    // no message content received?
+    if (msg.buf.msglen <= 0) {
+        debug_printf("lmp_recv_handler: no message content received?\n");
+        return err;
+    }
+
+    struct rpc_answer_t *answer;
+
+    switch (msg.words[0]) {
+        case AOS_RPC_ID_UDP_DELIVER:
+            answer = marshal_udp_deliver(&msg, client_lmp);
+            break;
+        default:
+            debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
+            return LIB_ERR_NOT_IMPLEMENTED;
+    }
+    struct lmp_chan *ret_chan = answer->sender_lmp;
+    if (!ret_chan) {
+        return SYS_ERR_LMP_NO_TARGET;
+    }
+
+    err = lmp_chan_register_send(ret_chan, get_default_waitset(),
+                                 MKCLOSURE((void*) lmp_send_handler, (void *)answer));
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan register send failed");
+        return err;
+    }
+    return SYS_ERR_OK;
+}
+
+/*
 errval_t lmp_recv_handler(void *arg)
 {
     struct lmp_chan *lmp = (struct lmp_chan *) arg;
@@ -221,14 +301,11 @@ errval_t lmp_recv_handler(void *arg)
     }
     return SYS_ERR_OK;
 }
+ */
 
 
-struct rpc_answer_t *marshal_udp_deliver(struct capref cap, struct lmp_recv_msg *msg) {
+struct rpc_answer_t *marshal_udp_deliver(struct lmp_recv_msg *msg, struct lmp_chan *lmp) {
     errval_t err;
-    if (!capcmp(cap, cap_ep_network)) {
-        debug_printf("RPC sender is not network, ignored.\n");
-        return NULL;
-    }
 
     uint32_t ip_src = (uint32_t) msg->words[1];
     uint16_t port_src = (uint16_t) (msg->words[2] >> 16);
@@ -248,7 +325,7 @@ struct rpc_answer_t *marshal_udp_deliver(struct capref cap, struct lmp_recv_msg 
     }
     // assemble the response
     struct rpc_answer_t *ans = malloc(sizeof(struct rpc_answer_t));
-    ans->sender_lmp = &network_rpc->lmp;
+    ans->sender_lmp = lmp;
     ans->err = err;
 
     return ans;
@@ -258,7 +335,7 @@ struct rpc_answer_t *marshal_udp_deliver(struct capref cap, struct lmp_recv_msg 
 errval_t lmp_send_handler(void *arg) {
     struct rpc_answer_t *answer = (struct rpc_answer_t *)arg;
     struct lmp_chan* lmp = answer->sender_lmp;
-    errval_t err = lmp_chan_send1(lmp, LMP_FLAG_SYNC, NULL_CAP, (uintptr_t)(answer->err));
+    errval_t err = lmp_chan_send2(lmp, LMP_FLAG_SYNC, NULL_CAP, AOS_RPC_ID_ACK, (uintptr_t)(answer->err));
     if (err_is_ok(err)) {
         return err;
     }

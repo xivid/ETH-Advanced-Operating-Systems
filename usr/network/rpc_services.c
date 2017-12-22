@@ -6,31 +6,33 @@
 
 errval_t init_rpc_server(void) {
     errval_t err;
-    /* // What's this?
-    err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
+    // What's this?
+    /*err = cap_retype(cap_selfep, cap_dispatcher, 0, ObjType_EndPoint, 0, 1);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "cap retype of dispatcher to selfep failed");
         return EXIT_FAILURE;
-    }
-    */
-    struct lmp_chan *lmp = (struct lmp_chan *) malloc(sizeof(struct lmp_chan));
+    }*/
+
+    listen_rpc = malloc(sizeof(struct aos_rpc));
+    // struct lmp_chan *lmp = (struct lmp_chan *) malloc(sizeof(struct lmp_chan));
 
     // by setting NULL_CAP as endpoint, we make this lmp an "open-receive" channel
-    err = lmp_chan_accept(lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
+    err = lmp_chan_accept(&listen_rpc->lmp, DEFAULT_LMP_BUF_WORDS, NULL_CAP);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "lmp chan accept (open-receive) failed");
         return err;
     }
 
     // allocate slot for receiving a cap
-    err = lmp_chan_alloc_recv_slot(lmp);
+    err = lmp_chan_alloc_recv_slot(&listen_rpc->lmp);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "lmp chan alloc recv slot failed");
         return err;
     }
 
     // the "reply-wait" operation
-    err = lmp_chan_register_recv(lmp, get_default_waitset(), MKCLOSURE((void *) lmp_recv_handler, lmp));
+    err = lmp_chan_register_recv(&listen_rpc->lmp, get_default_waitset(),
+                                 MKCLOSURE((void *) lmp_recv_handler, &listen_rpc->lmp));
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "lmp chan register recv failed");
         return err;
@@ -86,24 +88,30 @@ errval_t lmp_recv_handler(void *arg)
 
     switch (msg.words[0]) {
         case AOS_RPC_ID_INIT:
+            debug_printf("received AOS_RPC_ID_INIT\n");
+
             answer = marshal_init(cap_endpoint);
             break;
         case AOS_RPC_ID_UDP_BIND:
+            debug_printf("received AOS_RPC_ID_UDP_BIND\n");
+
             answer = marshal_udp_bind(cap_endpoint, &msg);
             break;
         case AOS_RPC_ID_UDP_FORWARD:
+            debug_printf("received AOS_RPC_ID_UDP_FORWARD\n");
+
             answer = marshal_udp_forward(cap_endpoint, &msg);
             break;
         default:
             debug_printf("RPC MSG Type %lu not supported!\n", msg.words[0]);
             return LIB_ERR_NOT_IMPLEMENTED;
     }
-    struct lmp_chan *ret_chan = answer->sender_lmp;
-    if (!ret_chan) {
+    if (answer == NULL || answer->sender_lmp == NULL) {
         return SYS_ERR_LMP_NO_TARGET;
     }
 
-    err = lmp_chan_register_send(ret_chan, get_default_waitset(),
+    network_rpc_send_retry_count = 0;
+    err = lmp_chan_register_send(answer->sender_lmp, get_default_waitset(),
                                  MKCLOSURE((void*) lmp_send_handler, (void *)answer));
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "usr/init/main.c recv_handler: lmp chan register send failed");
@@ -114,15 +122,26 @@ errval_t lmp_recv_handler(void *arg)
 
 struct client *whois(struct capref cap)
 {
+    // debug_printf("in whois\n");
     struct client *cur = client_list;
+    struct capability return_cap;
+
+    errval_t err = debug_cap_identify(cap, &return_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "usr/init/main.c whois: debug identify cap failed");
+        return NULL;
+    }
 
     while (cur != NULL) {
-        if (capcmp(cur->endpoint, cap)) {
+        //if (capcmp(cur->endpoint, cap)) {
+        if (return_cap.u.endpoint.listener == cur->end.listener
+            && return_cap.u.endpoint.epoffset == cur->end.epoffset) {
+            // debug_printf("whois: found\n");
             return cur;
         }
         cur = cur->next;
     }
-
+    // debug_printf("whois: null\n");
     return NULL;
 }
 
@@ -144,7 +163,11 @@ struct rpc_answer_t *marshal_init(struct capref cap_endpoint) {
     // receiving is always done by open-receiving)
     potential = (struct client*) malloc(sizeof(struct client));
 
-    potential->endpoint = cap_endpoint;
+    struct capability return_cap;
+    debug_cap_identify(cap_endpoint, &return_cap);
+
+    potential->end = return_cap.u.endpoint;
+    //potential->endpoint = cap_endpoint;
     potential->next = client_list;
     client_list = potential;
 
@@ -163,6 +186,7 @@ struct rpc_answer_t *marshal_init(struct capref cap_endpoint) {
 }
 
 struct rpc_answer_t *marshal_udp_bind(struct capref cap, struct lmp_recv_msg *msg) {
+    // debug_printf("In marshal_udp_bind\n");
     errval_t err;
     struct client *sender = whois(cap);
     if (sender == NULL) {
@@ -181,6 +205,7 @@ struct rpc_answer_t *marshal_udp_bind(struct capref cap, struct lmp_recv_msg *ms
         new_server->next = udp_server_list;
         udp_server_list = new_server;
         err = NET_ERR_OK;
+        debug_printf("A new UDP server is bound on port %u\n", port);
     } else {
         err = NET_ERR_PORT_ALREADY_TAKEN;
     }
@@ -189,7 +214,6 @@ struct rpc_answer_t *marshal_udp_bind(struct capref cap, struct lmp_recv_msg *ms
     struct rpc_answer_t *ans = malloc(sizeof(struct rpc_answer_t));
     ans->sender_lmp = &sender->rpc.lmp;
     ans->err = err;
-
     return ans;
 }
 
@@ -205,14 +229,17 @@ struct rpc_answer_t *marshal_udp_forward(struct capref cap, struct lmp_recv_msg 
 
 
 errval_t lmp_send_handler(void *arg) {
+    // debug_printf("in lmp_send_handler\n");
     struct rpc_answer_t *answer = (struct rpc_answer_t *)arg;
     struct lmp_chan* lmp = answer->sender_lmp;
-    errval_t err = lmp_chan_send1(lmp, LMP_FLAG_SYNC, NULL_CAP, (uintptr_t)(answer->err));
+    errval_t err = lmp_chan_send2(lmp, LMP_FLAG_SYNC, NULL_CAP, AOS_RPC_ID_ACK, (uintptr_t)(answer->err));
     if (err_is_ok(err)) {
+        // debug_printf("sent\n");
         return err;
     }
 
     if (network_rpc_send_retry_count++ < AOS_RPC_ATTEMPTS) {
+        // debug_printf("retrying %d\n", network_rpc_send_retry_count);
         err = lmp_chan_register_send(lmp, get_default_waitset(), MKCLOSURE((void *)lmp_send_handler, arg));
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "lmp_send_handler: lmp_chan_register_send failed\n");

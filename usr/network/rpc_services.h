@@ -18,6 +18,7 @@
 
 #define UDP_BUFFER_SIZE 1006
 
+extern struct aos_rpc *listen_rpc;
 
 /** RPC server of network manager
  *  Supports the following rpc message types:
@@ -27,7 +28,8 @@
  */
 struct client {
     // TODO: store the capref directly? (can avoid ugly comparison in whois())
-    struct capref endpoint;
+    // struct capref endpoint;
+    struct EndPoint end;
     struct aos_rpc rpc;
     struct client *next;
 };

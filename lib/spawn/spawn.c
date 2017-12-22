@@ -193,6 +193,17 @@ errval_t init_child_cspace(struct spawninfo* si) {
         return err;
     }
 
+    // setup kernel cap (for network process to call debug_cap_identify)
+    struct capref child_kernel = {
+            .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
+            .slot = TASKCN_SLOT_KERNELCAP
+    };
+    err = cap_copy(child_kernel, cap_kernel);
+    if (err_is_fail(err)) {
+        debug_printf("Error during copy of L1Cnode parent kernel cap to cap_kernel: %s", err_getstring(err));
+        return err;
+    }
+
     // setup irq
     struct capref child_irq = {
             .cnode = si->l2_cnodes[ROOTCN_SLOT_TASKCN],
