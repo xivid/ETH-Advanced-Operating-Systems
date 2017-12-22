@@ -63,6 +63,14 @@ static void print_handler(void *handler_arg)
     if (new_char == '\r') {
         new_char = '\n';
         transmit_max = next_index;
+    } else if (new_char == 127) {
+        if (insertion_index > current_read_index) {
+            int prev = (insertion_index - 1 + CHAR_BUFFER_LENGTH) % CHAR_BUFFER_LENGTH;
+            read_char_buffer[prev] = '\0';
+            const char* delete_back = "\b \b";
+            sys_print(delete_back, 3);
+        }
+        return;
     }
     read_char_buffer[insertion_index] = new_char;
     read_char_buffer[next_index] = '\0';
